@@ -12,10 +12,11 @@ import Drawer from './components/layout/Drawer';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ReportsPage from './pages/ReportsPage';
-import InventoryPage from './pages/InventoryPage';
-import MovementsPage from './pages/MovementsPage';
-import DefectsPage from './pages/DefectsPage';
-import StockPage from './pages/StockPage';
+import ProductsPage from './pages/ProductsPage'; 
+// import InventoryPage from './pages/InventoryPage';
+// import MovementsPage from './pages/MovementsPage';
+// import DefectsPage from './pages/DefectsPage';
+// import StockPage from './pages/StockPage';
 import StaffPage from './pages/StaffPage';
 import { UserRole } from './types';
 
@@ -62,13 +63,14 @@ function App() {
                           UserRole.ADMIN,
                           UserRole.SENIOR_SELLER,
                           UserRole.MENTOR,
-                          UserRole.SELLER
+                          UserRole.SELLER, 
+                          UserRole.ACCOUNTANT
                         ]}>
                           <ReportsPage />
                         </RoleBasedRoute>
                       } />
                       
-                      <Route path="/inventory" element={
+                      {/* <Route path="/inventory" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER,
                           UserRole.ADMIN,
@@ -77,9 +79,9 @@ function App() {
                         ]}>
                           <InventoryPage />
                         </RoleBasedRoute>
-                      } />
+                      } /> */}
                       
-                      <Route path="/movements" element={
+                      {/* <Route path="/movements" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER,
                           UserRole.ADMIN,
@@ -90,8 +92,8 @@ function App() {
                           <MovementsPage />
                         </RoleBasedRoute>
                       } />
-                      
-                      <Route path="/defects" element={
+                       */}
+                      {/* <Route path="/defects" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER,
                           UserRole.ADMIN,
@@ -102,8 +104,8 @@ function App() {
                           <DefectsPage />
                         </RoleBasedRoute>
                       } />
-                      
-                      <Route path="/stock" element={
+                       */}
+                      {/* <Route path="/stock" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER,
                           UserRole.ADMIN,
@@ -112,12 +114,18 @@ function App() {
                         ]}>
                           <StockPage />
                         </RoleBasedRoute>
-                      } />
+                      } /> */}
                       
                       <Route path="/staff" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER                        ]}>
                           <StaffPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/products" element={
+                        <RoleBasedRoute allowedRoles={[UserRole.OWNER]}>
+                          <ProductsPage />
                         </RoleBasedRoute>
                       } />
                       

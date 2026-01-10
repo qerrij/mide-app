@@ -38,6 +38,7 @@ const DashboardPage: React.FC = () => {
         UserRole.SENIOR_SELLER,
         UserRole.MENTOR,
         UserRole.SELLER,
+        UserRole.ACCOUNTANT
       ],
       description: 'Создание отчетов о продажах',
       color: '#674fb6',
@@ -100,6 +101,14 @@ const DashboardPage: React.FC = () => {
       description: 'Управление сотрудниками',
       color: '#6d3f57',
     },
+    {
+      title: 'Товары',
+      icon: <Inventory sx={{ fontSize: 40, color: '#1976d2' }} />,
+      path: '/products',
+      roles: [UserRole.OWNER],
+      description: 'Управление товарами и остатками',
+      color: '#1976d2',
+    }
   ];
 
   const getRoleName = (role: UserRole): string => {
@@ -109,6 +118,7 @@ const DashboardPage: React.FC = () => {
       [UserRole.SENIOR_SELLER]: 'Старший продавец',
       [UserRole.MENTOR]: 'Наставник',
       [UserRole.SELLER]: 'Продавец',
+      [UserRole.ACCOUNTANT]: 'Продавец',
     };
     return names[role];
   };

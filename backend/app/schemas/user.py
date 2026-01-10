@@ -11,6 +11,8 @@ class UserRole(str, enum.Enum):
     SENIOR_SELLER = "SENIOR_SELLER"
     MENTOR = "MENTOR"
     SELLER = "SELLER"
+    ACCOUNTANT = "ACCOUNTANT"
+
 
 
 class UserBase(BaseModel):
@@ -24,6 +26,7 @@ class UserBase(BaseModel):
     mentor_id: Optional[int] = None
     senior_seller_id: Optional[int] = None
     admin_clusters: Optional[List[int]] = None 
+    rate: Optional[float] = 0.0
 
 
 class UserCreate(UserBase):
@@ -49,6 +52,7 @@ class UserUpdate(BaseModel):
     senior_seller_id: Optional[int] = None
     admin_clusters: Optional[List[int]] = None
     is_active: Optional[bool] = None
+    rate: Optional[float] = None
 
 
 class UserResponse(UserBase):
@@ -97,6 +101,13 @@ class UserResponse(UserBase):
         return v
     
     model_config = ConfigDict(from_attributes=True)
+    @field_validator('cluster_id', 'group_id', 'mentor_id', 'senior_seller_id')
+    @classmethod
+    def validate_ids(cls, v):
+        """Преобразуем 0 в None, чтобы избежать ForeignKeyViolation"""
+        if v == 0:
+            return None
+        return v
 
 
 class Token(BaseModel):

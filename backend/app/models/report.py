@@ -47,6 +47,15 @@ class Report(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    accountant_amount = Column(Float, nullable=True)  # Сумма, указанная при отправке
+    accountant_reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Бухгалтер
+    accountant_status = Column(Enum(ReportStatus), nullable=True)  # Статус бухгалтера
+    accountant_comment = Column(Text, nullable=True)  # Комментарий бухгалтера
+    accountant_final_amount = Column(Float, nullable=True)  # Окончательная сумма бухгалтера
+    accountant_review_date = Column(DateTime, nullable=True)
+
+    accountant = relationship("User", foreign_keys=[accountant_reviewed_by])
     
     def __init__(self, **kwargs):
         if 'transfer_photos' not in kwargs:

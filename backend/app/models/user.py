@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, ForeignKey, Float
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
@@ -11,6 +11,7 @@ class UserRole(str, enum.Enum):
     SENIOR_SELLER = "SENIOR_SELLER"
     MENTOR = "MENTOR"
     SELLER = "SELLER"
+    ACCOUNTANT = "ACCOUNTANT"
 
 
 class User(Base):
@@ -23,6 +24,7 @@ class User(Base):
     telegram = Column(String, nullable=True)
     city = Column(String, nullable=True)
     role = Column(Enum(UserRole), nullable=False, default=UserRole.SELLER)
+    rate = Column(Float, nullable=True, default=0.0)
     
     # Связи с группами и кустами
     cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=True)
@@ -41,6 +43,7 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)
     
+    # Используем строки вместо импортов для избежания циклических зависимостей
     cluster = relationship(
         "Cluster", 
         foreign_keys=[cluster_id],
@@ -72,6 +75,13 @@ class User(Base):
         foreign_keys=[admin_id],
         remote_side=[id],
         backref="administered_users"
+    )
+
+    # Инвентарь пользователя
+    inventory = relationship(
+        "UserInventory",
+        back_populates="user",
+        cascade="all, delete-orphan"
     )
     
     def __repr__(self):

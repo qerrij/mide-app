@@ -33,6 +33,7 @@ class ReportProductResponse(BaseModel):
 class ReportBase(BaseModel):
     transfer_amount: float
     comment: Optional[str] = None
+    accountant_amount: float
 
 
 class ReportCreate(ReportBase):
@@ -57,8 +58,28 @@ class ReportResponse(ReportBase):
     products: List[ReportProductResponse]
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    accountant_amount: Optional[float] = None  # Сумма указанная пользователем
+    accountant_status: Optional[ReportStatus] = None
+    accountant_comment: Optional[str] = None
+    accountant_final_amount: Optional[float] = None
+    accountant_reviewed_by: Optional[int] = None
+    accountant_review_date: Optional[datetime] = None
+    accountant_name: Optional[str] = None  # Имя бухгалтера
     
     @field_validator('seller_name', mode='before')
+    @classmethod
+    def get_accountant_name(cls, v, info):
+        """Получаем имя бухгалтера из связанного объекта"""
+        if v is not None:
+            return v
+        
+        data = info.data
+        if 'accountant' in data and data['accountant']:
+            return data['accountant'].full_name
+        
+        return None
+    
+    @field_validator('accountant_name', mode='before')
     @classmethod
     def get_seller_name(cls, v, info):
         """Получаем имя продавца из связанного объекта"""

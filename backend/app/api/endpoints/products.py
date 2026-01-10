@@ -14,14 +14,14 @@ router = APIRouter(prefix="/products", tags=["products"])
 def get_products(
     skip: int = 0,
     limit: int = 100,
-    category: ProductCategory = None,
+    category_id: int = Query(None, description="ID категории для фильтрации"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """
     Получить список товаров с фильтрацией по категории
     """
-    products = crud_product.get_all(db, skip=skip, limit=limit, category=category)
+    products = crud_product.get_all(db, skip=skip, limit=limit, category_id=category_id)
     return products
 
 

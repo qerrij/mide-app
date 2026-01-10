@@ -3,6 +3,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.crud.inventory import crud_inventory
+from app.crud.company import crud_company
 from app.crud.report import crud_report
 from app.crud.product import crud_product
 from app.schemas.report import (
@@ -15,7 +17,7 @@ from app.schemas.report import (
 )
 from app.api.dependencies import get_current_user, require_roles
 from app.models.user import UserRole
-from app.models.report import ReportStatus as ReportStatusModel
+from app.models.report import Report, ReportStatus as ReportStatusModel
 from app.core.file_utils import save_uploaded_files, validate_files
 from datetime import datetime
 
@@ -98,6 +100,7 @@ def get_report(
 @router.post("/", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def create_report(
     products_data: str = Form(...),
+    accountant_amount: float = Form(...),  # Новая сумма
     comment: str = Form(None),
     photos: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
@@ -170,6 +173,10 @@ async def create_report(
         
         # Сохраняем фото
         photo_paths = save_uploaded_files(photos, temp_report_id)
+        try:
+            crud_inventory.reserve_products_for_report(db, current_user.id, products_json)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         
         # ВАЖНО: photo_paths - это уже список строк, например:
         # ['reports/c1f5ec2b/photo1.jpg', 'reports/c1f5ec2b/photo2.jpg']
@@ -178,6 +185,7 @@ async def create_report(
         report_in = ReportCreate(
             transfer_amount=total_amount,
             comment=comment,
+            accountant_amount=accountant_amount,  # Сохраняем сумму бухгалтера
             products=report_products
         )
                 
@@ -278,3 +286,181 @@ def get_seller_stats(
     Только для руководителей
     """
     return crud_report.get_stats(db, user_id=seller_id)
+
+
+# Добавить новые endpoint'ы для бухгалтера
+
+@router.get("/accountant/pending", response_model=List[ReportResponse])
+def get_pending_accountant_reports(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить отчеты, ожидающие проверки бухгалтером"""
+    if current_user.role != UserRole.ACCOUNTANT:
+        raise HTTPException(status_code=403, detail="Только для бухгалтера")
+    
+    reports = db.query(Report).filter(
+        Report.accountant_status == None,  # Еще не проверял бухгалтер
+        Report.status == ReportStatus.SUBMITTED  # Отчет отправлен
+    ).offset(skip).limit(limit).all()
+    
+    return reports
+
+@router.post("/{report_id}/accountant-review", response_model=ReportResponse)
+def accountant_review_report(
+    report_id: int,
+    action: str = Form(...),  # "approve" или "reject"
+    final_amount: Optional[float] = Form(None),
+    comment: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Проверка отчета бухгалтером"""
+    if current_user.role != UserRole.ACCOUNTANT:
+        raise HTTPException(status_code=403, detail="Только для бухгалтер")
+    
+    report = crud_report.get(db, report_id=report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    if action == "approve":
+        if not final_amount:
+            raise HTTPException(status_code=400, detail="Требуется указать окончательную сумму")
+        
+        report.accountant_status = ReportStatus.APPROVED
+        report.accountant_final_amount = final_amount
+        report.accountant_comment = comment
+        report.accountant_reviewed_by = current_user.id
+        report.accountant_review_date = datetime.now()
+        
+    elif action == "reject":
+        report.accountant_status = ReportStatus.REJECTED
+        report.accountant_comment = comment
+        report.accountant_reviewed_by = current_user.id
+        report.accountant_review_date = datetime.now()
+        
+        # Освобождаем зарезервированные товары
+        products_data = [
+            {
+                "product_id": rp.product_id,
+                "quantity": rp.quantity
+            }
+            for rp in report.products
+        ]
+        crud_inventory.release_reserved_products(db, report.seller_id, products_data)
+    
+    else:
+        raise HTTPException(status_code=400, detail="Неверное действие")
+    
+    db.commit()
+    db.refresh(report)
+    return report
+
+@router.post("/{report_id}/final-approval", response_model=ReportResponse)
+def final_approve_report(
+    report_id: int,
+    action: str = Form(...),  # "approve" или "reject"
+    comment: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Финальное утверждение отчета руководителем"""
+    report = crud_report.get(db, report_id=report_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    # Проверяем права доступа
+    has_access = False
+    if current_user.role == UserRole.OWNER:
+        has_access = True
+    elif current_user.role == UserRole.ADMIN:
+        # Проверяем, относится ли продавец к кустам админа
+        if current_user.admin_clusters and report.seller.cluster_id in current_user.admin_clusters:
+            has_access = True
+    elif current_user.role == UserRole.SENIOR_SELLER:
+        if report.seller.cluster_id == current_user.cluster_id:
+            has_access = True
+    elif current_user.role == UserRole.MENTOR:
+        if report.seller.mentor_id == current_user.id:
+            has_access = True
+    
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    if action == "approve":
+        if report.accountant_status != ReportStatus.APPROVED:
+            raise HTTPException(status_code=400, detail="Отчет должен быть сначала утвержден бухгалтером")
+        
+        if not report.accountant_final_amount:
+            raise HTTPException(status_code=400, detail="Бухгалтер должен указать окончательную сумму")
+        
+        report.status = ReportStatus.APPROVED
+        report.reviewed_by = current_user.id
+        report.review_date = datetime.now()
+        report.comment = comment
+        
+        # Списываем товары окончательно
+        products_data = [
+            {
+                "product_id": rp.product_id,
+                "quantity": rp.quantity
+            }
+            for rp in report.products
+        ]
+        crud_inventory.finalize_report_products(db, report.seller_id, products_data)
+        
+        # Добавляем деньги в общий банк
+        description = f"Отчет #{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
+        crud_company.add_income(
+            db,
+            amount=report.accountant_final_amount,
+            description=description,
+            reference_id=report_id,
+            reference_type="REPORT",
+            created_by=current_user.id
+        )
+        
+        # # Рассчитываем и выплачиваем ставку продавцу
+        # seller_rate = report.seller.rate or 0
+        # if seller_rate > 0:
+        #     # Рассчитываем общую сумму ставки
+        #     total_rate_amount = sum(
+        #         rp.quantity * seller_rate for rp in report.products
+        #     )
+            
+        #     if total_rate_amount > 0:
+        #         # Списание суммы ставки как расход компании
+        #         rate_description = f"Выплата ставки продавцу {report.seller.full_name} за отчет #{report_id}"
+        #         crud_company.add_expense(
+        #             db,
+        #             amount=total_rate_amount,
+        #             description=rate_description,
+        #             reference_id=report_id,
+        #             reference_type="SELLER_RATE",
+        #             created_by=current_user.id
+        #         )
+        
+    elif action == "reject":
+        report.status = ReportStatus.REJECTED
+        report.reviewed_by = current_user.id
+        report.review_date = datetime.now()
+        report.comment = comment
+        
+        # Освобождаем зарезервированные товары
+        products_data = [
+            {
+                "product_id": rp.product_id,
+                "quantity": rp.quantity
+            }
+            for rp in report.products
+        ]
+        crud_inventory.release_reserved_products(db, report.seller_id, products_data)
+    
+    else:
+        raise HTTPException(status_code=400, detail="Неверное действие")
+    
+    db.commit()
+    db.refresh(report)
+    return report

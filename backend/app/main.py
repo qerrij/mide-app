@@ -2,20 +2,28 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
-from app.api.endpoints import auth, users, products, reports, groups, clusters, assignments
+from app.api.endpoints import auth, users, products, reports, groups, clusters, assignments, categories
 from app.database import engine
-from app.models import user, product, report, report_product, group, cluster
+# from app.models import user, product, report, group, cluster, inventory, company, category
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
-
 import os
+
+# Создаем директории для загрузки файлов
 os.makedirs("uploads/reports", exist_ok=True)
-user.Base.metadata.create_all(bind=engine)
-product.Base.metadata.create_all(bind=engine)
-report.Base.metadata.create_all(bind=engine)
-group.Base.metadata.create_all(bind=engine)
-cluster.Base.metadata.create_all(bind=engine)
-# report_product.Base.metadata.create_all(bind=engine)
+
+# Создаем все таблицы в базе данных
+# Важно: создавать в правильном порядке чтобы избежать проблем с внешними ключами
+# user.Base.metadata.create_all(bind=engine)
+# category.Base.metadata.create_all(bind=engine)
+# product.Base.metadata.create_all(bind=engine)
+# group.Base.metadata.create_all(bind=engine)
+# cluster.Base.metadata.create_all(bind=engine)
+# inventory.Base.metadata.create_all(bind=engine)
+# report.Base.metadata.create_all(bind=engine)
+# company.Base.metadata.create_all(bind=engine)
+
+# Создаем FastAPI приложение
 app = FastAPI(
     title=settings.APP_NAME,
     debug=settings.DEBUG,
@@ -25,9 +33,11 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
+# Создаем директорию для загрузок
 uploads_dir = Path("uploads")
 uploads_dir.mkdir(exist_ok=True)
-# CORS
+
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,9 +47,10 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+# Монтируем статические файлы
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
-# Включаем роутеры
+# Подключаем роутеры
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(users.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
@@ -48,6 +59,11 @@ app.include_router(groups.router, prefix="/api")
 app.include_router(clusters.router, prefix="/api")
 app.include_router(assignments.router, prefix="/api")
 
+# Добавьте эти новые роутеры когда создадите их:
+from app.api.endpoints import inventory, company
+app.include_router(inventory.router, prefix="/api")
+app.include_router(company.router, prefix="/api")
+app.include_router(categories.router, prefix="/api")
 
 
 def custom_openapi():
@@ -80,9 +96,7 @@ def custom_openapi():
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
-
 app.openapi = custom_openapi
-
 
 @app.get("/")
 def read_root():
@@ -92,7 +106,6 @@ def read_root():
         "docs": "/docs",
         "redoc": "/redoc"
     }
-
 
 @app.get("/health")
 def health_check():

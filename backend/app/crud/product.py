@@ -6,22 +6,28 @@ from app.schemas.product import ProductCreate, ProductUpdate
 
 class CRUDProduct:
     def get(self, db: Session, product_id: int) -> Optional[Product]:
-        return db.query(Product).filter(Product.id == product_id).first()
+        return db.query(Product).filter(
+            Product.id == product_id,
+            Product.is_active == True
+        ).first()
     
     def get_by_sku(self, db: Session, sku: str) -> Optional[Product]:
-        return db.query(Product).filter(Product.sku == sku).first()
+        return db.query(Product).filter(
+            Product.sku == sku,
+            Product.is_active == True
+        ).first()
     
     def get_all(
         self, 
         db: Session, 
         skip: int = 0, 
         limit: int = 100,
-        category: Optional[str] = None
+        category_id: Optional[int] = None
     ) -> List[Product]:
-        query = db.query(Product)
+        query = db.query(Product).filter(Product.is_active == True)
         
-        if category:
-            query = query.filter(Product.category == category)
+        if category_id:
+            query = query.filter(Product.category_id == category_id)
         
         return query.offset(skip).limit(limit).all()
     
@@ -31,7 +37,16 @@ class CRUDProduct:
         if existing:
             raise ValueError(f"Product with SKU {product_in.sku} already exists")
         
-        db_product = Product(**product_in.dict())
+        # НЕ нужно преобразовывать category в category_id, потому что в ProductCreate уже есть category_id
+        db_product = Product(
+            name=product_in.name,
+            category_id=product_in.category_id,  # Используем напрямую
+            price=product_in.price,
+            sku=product_in.sku,
+            description=product_in.description,
+            is_active=True
+        )
+        
         db.add(db_product)
         db.commit()
         db.refresh(db_product)
@@ -62,7 +77,7 @@ class CRUDProduct:
         if not db_product:
             return False
         
-        db.delete(db_product)
+        db_product.is_active = False
         db.commit()
         return True
 

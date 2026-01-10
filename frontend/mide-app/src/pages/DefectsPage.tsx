@@ -43,7 +43,7 @@ import {
   Person,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import { UserRole, ProductCategory, DefectStatus } from '../types';
+import { UserRole, DefectStatus } from '../types';
 
 interface Defect {
   id: number;
@@ -60,6 +60,14 @@ interface Defect {
   reviewedBy?: string;
   reviewDate?: string;
   expanded?: boolean;
+}
+
+export enum ProductCategory {
+  DISPOSABLES = 'DISPOSABLES',
+  LIQUIDS = 'LIQUIDS',
+  CONSUMABLES = 'CONSUMABLES',
+  PODS = 'PODS',
+  ENERGY_DRINKS = 'ENERGY_DRINKS'
 }
 
 const DefectsPage: React.FC = () => {

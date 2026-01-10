@@ -102,4 +102,6 @@ export const groupService = {
   removeSellerFromGroup: async (groupId: number, sellerId: number): Promise<void> => {
     await axiosInstance.delete(`/api/groups/${groupId}/sellers/${sellerId}`);
   },
+  
 };
+
