@@ -155,3 +155,4 @@ def remove_group_from_cluster(
         return {"message": "Group removed from cluster successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    

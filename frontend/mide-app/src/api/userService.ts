@@ -2,39 +2,32 @@ import axiosInstance from './axios';
 import { User, CreateUserDto, UpdateUserDto, UserRole, Group, Cluster } from '../types';
 
 // Функция для трансформации snake_case в camelCase
+// userService.ts - исправленная функция transformUserFromApi
 const transformUserFromApi = (user: any): User => {
-  // Безопасный парсинг admin_clusters
+  // Исправленный парсинг admin_clusters
   let adminClusterIds: number[] = [];
+  
   try {
     if (user.admin_clusters) {
-      // Проверяем тип
       if (typeof user.admin_clusters === 'string') {
-        const trimmed = user.admin_clusters.trim();
-        if (trimmed !== '' && trimmed !== '[]') {
-          const parsed = JSON.parse(trimmed);
+        if (user.admin_clusters.trim() !== '' && user.admin_clusters.trim() !== '[]') {
+          const parsed = JSON.parse(user.admin_clusters);
           if (Array.isArray(parsed)) {
-            adminClusterIds = parsed.filter((id: any) => id !== null && id !== 0 && !isNaN(Number(id)));
+            adminClusterIds = parsed.filter((id: any) => 
+              id !== null && id !== undefined && id !== 0 && !isNaN(Number(id))
+            ).map((id: any) => Number(id));
           }
         }
       } else if (Array.isArray(user.admin_clusters)) {
-        adminClusterIds = user.admin_clusters.filter((id: any) => id !== null && id !== 0 && !isNaN(Number(id)));
-      } else if (typeof user.admin_clusters === 'object' && user.admin_clusters !== null) {
-        // Если это объект, пытаемся преобразовать в массив
-        const values = Object.values(user.admin_clusters);
-        adminClusterIds = values
-          .filter((id: any) => id !== null && id !== 0 && !isNaN(Number(id)))
-          .map((id: any) => Number(id));
+        adminClusterIds = user.admin_clusters.filter((id: any) => 
+          id !== null && id !== undefined && id !== 0 && !isNaN(Number(id))
+        ).map((id: any) => Number(id));
       }
     }
   } catch (error) {
     console.warn('Error parsing admin_clusters:', error, user.admin_clusters);
-    // Оставляем пустой массив в случае ошибки
     adminClusterIds = [];
   }
-
-  // Преобразуем все ID в числа
-  adminClusterIds = adminClusterIds.map(id => Number(id));
-
 
   return {
     id: user.id,
@@ -152,7 +145,10 @@ export const userService = {
     const users = response.data.map(transformUserFromApi);
     return users.filter(user => !user.groupId);
   },
+  
 };
+
+
 
 
 // В конец файла userService.ts добавьте:

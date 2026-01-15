@@ -46,7 +46,7 @@ const DashboardPage: React.FC = () => {
     {
       title: 'Ревизии',
       icon: <Inventory sx={{ fontSize: 40, color: '#56b8d1' }} />,
-      path: '/inventory',
+      path: '/revisions',
       roles: [
         UserRole.OWNER,
         UserRole.ADMIN,

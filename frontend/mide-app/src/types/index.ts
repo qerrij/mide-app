@@ -247,29 +247,333 @@ export interface UpdateClusterDto {
   isActive?: boolean;
 }
 
-//==== ЭТО ПОКА ЧТО НЕ НУЖНО ====//
+export enum RevisionStatus {
+  REQUESTED = 'REQUESTED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  VERIFIED = 'VERIFIED',
+  REJECTED = 'REJECTED'
+}
 
+export enum RevisionType {
+  USER = 'USER',
+  GROUP = 'GROUP',
+  CLUSTER = 'CLUSTER',
+  CITY = 'CITY',
+  GENERAL = 'GENERAL'
+}
+
+// Элементы заполнения ревизии (новая система)
+export interface RevisionFillingItem {
+  productId: number;
+  categoryId: number;
+  quantity: number;
+}
+
+export interface RevisionFillingItemResponse extends RevisionFillingItem {
+  id: number;
+  productName?: string;
+  productSku?: string;
+  categoryName?: string;
+}
+
+// Заполнение ревизии пользователем
+export interface RevisionFilling {
+  id: number;
+  revisionId: number;
+  userId: number;
+  userName?: string;
+  status: RevisionStatus;
+  photos: string[];
+  filledAt?: Date;
+  isCompleted: boolean;
+  items: RevisionFillingItemResponse[];
+}
+
+export interface RevisionFillingCreateDto {
+  userId: number;
+  items: RevisionFillingItem[];
+  photos: string[];
+}
+
+// Старые интерфейсы для обратной совместимости
+export interface RevisionItem {
+  productId: number;
+  categoryId: number;
+  quantity: number;
+}
+
+export interface RevisionItemResponse extends RevisionItem {
+  id: number;
+  productName?: string;
+  productSku?: string;
+  categoryName?: string;
+  actualQuantity?: number;
+}
+
+// Расхождения
+export interface RevisionDiscrepancy {
+  id: number;
+  productId: number;
+  userId: number;
+  expectedQuantity: number;
+  actualQuantity: number;
+  discrepancy: number;
+  isPositive: boolean;
+  productName?: string;
+  productSku?: string;
+  userName?: string;
+  categoryName?: string;
+}
+
+// Основная модель ревизии (обновленная)
+export interface Revision {
+  id: number;
+  requestedById: number;
+  requestedByName?: string;
+  type: RevisionType;
+  status: RevisionStatus;
+  targetUserId?: number;
+  targetGroupId?: number;
+  targetClusterId?: number;
+  targetCity?: string;
+  targetUserName?: string;
+  targetGroupName?: string;
+  targetClusterName?: string;
+  comment?: string;
+  verificationComment?: string;
+  verifiedById?: number;
+  verifiedByName?: string;
+  requestedAt: Date;
+  completedAt?: Date;
+  verifiedAt?: Date;
+  
+  // Для групповых ревизий - заполнения пользователей
+  fillings: RevisionFilling[];
+  
+  // Для обратной совместимости
+  items: RevisionItemResponse[];
+  discrepancies: RevisionDiscrepancy[];
+  photos: string[];  // Теперь фото хранятся в заполнениях
+  
+  // Статистика по заполнениям (только для групповых ревизий)
+  totalFilled?: number;
+  totalUsers?: number;
+  isGroupRevision?: boolean;
+}
+
+export interface RevisionRequestDto {
+  type: RevisionType;
+  targetUserId?: number;
+  targetGroupId?: number;
+  targetClusterId?: number;
+  targetCity?: string;
+  comment?: string;
+}
+
+// Старое заполнение (для обратной совместимости)
+export interface RevisionFillDto {
+  items: RevisionItem[];
+  photos: string[];
+}
+
+export interface RevisionVerifyDto {
+  verificationComment?: string;
+}
+
+// Сводная информация по ревизии
+export interface ProductSummary {
+  productId: number;
+  productName?: string;
+  productSku?: string;
+  categoryName?: string;
+  totalQuantity: number;
+  userQuantities: Array<{
+    userId: number;
+    userName?: string;
+    quantity: number;
+  }>;
+}
+
+export interface UserDiscrepancyDetail {
+  productId: number;
+  productName?: string;
+  expected: number;
+  actual: number;
+  discrepancy: number;
+  isPositive: boolean;
+}
+
+export interface UserDiscrepancySummary {
+  userId: number;
+  userName?: string;
+  totalDiscrepancy: number;
+  positiveTotal: number;
+  negativeTotal: number;
+  discrepancies: UserDiscrepancyDetail[];
+}
+
+export interface ProductDiscrepancyDetail {
+  userId: number;
+  userName?: string;
+  expected: number;
+  actual: number;
+  discrepancy: number;
+  isPositive: boolean;
+}
+
+export interface ProductDiscrepancySummary {
+  productId: number;
+  productName?: string;
+  totalDiscrepancy: number;
+  positiveTotal: number;
+  negativeTotal: number;
+  userDiscrepancies: ProductDiscrepancyDetail[];
+}
+
+export interface RevisionSummaryResponse {
+  revision: Revision;
+  productSummary: ProductSummary[];
+  userDiscrepancies: UserDiscrepancySummary[];
+  productDiscrepancies: ProductDiscrepancySummary[];
+  totalFilled: number;
+  totalUsers: number;
+}
+
+// ================ УВЕДОМЛЕНИЯ ================
 export enum NotificationType {
-  INVENTORY_REVIEW = 'INVENTORY_REVIEW',
-  MOVEMENT_REQUEST = 'MOVEMENT_REQUEST',
-  MOVEMENT_CONFIRMED = 'MOVEMENT_CONFIRMED',
-  MOVEMENT_REJECTED = 'MOVEMENT_REJECTED',
-  DEFECT_REPORTED = 'DEFECT_REPORTED',
+  REVISION_REQUEST = 'REVISION_REQUEST',
+  REVISION_COMPLETED = 'REVISION_COMPLETED',
+  REVISION_VERIFIED = 'REVISION_VERIFIED',
   REPORT_SUBMITTED = 'REPORT_SUBMITTED',
-  SYSTEM = 'SYSTEM'
+  REPORT_APPROVED = 'REPORT_APPROVED',
+  REPORT_REJECTED = 'REPORT_REJECTED',
+  REPORT_ACCOUNTANT = 'REPORT_ACCOUNTANT',
+  INVENTORY_LOW = 'INVENTORY_LOW',
+  SYSTEM_MESSAGE = 'SYSTEM_MESSAGE',
+  OTHER = 'OTHER'
+}
+
+export enum NotificationStatus {
+  UNREAD = 'UNREAD',
+  READ = 'READ',
+  ARCHIVED = 'ARCHIVED'
 }
 
 export interface Notification {
   id: number;
   userId: number;
+  type: NotificationType;
   title: string;
   message: string;
-  type: NotificationType;
-  read: boolean;
+  data?: Record<string, any>;
+  entityType?: string;
+  entityId?: number;
+  status: NotificationStatus;
+  senderId?: number;
+  senderName?: string;
+  priority: number;
   createdAt: Date;
-  data?: any;
-  relatedId?: number;
+  readAt?: Date;
 }
+
+export interface NotificationSummary {
+  unreadCount: number;
+  lastNotificationAt?: Date;
+  notifications: Notification[];
+}
+
+export const getRevisionStatusText = (status: RevisionStatus): string => {
+  const texts = {
+    [RevisionStatus.REQUESTED]: 'Запрошена',
+    [RevisionStatus.IN_PROGRESS]: 'В процессе',
+    [RevisionStatus.COMPLETED]: 'Заполнена',
+    [RevisionStatus.VERIFIED]: 'Проверена',
+    [RevisionStatus.REJECTED]: 'Отклонена',
+  };
+  return texts[status];
+};
+
+export const getRevisionTypeText = (type: RevisionType): string => {
+  const texts = {
+    [RevisionType.USER]: 'Пользователь',
+    [RevisionType.GROUP]: 'Группа',
+    [RevisionType.CLUSTER]: 'Куст',
+    [RevisionType.CITY]: 'Город',
+    [RevisionType.GENERAL]: 'Общая',
+  };
+  return texts[type];
+};
+
+export const getRevisionStatusColor = (status: RevisionStatus): string => {
+  const colors = {
+    [RevisionStatus.REQUESTED]: '#ff9800',
+    [RevisionStatus.IN_PROGRESS]: '#2196f3',
+    [RevisionStatus.COMPLETED]: '#9c27b0',
+    [RevisionStatus.VERIFIED]: '#4caf50',
+    [RevisionStatus.REJECTED]: '#f44336',
+  };
+  return colors[status];
+};
+
+export const getNotificationTypeText = (type: NotificationType): string => {
+  const texts = {
+    [NotificationType.REVISION_REQUEST]: 'Запрос на ревизию',
+    [NotificationType.REVISION_COMPLETED]: 'Ревизия заполнена',
+    [NotificationType.REVISION_VERIFIED]: 'Ревизия проверена',
+    [NotificationType.REPORT_SUBMITTED]: 'Отчет отправлен',
+    [NotificationType.REPORT_APPROVED]: 'Отчет утвержден',
+    [NotificationType.REPORT_REJECTED]: 'Отчет отклонен',
+    [NotificationType.REPORT_ACCOUNTANT]: 'Проверка бухгалтера',
+    [NotificationType.INVENTORY_LOW]: 'Низкий остаток',
+    [NotificationType.SYSTEM_MESSAGE]: 'Системное сообщение',
+    [NotificationType.OTHER]: 'Другое',
+  };
+  return texts[type];
+};
+
+export const getNotificationPriorityColor = (priority: number): string => {
+  if (priority >= 5) return '#f44336';
+  if (priority >= 4) return '#ff9800';
+  if (priority >= 3) return '#2196f3';
+  return '#4caf50';
+};
+
+// Дополнительные хелперы для работы с ревизиями
+export const isGroupRevision = (type: RevisionType): boolean => {
+  return type !== RevisionType.USER;
+};
+
+export const getTargetName = (revision: Revision): string => {
+  if (revision.targetUserName) return revision.targetUserName;
+  if (revision.targetGroupName) return revision.targetGroupName;
+  if (revision.targetClusterName) return revision.targetClusterName;
+  if (revision.targetCity) return `Город: ${revision.targetCity}`;
+  if (revision.type === RevisionType.GENERAL) return 'Все пользователи';
+  return 'Не указано';
+};
+
+export const canFillRevision = (revision: Revision, currentUserId: number): boolean => {
+  // Ревизия должна быть запрошена
+  if (revision.status !== RevisionStatus.REQUESTED && revision.status !== RevisionStatus.IN_PROGRESS) {
+    return false;
+  }
+  
+  // Для индивидуальной ревизии проверяем целевого пользователя
+  if (revision.type === RevisionType.USER) {
+    return revision.targetUserId === currentUserId;
+  }
+  
+  // Для групповых ревизий - все участники могут заполнять
+  return true;
+};
+
+export const canVerifyRevision = (revision: Revision, currentUserId: number): boolean => {
+  // Проверять может только тот, кто запросил ревизию
+  return revision.requestedById === currentUserId && 
+         revision.status === RevisionStatus.COMPLETED;
+};
+
 
 export enum DefectStatus {
   PENDING = 'PENDING',

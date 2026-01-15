@@ -13,7 +13,13 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import ReportsPage from './pages/ReportsPage';
 import ProductsPage from './pages/ProductsPage'; 
-// import InventoryPage from './pages/InventoryPage';
+import RevisionsPage from './pages/RevisionPage';
+import RequestRevisionPage from './pages/RequestRevisionPage';
+import FillRevisionPage from './pages/FillRevisionPage';
+
+import VerifyRevisionPage from './pages/VerifyRevisionPage';
+import ViewRevisionPage from './pages/ViewRevisionPage';
+
 // import MovementsPage from './pages/MovementsPage';
 // import DefectsPage from './pages/DefectsPage';
 // import StockPage from './pages/StockPage';
@@ -70,16 +76,63 @@ function App() {
                         </RoleBasedRoute>
                       } />
                       
-                      {/* <Route path="/inventory" element={
+                      <Route path="/revisions" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER,
                           UserRole.ADMIN,
                           UserRole.SENIOR_SELLER,
-                          UserRole.MENTOR
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                          UserRole.ACCOUNTANT
                         ]}>
-                          <InventoryPage />
+                          <RevisionsPage />
                         </RoleBasedRoute>
-                      } /> */}
+                      } />
+
+                      <Route path="/revisions/request" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                        ]}>
+                          <RequestRevisionPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/revisions/:id" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                          UserRole.ACCOUNTANT
+                        ]}>
+                          <ViewRevisionPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/revisions/:id/fill" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                          UserRole.ACCOUNTANT
+                        ]}>
+                          <FillRevisionPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/revisions/:id/verify" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                        ]}>
+                          <VerifyRevisionPage />
+                        </RoleBasedRoute>
+                      } />
                       
                       {/* <Route path="/movements" element={
                         <RoleBasedRoute allowedRoles={[

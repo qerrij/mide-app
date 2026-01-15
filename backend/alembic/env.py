@@ -15,7 +15,6 @@ from app.database import Base
 from app.models.product import Product
 from app.models.user import User
 from app.models.report import Report
-from app.models.report_product import ReportProduct
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -30,7 +30,6 @@ def upgrade() -> None:
                existing_type=sa.VARCHAR(),
                type_=sa.DateTime(timezone=True),
                existing_nullable=True)
-    op.add_column('reports', sa.Column('transfer_photos', sa.JSON(), nullable=False))
     op.alter_column('reports', 'date',
                existing_type=postgresql.TIMESTAMP(timezone=True),
                type_=sa.DateTime(),

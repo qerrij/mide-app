@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, ForeignKey, Float, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
@@ -36,7 +36,7 @@ class User(Base):
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     # Для администраторов - список кустов 
-    admin_clusters = Column(String, nullable=True)
+    admin_clusters = Column(Text, nullable=True)
     
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

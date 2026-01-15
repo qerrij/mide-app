@@ -36,20 +36,40 @@ class CRUDUser:
     
     def _enrich_user_data(self, db: Session, user: User):
         """Добавляем дополнительную информацию к пользователю"""
+        # Обрабатываем admin_clusters - преобразуем JSON строку в список
         if user.admin_clusters:
             if isinstance(user.admin_clusters, str):
                 try:
                     parsed = json.loads(user.admin_clusters)
-                    if isinstance(parsed, dict):
-                        user.admin_clusters = []
-                    else:
+                    if isinstance(parsed, list):
                         user.admin_clusters = parsed
+                    else:
+                        user.admin_clusters = []
                 except json.JSONDecodeError:
-                    user.admin_clusters = []
-            elif isinstance(user.admin_clusters, dict):
+                    # Если некорректный JSON, проверяем частные случаи
+                    v_str = user.admin_clusters.strip()
+                    if v_str == "{}":
+                        user.admin_clusters = []
+                    elif v_str.startswith('{') and v_str.endswith('}'):
+                        try:
+                            inner = v_str[1:-1].strip()
+                            if inner.isdigit():
+                                user.admin_clusters = [int(inner)]
+                            else:
+                                user.admin_clusters = []
+                        except:
+                            user.admin_clusters = []
+                    else:
+                        user.admin_clusters = []
+            elif not isinstance(user.admin_clusters, list):
+                # Если это не строка и не список - делаем пустым списком
                 user.admin_clusters = []
         else:
             user.admin_clusters = []
+        
+        # Фильтруем нулевые значения
+        if isinstance(user.admin_clusters, list):
+            user.admin_clusters = [c for c in user.admin_clusters if c not in (0, None, "0")]
         
         if user.group_id:
             group = db.query(Group).filter(Group.id == user.group_id).first()
@@ -111,15 +131,13 @@ class CRUDUser:
             if field in user_data and user_data[field] == 0:
                 user_data[field] = None
         
-        # Также проверяем admin_clusters
+        # Обрабатываем admin_clusters
         admin_clusters = user_data.get('admin_clusters')
-        if admin_clusters == [0]:
-            admin_clusters = []
-        
         admin_clusters_str = None
-        if admin_clusters and isinstance(admin_clusters, list) and len(admin_clusters) > 0:
+        
+        if admin_clusters and isinstance(admin_clusters, list):
             # Фильтруем нули
-            admin_clusters = [c for c in admin_clusters if c != 0]
+            admin_clusters = [c for c in admin_clusters if c not in (0, None, "0")]
             if admin_clusters:
                 admin_clusters_str = json.dumps(admin_clusters)
         
@@ -197,18 +215,20 @@ class CRUDUser:
             if admin_clusters is not None:
                 # Фильтруем нули из admin_clusters
                 if isinstance(admin_clusters, list):
-                    admin_clusters = [c for c in admin_clusters if c != 0 and c is not None]
+                    admin_clusters = [c for c in admin_clusters if c not in (0, None, "0")]
                     if admin_clusters:
                         update_data["admin_clusters"] = json.dumps(admin_clusters)
                     else:
                         update_data["admin_clusters"] = None
                 elif isinstance(admin_clusters, str):
-                    # Если это строка, пробуем распарсить JSON
+                    # Если это строка, проверяем валидный JSON
                     try:
                         parsed = json.loads(admin_clusters)
                         if isinstance(parsed, list):
-                            parsed = [c for c in parsed if c != 0 and c is not None]
+                            parsed = [c for c in parsed if c not in (0, None, "0")]
                             update_data["admin_clusters"] = json.dumps(parsed) if parsed else None
+                        else:
+                            update_data["admin_clusters"] = None
                     except:
                         update_data["admin_clusters"] = None
                 else:
@@ -293,22 +313,33 @@ class CRUDUser:
         return True
     
     def authenticate(self, db: Session, username: str, password: str) -> Optional[User]:
-        user = self.get_by_username(db, username)
+        user = db.query(User).filter(User.username == username, User.is_active == True).first()
         if not user:
             return None
         if not verify_password(password, user.password_hash):
             return None
+        
+        # Обогащаем данные пользователя
+        self._enrich_user_data(db, user)
         return user
     
     def update_last_login(self, db: Session, user_id: int) -> Optional[User]:
         from datetime import datetime
-        db_user = self.get(db, user_id)
+        # Получаем пользователя БЕЗ вызова _enrich_user_data сначала
+        db_user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
         if not db_user:
             return None
+        
+        print(f"DEBUG update_last_login: Before update - admin_clusters: {db_user.admin_clusters}, type: {type(db_user.admin_clusters)}")
         
         db_user.last_login = datetime.utcnow()
         db.commit()
         db.refresh(db_user)
+        
+        print(f"DEBUG update_last_login: After update - admin_clusters: {db_user.admin_clusters}, type: {type(db_user.admin_clusters)}")
+        
+        # Только теперь обогащаем данные
+        self._enrich_user_data(db, db_user)
         return db_user
 
 

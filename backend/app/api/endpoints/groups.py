@@ -160,3 +160,5 @@ def remove_seller_from_group(
         return {"message": "Seller removed from group successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+
