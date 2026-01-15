@@ -62,15 +62,19 @@ class CRUDGroup:
                 raise ValueError(f"Senior seller with ID {group_in.senior_seller_id} not found or not a SENIOR_SELLER")
         
         db_group = Group(**group_in.dict())
+        db_group.seller_count = 0
         
         try:
             db.add(db_group)
             db.commit()
             db.refresh(db_group)
             
-            # ВАЖНО: Не обновляем group_id у наставника
-            # Наставник руководит группой, но не является ее членом
-            # Только обновляем cluster_id если указан
+            # ВАЖНО: Обновляем group_id у наставника
+            mentor.group_id = db_group.id
+            db.commit()
+            db.refresh(mentor)
+            
+            # Обновляем cluster_id если указан
             if db_group.cluster_id:
                 mentor.cluster_id = db_group.cluster_id
                 db.commit()
@@ -79,7 +83,7 @@ class CRUDGroup:
         except Exception as e:
             db.rollback()
             raise ValueError(f"Failed to create group: {str(e)}")
-    
+        
     def update(self, db: Session, group_id: int, group_in: GroupUpdate) -> Optional[Group]:
         db_group = self.get(db, group_id)
         if not db_group:

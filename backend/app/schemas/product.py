@@ -14,7 +14,7 @@ class ProductCategory(str, enum.Enum):
 
 class ProductBase(BaseModel):
     name: str
-    category: ProductCategory
+    category_id: int  # Меняем с ProductCategory на int (ID категории)
     price: float
     sku: str
     description: Optional[str] = None
@@ -26,7 +26,7 @@ class ProductCreate(ProductBase):
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
-    category: Optional[ProductCategory] = None
+    category_id: Optional[int] = None  # Меняем на category_id
     price: Optional[float] = None
     sku: Optional[str] = None
     description: Optional[str] = None
@@ -34,6 +34,8 @@ class ProductUpdate(BaseModel):
 
 class ProductResponse(ProductBase):
     id: int
+    is_active: bool
+    category_name: Optional[str] = None  # Добавляем имя категории для отображения
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
@@ -48,7 +50,34 @@ class ProductResponse(ProductBase):
                     return datetime.strptime(v, '%Y-%m-%d %H:%M:%S.%f%z')
                 except:
                     pass
-        return v
+        return v    
+    
+    class Config:
+        from_attributes = True
+
+
+# Схема для категорий
+class ProductCategoryBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class ProductCategoryCreate(ProductCategoryBase):
+    pass
+
+
+class ProductCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class ProductCategoryResponse(ProductCategoryBase):
+    id: int
+    is_active: bool
+    products_count: Optional[int] = 0  # Количество товаров в категории
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

@@ -15,7 +15,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Chip,
   IconButton,
   Avatar,
   InputAdornment,
@@ -27,8 +26,7 @@ import {
   Card,
   CardContent,
   Checkbox,
-  ListItemText,
-  OutlinedInput,
+  Chip,
 } from '@mui/material';
 import {
   Add,
@@ -48,6 +46,8 @@ import {
   SupervisorAccount,
   AdminPanelSettings,
   BusinessCenter,
+  AttachMoney,
+  Close,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { 
@@ -59,12 +59,14 @@ import {
   Group, 
   Cluster, 
   CreateGroupDto, 
-  CreateClusterDto 
+  CreateClusterDto,
+  UpdateGroupDto,
+  UpdateClusterDto
 } from '../types';
+import { assignmentsService } from '../api/assignmentsService';
 import { userService } from '../api/userService';
 import { groupService } from '../api/groupService';
 import { clusterService } from '../api/clusterService';
-import { assignmentsService } from '../api/assignmentsService';
 
 interface SnackbarState {
   open: boolean;
@@ -107,7 +109,9 @@ const StaffPage: React.FC = () => {
   const [openEditDialog, setOpenEditDialog] = useState<User | null>(null);
   const [openDeleteDialog, setOpenDeleteDialog] = useState<User | null>(null);
   const [openCreateGroupDialog, setOpenCreateGroupDialog] = useState(false);
+  const [openEditGroupDialog, setOpenEditGroupDialog] = useState<Group | null>(null);
   const [openCreateClusterDialog, setOpenCreateClusterDialog] = useState(false);
+  const [openEditClusterDialog, setOpenEditClusterDialog] = useState<Cluster | null>(null);
   const [openAssignDialog, setOpenAssignDialog] = useState<{
     open: boolean;
     user: User | null;
@@ -122,6 +126,7 @@ const StaffPage: React.FC = () => {
     role: UserRole.SELLER,
     telegram: '',
     city: '',
+    rate: 0,
   });
 
   const [editUser, setEditUser] = useState<UpdateUserDto>({});
@@ -133,16 +138,21 @@ const StaffPage: React.FC = () => {
     description: '',
   });
 
+  const [editGroup, setEditGroup] = useState<UpdateGroupDto>({});
+
   const [newCluster, setNewCluster] = useState<CreateClusterDto>({
     name: '',
     seniorSellerId: 0,
     description: '',
   });
 
+  const [editCluster, setEditCluster] = useState<UpdateClusterDto>({});
+
   // Для диалогов назначения
   const [selectedMentor, setSelectedMentor] = useState<number>(0);
   const [selectedGroup, setSelectedGroup] = useState<number>(0);
   const [selectedCluster, setSelectedCluster] = useState<number>(0);
+  const [selectedClustersForAdmin, setSelectedClustersForAdmin] = useState<number[]>([]);
 
   // Поиск
   const [searchQuery, setSearchQuery] = useState('');
@@ -161,6 +171,7 @@ const StaffPage: React.FC = () => {
         loadClusters(),
       ]);
     } catch (error) {
+      console.error('Ошибка при загрузке данных:', error);
       showSnackbar('Ошибка при загрузке данных', 'error');
     } finally {
       setLoading(false);
@@ -180,7 +191,14 @@ const StaffPage: React.FC = () => {
   const loadGroups = async () => {
     try {
       const data = await groupService.getAllGroups();
-      setGroups(data);
+      // Обогащаем данные групп информацией о наставниках
+      const enrichedGroups = data.map(group => ({
+        ...group,
+        mentorName: users.find(u => u.id === group.mentorId)?.fullName || 'Не назначен',
+        clusterName: clusters.find(c => c.id === group.clusterId)?.name || 'Не назначен',
+        seniorSellerName: users.find(u => u.id === group.seniorSellerId)?.fullName || 'Не назначен',
+      }));
+      setGroups(enrichedGroups);
     } catch (error) {
       console.error('Ошибка при загрузке групп:', error);
       throw error;
@@ -212,6 +230,7 @@ const StaffPage: React.FC = () => {
       [UserRole.SENIOR_SELLER]: '#3f1f4b',
       [UserRole.MENTOR]: '#56b8d1',
       [UserRole.SELLER]: '#674fb6',
+      [UserRole.ACCOUNTANT]: '#ff9800',
     };
     return colors[role];
   };
@@ -228,6 +247,8 @@ const StaffPage: React.FC = () => {
         return <Person sx={{ fontSize: 16 }} />;
       case UserRole.SELLER:
         return <People sx={{ fontSize: 16 }} />;
+      case UserRole.ACCOUNTANT:
+        return <AttachMoney sx={{ fontSize: 16 }} />;
       default:
         return <Person sx={{ fontSize: 16 }} />;
     }
@@ -241,6 +262,7 @@ const StaffPage: React.FC = () => {
     }
 
     try {
+      setLoading(true);
       await userService.createUser(newUser);
       await loadUsers();
       setOpenCreateDialog(false);
@@ -252,6 +274,8 @@ const StaffPage: React.FC = () => {
                          error.response?.data?.message || 
                          'Ошибка при создании пользователя';
       showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -259,6 +283,7 @@ const StaffPage: React.FC = () => {
     if (!openEditDialog) return;
 
     try {
+      setLoading(true);
       await userService.updateUser(openEditDialog.id, editUser);
       await loadUsers();
       setOpenEditDialog(null);
@@ -270,6 +295,8 @@ const StaffPage: React.FC = () => {
                          error.response?.data?.message || 
                          'Ошибка при обновлении пользователя';
       showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -287,6 +314,7 @@ const StaffPage: React.FC = () => {
     }
 
     try {
+      setLoading(true);
       await userService.deleteUser(openDeleteDialog.id);
       await loadUsers();
       setOpenDeleteDialog(null);
@@ -297,6 +325,8 @@ const StaffPage: React.FC = () => {
                          error.response?.data?.message || 
                          'Ошибка при удалении пользователя';
       showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -308,6 +338,7 @@ const StaffPage: React.FC = () => {
       role: UserRole.SELLER,
       telegram: '',
       city: '',
+      rate: 0,
     });
   };
 
@@ -319,6 +350,7 @@ const StaffPage: React.FC = () => {
     }
 
     try {
+      setLoading(true);
       await groupService.createGroup(newGroup);
       await loadGroups();
       await loadUsers();
@@ -331,6 +363,47 @@ const StaffPage: React.FC = () => {
                          error.response?.data?.message || 
                          'Ошибка при создании группы';
       showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateGroup = async () => {
+    if (!openEditGroupDialog) return;
+
+    try {
+      setLoading(true);
+      await groupService.updateGroup(openEditGroupDialog.id, editGroup);
+      await loadGroups();
+      setOpenEditGroupDialog(null);
+      setEditGroup({});
+      showSnackbar('Группа успешно обновлена', 'success');
+    } catch (error: any) {
+      console.error('Ошибка при обновлении группы:', error);
+      const errorMessage = error.response?.data?.detail || 
+                         error.response?.data?.message || 
+                         'Ошибка при обновлении группы';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteGroup = async (group: Group) => {
+    try {
+      setLoading(true);
+      await groupService.deleteGroup(group.id);
+      await loadGroups();
+      await loadUsers();
+      showSnackbar('Группа успешно удалена', 'success');
+    } catch (error: any) {
+      console.error('Ошибка при удалении группы:', error);
+      const errorMessage = error.response?.data?.detail || 
+                         error.response?.data?.message || 
+                         'Ошибка при удалении группы';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -342,6 +415,7 @@ const StaffPage: React.FC = () => {
     }
 
     try {
+      setLoading(true);
       await clusterService.createCluster(newCluster);
       await loadClusters();
       await loadUsers();
@@ -354,17 +428,137 @@ const StaffPage: React.FC = () => {
                          error.response?.data?.message || 
                          'Ошибка при создании куста';
       showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ================ УПРАВЛЕНИЕ СВЯЗЯМИ ================
+  const handleUpdateCluster = async () => {
+    if (!openEditClusterDialog) return;
+
+    try {
+      setLoading(true);
+      await clusterService.updateCluster(openEditClusterDialog.id, editCluster);
+      await loadClusters();
+      setOpenEditClusterDialog(null);
+      setEditCluster({});
+      showSnackbar('Куст успешно обновлен', 'success');
+    } catch (error: any) {
+      console.error('Ошибка при обновлении куста:', error);
+      const errorMessage = error.response?.data?.detail || 
+                         error.response?.data?.message || 
+                         'Ошибка при обновлении куста';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteCluster = async (cluster: Cluster) => {
+    try {
+      setLoading(true);
+      await clusterService.deleteCluster(cluster.id);
+      await loadClusters();
+      await loadUsers();
+      await loadGroups();
+      showSnackbar('Куст успешно удален', 'success');
+    } catch (error: any) {
+      console.error('Ошибка при удалении куста:', error);
+      const errorMessage = error.response?.data?.detail || 
+                         error.response?.data?.message || 
+                         'Ошибка при удалении куста';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ================ ФУНКЦИИ ОТВЯЗКИ ================
+  const handleUnassignMentor = async (user: User) => {
+    try {
+      setLoading(true);
+      await assignmentsService.removeSellerFromGroup(user.id);
+      showSnackbar('Пользователь отвязан от наставника', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnassignGroup = async (user: User) => {
+    try {
+      setLoading(true);
+      await assignmentsService.removeSellerFromGroup(user.id);
+      showSnackbar('Пользователь отвязан от группы', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnassignMentorFromGroup = async (user: User) => {
+    try {
+      setLoading(true);
+      await assignmentsService.removeMentorFromGroup(user.id);
+      showSnackbar('Наставник отвязан от группы', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnassignSeniorFromCluster = async (user: User) => {
+    try {
+      setLoading(true);
+      await assignmentsService.removeSeniorFromCluster(user.id);
+      showSnackbar('Старший продавец отвязан от куста', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnassignAdminFromCluster = async (user: User, clusterId: number) => {
+    try {
+      setLoading(true);
+      await assignmentsService.removeAdminFromCluster(user.id, clusterId);
+      showSnackbar('Администратор отвязан от куста', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ================ ФУНКЦИИ НАЗНАЧЕНИЯ ================
   const openAssignmentDialog = (user: User, type: 'mentor' | 'group' | 'cluster' | 'admin') => {
     setOpenAssignDialog({ open: true, user, type });
     
     // Устанавливаем начальные значения
-    if (type === 'mentor') setSelectedMentor(user.mentorId || 0);
+    if (type === 'mentor') {
+      // Если у наставника уже есть группа, показываем его текущую группу
+      if (user.role === UserRole.MENTOR && user.groupId) {
+        setSelectedGroup(user.groupId);
+      }
+      setSelectedMentor(user.mentorId || 0);
+    }
     if (type === 'group') setSelectedGroup(user.groupId || 0);
     if (type === 'cluster') setSelectedCluster(user.clusterId || 0);
+    if (type === 'admin') setSelectedClustersForAdmin(user.adminClusterIds || []);
   };
 
   const handleAssign = async () => {
@@ -372,71 +566,121 @@ const StaffPage: React.FC = () => {
     if (!user || !type) return;
 
     try {
+      setLoading(true);
+      
       switch (type) {
         case 'mentor':
-          if (user.role === UserRole.SELLER && selectedMentor > 0) {
+          if (!selectedMentor) {
+            showSnackbar('Выберите наставника', 'error');
+            return;
+          }
+          
+          // Проверяем, есть ли у наставника уже группа
+          const mentor = users.find(u => u.id === selectedMentor);
+          if (mentor?.groupId) {
+            // Если у наставника есть группа, добавляем продавца в эту группу
+            await assignmentsService.assignSellerToGroup(user.id, mentor.groupId);
+            showSnackbar('Продавец добавлен в группу наставника', 'success');
+          } else {
+            // Если у наставника нет группы, создаем новую группу
             await assignmentsService.assignSellerToMentor(user.id, selectedMentor);
-            showSnackbar('Наставник успешно назначен', 'success');
+            showSnackbar('Продавец назначен наставнику и создана новая группа', 'success');
           }
           break;
         
         case 'group':
-          if (user.role === UserRole.SELLER && selectedGroup > 0) {
-            await assignmentsService.assignSellerToGroup(user.id, selectedGroup);
-            showSnackbar('Продавец добавлен в группу', 'success');
+          if (!selectedGroup) {
+            showSnackbar('Выберите группу', 'error');
+            return;
           }
+          
+          await assignmentsService.assignSellerToGroup(user.id, selectedGroup);
+          showSnackbar('Продавец добавлен в группу', 'success');
           break;
         
         case 'cluster':
-          if (user.role === UserRole.MENTOR && selectedCluster > 0) {
+          if (!selectedCluster) {
+            showSnackbar('Выберите куст', 'error');
+            return;
+          }
+          
+          if (user.role === UserRole.MENTOR) {
             await assignmentsService.assignMentorToCluster(user.id, selectedCluster);
             showSnackbar('Наставник добавлен в куст', 'success');
-          } else if (user.role === UserRole.SENIOR_SELLER && selectedCluster > 0) {
+          } else if (user.role === UserRole.SENIOR_SELLER) {
             await assignmentsService.assignSeniorToCluster(user.id, selectedCluster);
             showSnackbar('Старший продавец назначен кусту', 'success');
           }
           break;
         
         case 'admin':
-          if (user.role === UserRole.ADMIN && selectedCluster > 0) {
-            await assignmentsService.assignAdminToCluster(user.id, selectedCluster);
-            showSnackbar('Куст назначен администратору', 'success');
+          if (selectedClustersForAdmin.length === 0) {
+            showSnackbar('Выберите хотя бы один куст', 'error');
+            return;
           }
+          
+          // Для админа добавляем каждый выбранный куст
+          const currentClusters = user.adminClusterIds || [];
+          const clustersToAdd = selectedClustersForAdmin.filter(id => !currentClusters.includes(id));
+          
+          for (const clusterId of clustersToAdd) {
+            await assignmentsService.assignAdminToCluster(user.id, clusterId);
+          }
+          
+          showSnackbar(`Добавлено ${clustersToAdd.length} кустов администратору`, 'success');
           break;
       }
       
       await loadAllData();
       setOpenAssignDialog({ open: false, user: null, type: null });
+      
+      // Сбрасываем выбранные значения
+      setSelectedMentor(0);
+      setSelectedGroup(0);
+      setSelectedCluster(0);
+      setSelectedClustersForAdmin([]);
+      
     } catch (error: any) {
+      console.error('Ошибка при назначении:', error);
       const errorMessage = error.response?.data?.detail || 
                          error.response?.data?.message || 
                          'Ошибка при назначении';
       showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Удаление назначения
-  const handleRemoveAssignment = async (user: User, assignmentType: 'group' | 'admin_cluster') => {
+  // ================ ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ ГРУПП В КУСТ ================
+  const handleAddGroupToCluster = async (cluster: Cluster, groupId: number) => {
     try {
-      if (assignmentType === 'group' && user.role === UserRole.SELLER) {
-        await assignmentsService.removeSellerFromGroup(user.id);
-        showSnackbar('Продавец удален из группы', 'success');
-      } else if (assignmentType === 'admin_cluster' && user.role === UserRole.ADMIN) {
-        // Нужно будет добавить метод для удаления конкретного куста у администратора
-        // Пока временная реализация
-        showSnackbar('Функция удаления куста у администратора в разработке', 'info');
-      }
-      
+      setLoading(true);
+      await assignmentsService.assignGroupToCluster(groupId, cluster.id);
+      showSnackbar('Группа добавлена в куст', 'success');
       await loadAllData();
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при удалении назначения';
+      const errorMessage = error.response?.data?.detail || 'Ошибка при добавлении группы в куст';
       showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Получение информации о связанных объектах
+  const handleRemoveGroupFromCluster = async (cluster: Cluster, groupId: number) => {
+    try {
+      setLoading(true);
+      await clusterService.removeGroupFromCluster(cluster.id, groupId);
+      showSnackbar('Группа удалена из куста', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при удалении группы из куста';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ================ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ================
   const getUserGroupInfo = (userId: number) => {
     const user = users.find(u => u.id === userId);
     if (!user) return null;
@@ -447,27 +691,6 @@ const StaffPage: React.FC = () => {
     const seniorSeller = users.find(u => u.id === user.seniorSellerId);
 
     return { user, group, cluster, mentor, seniorSeller };
-  };
-
-  const getGroupClusterInfo = (groupId: number) => {
-    const group = groups.find(g => g.id === groupId);
-    if (!group) return null;
-    
-    const cluster = clusters.find(c => c.id === group.clusterId);
-    const mentor = users.find(u => u.id === group.mentorId);
-    const seniorSeller = users.find(u => u.id === group.seniorSellerId);
-
-    return { group, cluster, mentor, seniorSeller };
-  };
-
-  const getClusterAdminInfo = (clusterId: number) => {
-    const cluster = clusters.find(c => c.id === clusterId);
-    if (!cluster) return null;
-    
-    const admin = users.find(u => u.id === cluster.adminId);
-    const seniorSeller = users.find(u => u.id === cluster.seniorSellerId);
-
-    return { cluster, admin, seniorSeller };
   };
 
   // Фильтрация пользователей
@@ -485,9 +708,10 @@ const StaffPage: React.FC = () => {
   });
 
   // Фильтры для диалогов
-  const availableMentors = users.filter(u => u.role === UserRole.MENTOR && !u.groupId);
+  const availableMentors = users.filter(u => u.role === UserRole.MENTOR);
   const availableSeniorSellers = users.filter(u => u.role === UserRole.SENIOR_SELLER && !u.clusterId);
   const sellersWithoutGroup = users.filter(u => u.role === UserRole.SELLER && !u.groupId);
+  const groupsWithoutCluster = groups.filter(g => !g.clusterId);
 
   // Статистика
   const stats = {
@@ -496,12 +720,55 @@ const StaffPage: React.FC = () => {
     mentors: users.filter(u => u.role === UserRole.MENTOR).length,
     seniors: users.filter(u => u.role === UserRole.SENIOR_SELLER).length,
     admins: users.filter(u => u.role === UserRole.ADMIN).length,
+    accountants: users.filter(u => u.role === UserRole.ACCOUNTANT).length,
     owners: users.filter(u => u.role === UserRole.OWNER).length,
     groups: groups.length,
     clusters: clusters.length,
-    sellersWithoutMentor: users.filter(u => u.role === UserRole.SELLER && !u.mentorId).length,
-    mentorsWithoutCluster: users.filter(u => u.role === UserRole.MENTOR && !u.clusterId).length,
-    seniorsWithoutCluster: users.filter(u => u.role === UserRole.SENIOR_SELLER && !u.clusterId).length,
+  };
+
+  // Функция для отображения кустов администратора
+  const renderAdminClusters = (user: User) => {
+    if (!user.adminClusterIds || user.adminClusterIds.length === 0) {
+      return null;
+    }
+    
+    return (
+      <Box sx={{ mb: 1 }}>
+        <Typography variant="body2">
+          <strong>Кусты под управлением:</strong>
+        </Typography>
+        <Box sx={{ ml: 2, mt: 0.5 }}>
+          {user.adminClusterIds.map((clusterId: number) => {
+            const cluster = clusters.find(c => c.id === clusterId);
+            return (
+              <Box key={clusterId} sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography variant="body2">
+                  • {cluster ? cluster.name : `Куст #${clusterId}`}
+                </Typography>
+                <IconButton 
+                  size="small" 
+                  sx={{ ml: 0.5, p: 0 }}
+                  onClick={() => handleUnassignAdminFromCluster(user, clusterId)}
+                  disabled={loading}
+                >
+                  <Close fontSize="small" />
+                </IconButton>
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+    );
+  };
+
+  // Функция для получения групп в кусте
+  const getGroupsInCluster = (clusterId: number) => {
+    return groups.filter(group => group.clusterId === clusterId);
+  };
+
+  // Функция для получения продавцов в группе
+  const getSellersInGroup = (groupId: number) => {
+    return users.filter(user => user.groupId === groupId);
   };
 
   if (loading && users.length === 0) {
@@ -530,8 +797,9 @@ const StaffPage: React.FC = () => {
             startIcon={<Refresh />}
             onClick={loadAllData}
             sx={{ mr: 1 }}
+            disabled={loading}
           >
-            Обновить
+            {loading ? 'Обновление...' : 'Обновить'}
           </Button>
         </Grid>
       </Grid>
@@ -564,9 +832,9 @@ const StaffPage: React.FC = () => {
         </Grid>
         <Grid size={{ xs: 6, sm: 3 }}>
           <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="#ca0ec0">{stats.sellersWithoutMentor}</Typography>
+            <Typography variant="h4" color="#ff9800">{stats.accountants}</Typography>
             <Typography variant="caption" color="#4c5454">
-              Продавцов без наставника
+              Бухгалтеров
             </Typography>
           </Paper>
         </Grid>
@@ -602,6 +870,7 @@ const StaffPage: React.FC = () => {
               startIcon={<PersonAdd />}
               onClick={() => setOpenCreateDialog(true)}
               sx={{ backgroundColor: '#674fb6' }}
+              disabled={loading}
             >
               Добавить пользователя
             </Button>
@@ -610,9 +879,18 @@ const StaffPage: React.FC = () => {
           <Grid container spacing={2}>
             {filteredUsers.map(user => {
               const info = getUserGroupInfo(user.id);
+              const sellersCount = users.filter(u => u.mentorId === user.id).length;
+              
               return (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={user.id}>
-                  <Card>
+                  <Card sx={{ 
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: '0 6px 20px rgba(0,0,0,0.1)',
+                    },
+                    height: '100%'
+                  }}>
                     <CardContent>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                         <Avatar sx={{ bgcolor: getRoleColor(user.role), mr: 2 }}>
@@ -647,26 +925,39 @@ const StaffPage: React.FC = () => {
                         </Typography>
                       )}
                       
+                      {user.rate !== undefined && user.rate > 0 && (
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Ставка:</strong> {user.rate}₽ за товар
+                        </Typography>
+                      )}
+                      
                       {/* Показываем связи */}
                       {user.role === UserRole.SELLER && (
                         <>
                           {info?.group && (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                              <Typography variant="body2">
-                                <strong>Группа:</strong> {info.group.name}
-                              </Typography>
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Группа:</strong> {info.group.name}
                               <IconButton 
                                 size="small" 
-                                color="error"
-                                onClick={() => handleRemoveAssignment(user, 'group')}
+                                sx={{ ml: 0.5, p: 0 }}
+                                onClick={() => handleUnassignGroup(user)}
+                                disabled={loading}
                               >
-                                <Delete fontSize="small" />
+                                <Close fontSize="small" />
                               </IconButton>
-                            </Box>
+                            </Typography>
                           )}
                           {info?.mentor && (
                             <Typography variant="body2" sx={{ mb: 1 }}>
                               <strong>Наставник:</strong> {info.mentor.fullName}
+                              <IconButton 
+                                size="small" 
+                                sx={{ ml: 0.5, p: 0 }}
+                                onClick={() => handleUnassignMentor(user)}
+                                disabled={loading}
+                              >
+                                <Close fontSize="small" />
+                              </IconButton>
                             </Typography>
                           )}
                           {info?.cluster && (
@@ -674,70 +965,125 @@ const StaffPage: React.FC = () => {
                               <strong>Куст:</strong> {info.cluster.name}
                             </Typography>
                           )}
+                          {info?.seniorSeller && (
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Старший продавец:</strong> {info.seniorSeller.fullName}
+                            </Typography>
+                          )}
                         </>
                       )}
                       
-                      {user.role === UserRole.MENTOR && info?.cluster && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Куст:</strong> {info.cluster.name}
-                        </Typography>
-                      )}
-                      
-                      {user.role === UserRole.SENIOR_SELLER && info?.cluster && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Управляет кустом:</strong> {info.cluster.name}
-                        </Typography>
-                      )}
-                      
-                      {user.role === UserRole.ADMIN && user.adminClusterIds && user.adminClusterIds.length > 0 && (
-                        <Box sx={{ mb: 1 }}>
-                          <Typography variant="body2">
-                            <strong>Кустов под управлением:</strong>
+                      {user.role === UserRole.MENTOR && (
+                        <>
+                          {info?.group && (
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Управляет группой:</strong> {info.group.name}
+                              <IconButton 
+                                size="small" 
+                                sx={{ ml: 0.5, p: 0 }}
+                                onClick={() => handleUnassignMentorFromGroup(user)}
+                                disabled={loading}
+                              >
+                                <Close fontSize="small" />
+                              </IconButton>
+                            </Typography>
+                          )}
+                          
+                          {info?.cluster && (
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Куст:</strong> {info.cluster.name}
+                            </Typography>
+                          )}
+                          
+                          {info?.seniorSeller && (
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Старший продавец:</strong> {info.seniorSeller.fullName}
+                            </Typography>
+                          )}
+                          
+                          {/* Количество подопечных */}
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Продавцов в группе:</strong> {sellersCount}
                           </Typography>
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-                            {user.adminClusterIds.map(clusterId => {
-                              const cluster = clusters.find(c => c.id === clusterId);
-                              return cluster ? (
-                                <Chip
-                                  key={cluster.id}
-                                  label={cluster.name}
-                                  size="small"
-                                  onDelete={() => handleRemoveAssignment(user, 'admin_cluster')}
-                                />
-                              ) : null;
-                            })}
-                          </Box>
-                        </Box>
+                        </>
                       )}
+                      
+                      {user.role === UserRole.SENIOR_SELLER && (
+                        <>
+                          {info?.cluster && (
+                            <Typography variant="body2" sx={{ mb: 1 }}>
+                              <strong>Управляет кустом:</strong> {info.cluster.name}
+                              <IconButton 
+                                size="small" 
+                                sx={{ ml: 0.5, p: 0 }}
+                                onClick={() => handleUnassignSeniorFromCluster(user)}
+                                disabled={loading}
+                              >
+                                <Close fontSize="small" />
+                              </IconButton>
+                            </Typography>
+                          )}
+                          
+                          {/* Группы в кусте */}
+                          {info?.cluster && (
+                            <Box sx={{ mb: 1 }}>
+                              <Typography variant="body2">
+                                <strong>Групп в кусте:</strong> {groups.filter(g => g.clusterId === info.cluster?.id).length}
+                              </Typography>
+                            </Box>
+                          )}
+                        </>
+                      )}
+                      
+                      {user.role === UserRole.ADMIN && renderAdminClusters(user)}
 
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
                         {/* Кнопки управления связями в зависимости от роли */}
                         {user.role === UserRole.SELLER && (
                           <>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => openAssignmentDialog(user, 'mentor')}
-                            >
-                              {user.mentorId ? 'Сменить наставника' : 'Назначить наставника'}
-                            </Button>
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => openAssignmentDialog(user, 'group')}
-                            >
-                              {user.groupId ? 'Сменить группу' : 'Добавить в группу'}
-                            </Button>
+                            {!user.mentorId && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => openAssignmentDialog(user, 'mentor')}
+                                disabled={loading}
+                              >
+                                Назначить наставника
+                              </Button>
+                            )}
+                            
+                            {!user.groupId && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => openAssignmentDialog(user, 'group')}
+                                disabled={loading}
+                              >
+                                Добавить в группу
+                              </Button>
+                            )}
                           </>
                         )}
                         
-                        {(user.role === UserRole.MENTOR || user.role === UserRole.SENIOR_SELLER) && (
+                        {user.role === UserRole.MENTOR && !user.clusterId && (
                           <Button
                             size="small"
                             variant="outlined"
                             onClick={() => openAssignmentDialog(user, 'cluster')}
+                            disabled={loading}
                           >
-                            {user.clusterId ? 'Сменить куст' : 'Назначить куст'}
+                            Добавить в куст
+                          </Button>
+                        )}
+                        
+                        {user.role === UserRole.SENIOR_SELLER && !user.clusterId && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => openAssignmentDialog(user, 'cluster')}
+                            disabled={loading}
+                          >
+                            Назначить куст
                           </Button>
                         )}
                         
@@ -746,6 +1092,7 @@ const StaffPage: React.FC = () => {
                             size="small"
                             variant="outlined"
                             onClick={() => openAssignmentDialog(user, 'admin')}
+                            disabled={loading}
                           >
                             Управление кустами
                           </Button>
@@ -763,13 +1110,10 @@ const StaffPage: React.FC = () => {
                               telegram: user.telegram,
                               city: user.city,
                               role: user.role,
-                              clusterId: user.clusterId,
-                              groupId: user.groupId,
-                              mentorId: user.mentorId,
-                              seniorSellerId: user.seniorSellerId,
-                              adminClusterIds: user.adminClusterIds,
+                              rate: user.rate,
                             });
                           }}
+                          disabled={loading}
                         >
                           Редактировать
                         </Button>
@@ -778,7 +1122,7 @@ const StaffPage: React.FC = () => {
                           startIcon={<Delete />}
                           color="error"
                           onClick={() => setOpenDeleteDialog(user)}
-                          disabled={user.role === UserRole.OWNER || user.id === currentUser?.id}
+                          disabled={user.role === UserRole.OWNER || user.id === currentUser?.id || loading}
                         >
                           Удалить
                         </Button>
@@ -799,53 +1143,156 @@ const StaffPage: React.FC = () => {
               startIcon={<GroupsIcon />}
               onClick={() => setOpenCreateGroupDialog(true)}
               sx={{ backgroundColor: '#56b8d1' }}
+              disabled={loading}
             >
               Создать группу
             </Button>
           </Box>
 
           <Grid container spacing={2}>
-            {groups.map(group => {
-              const info = getGroupClusterInfo(group.id);
+            {groups.map((group) => {
+              const mentor = users.find(u => u.id === group.mentorId);
+              const cluster = clusters.find(c => c.id === group.clusterId);
+              const seniorSeller = users.find(u => u.id === group.seniorSellerId);
+              const sellersInGroup = users.filter(u => u.groupId === group.id);
+              const groupsInSameCluster = cluster ? groups.filter(g => g.clusterId === cluster.id) : [];
+              
               return (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={group.id}>
-                  <Card>
+                  <Card sx={{ height: '100%' }}>
                     <CardContent>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }}>
                         {group.name}
                       </Typography>
                       
                       {group.description && (
-                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                           {group.description}
                         </Typography>
                       )}
                       
-                      {info?.mentor && (
+                      <Box sx={{ mb: 2 }}>
                         <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Наставник:</strong> {info.mentor.fullName}
+                          <strong>Наставник:</strong>{' '}
+                          {mentor ? (
+                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                              <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(mentor.role) }}>
+                                {mentor.fullName.charAt(0)}
+                              </Avatar>
+                              {mentor.fullName}
+                            </Box>
+                          ) : 'Не назначен'}
                         </Typography>
+                        
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Куст:</strong>{' '}
+                          {cluster ? cluster.name : 'Не назначен'}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Старший продавец:</strong>{' '}
+                          {seniorSeller ? seniorSeller.fullName : 'Не назначен'}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Продавцов в группе:</strong> {sellersInGroup.length}
+                        </Typography>
+                        
+                        {cluster && (
+                          <Typography variant="body2" sx={{ mb: 1 }}>
+                            <strong>Групп в кусте:</strong> {groupsInSameCluster.length}
+                          </Typography>
+                        )}
+                      </Box>
+                      
+                      {/* Продавцы в группе */}
+                      {sellersInGroup.length > 0 && (
+                        <Box sx={{ mb: 2 }}>
+                          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                            Продавцы в группе:
+                          </Typography>
+                          <Box sx={{ pl: 2 }}>
+                            {sellersInGroup.map(seller => (
+                              <Typography key={seller.id} variant="body2" sx={{ mb: 0.5 }}>
+                                • {seller.fullName}
+                              </Typography>
+                            ))}
+                          </Box>
+                        </Box>
                       )}
                       
-                      {info?.cluster && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Куст:</strong> {info.cluster.name}
-                        </Typography>
-                      )}
-                      
-                      {info?.seniorSeller && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Старший продавец:</strong> {info.seniorSeller.fullName}
-                        </Typography>
-                      )}
-                      
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>Продавцов в группе:</strong> {group.sellerCount || 0}
-                      </Typography>
-                      
-                      <Typography variant="caption" color="text.secondary">
-                        Создана: {new Date(group.createdAt).toLocaleDateString('ru-RU')}
-                      </Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        {/* Кнопка добавления в куст */}
+                        {!group.clusterId && groupsWithoutCluster.length > 0 && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              const dialog = window.prompt(
+                                'Выберите куст для добавления группы:\n' +
+                                clusters.map(c => `${c.id}: ${c.name}`).join('\n') +
+                                '\n\nВведите ID куста:'
+                              );
+                              if (dialog && !isNaN(Number(dialog))) {
+                                const selectedCluster = clusters.find(c => c.id === Number(dialog));
+                                if (selectedCluster) {
+                                  handleAddGroupToCluster(selectedCluster, group.id);
+                                }
+                              }
+                            }}
+                            disabled={loading}
+                          >
+                            Добавить в куст
+                          </Button>
+                        )}
+                        
+                        {/* Кнопка удаления из куста */}
+                        {group.clusterId && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            onClick={() => {
+                              const cluster = clusters.find(c => c.id === group.clusterId);
+                              if (cluster && window.confirm(`Удалить группу "${group.name}" из куста "${cluster.name}"?`)) {
+                                handleRemoveGroupFromCluster(cluster, group.id);
+                              }
+                            }}
+                            disabled={loading}
+                          >
+                            Удалить из куста
+                          </Button>
+                        )}
+                        
+                        <Button
+                          size="small"
+                          startIcon={<Edit />}
+                          onClick={() => {
+                            setOpenEditGroupDialog(group);
+                            setEditGroup({
+                              name: group.name,
+                              description: group.description,
+                            });
+                          }}
+                          disabled={loading}
+                        >
+                          Редактировать
+                        </Button>
+                        
+                        <Button
+                          size="small"
+                          startIcon={<Delete />}
+                          color="error"
+                          onClick={() => {
+                            if (window.confirm(`Удалить группу "${group.name}"? Это действие нельзя отменить.`)) {
+                              handleDeleteGroup(group);
+                            }
+                          }}
+                          disabled={sellersInGroup.length > 0 || loading}
+                        >
+                          Удалить
+                        </Button>
+                      </Box>
                     </CardContent>
                   </Card>
                 </Grid>
@@ -862,51 +1309,138 @@ const StaffPage: React.FC = () => {
               startIcon={<Domain />}
               onClick={() => setOpenCreateClusterDialog(true)}
               sx={{ backgroundColor: '#3f1f4b' }}
+              disabled={loading}
             >
               Создать куст
             </Button>
           </Box>
 
           <Grid container spacing={2}>
-            {clusters.map(cluster => {
-              const info = getClusterAdminInfo(cluster.id);
+            {clusters.map((cluster) => {
+              const seniorSeller = users.find(u => u.id === cluster.seniorSellerId);
+              const admin = users.find(u => u.id === cluster.adminId);
+              const groupsInCluster = getGroupsInCluster(cluster.id);
+              const sellersInCluster = users.filter(u => u.clusterId === cluster.id);
+              
               return (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={cluster.id}>
-                  <Card>
+                  <Card sx={{ height: '100%' }}>
                     <CardContent>
-                      <Typography variant="h6" gutterBottom>
+                      <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }}>
                         {cluster.name}
                       </Typography>
                       
                       {cluster.description && (
-                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                           {cluster.description}
                         </Typography>
                       )}
                       
-                      {info?.seniorSeller && (
+                      <Box sx={{ mb: 2 }}>
                         <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Старший продавец:</strong> {info.seniorSeller.fullName}
+                          <strong>Старший продавец:</strong>{' '}
+                          {seniorSeller ? (
+                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                              <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(seniorSeller.role) }}>
+                                {seniorSeller.fullName.charAt(0)}
+                              </Avatar>
+                              {seniorSeller.fullName}
+                            </Box>
+                          ) : 'Не назначен'}
                         </Typography>
+                        
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Администратор:</strong>{' '}
+                          {admin ? (
+                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                              <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(admin.role) }}>
+                                {admin.fullName.charAt(0)}
+                              </Avatar>
+                              {admin.fullName}
+                            </Box>
+                          ) : 'Не назначен'}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Групп в кусте:</strong> {groupsInCluster.length}
+                        </Typography>
+                        
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          <strong>Продавцов в кусте:</strong> {sellersInCluster.length}
+                        </Typography>
+                      </Box>
+                      
+                      {/* Группы в кусте */}
+                      {groupsInCluster.length > 0 && (
+                        <Box sx={{ mb: 2 }}>
+                          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                            Группы в кусте:
+                          </Typography>
+                          <Box sx={{ pl: 2 }}>
+                            {groupsInCluster.map(group => (
+                              <Box key={group.id} sx={{ mb: 1 }}>
+                                <Typography variant="body2" fontWeight="medium">
+                                  • {group.name}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  Наставник: {users.find(u => u.id === group.mentorId)?.fullName || 'Не назначен'}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        </Box>
                       )}
                       
-                      {info?.admin && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Администратор:</strong> {info.admin.fullName}
-                        </Typography>
+                      {/* Доступные группы для добавления */}
+                      {groupsWithoutCluster.length > 0 && (
+                        <Box sx={{ mb: 2 }}>
+                          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                            Добавить группу в куст:
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                            {groupsWithoutCluster.map(group => (
+                              <Chip
+                                key={group.id}
+                                label={group.name}
+                                size="small"
+                                onClick={() => handleAddGroupToCluster(cluster, group.id)}
+                                disabled={loading}
+                              />
+                            ))}
+                          </Box>
+                        </Box>
                       )}
                       
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>Групп в кусте:</strong> {cluster.groupCount || 0}
-                      </Typography>
-                      
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>Продавцов в кусте:</strong> {cluster.sellerCount || 0}
-                      </Typography>
-                      
-                      <Typography variant="caption" color="text.secondary">
-                        Создан: {new Date(cluster.createdAt).toLocaleDateString('ru-RU')}
-                      </Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                        <Button
+                          size="small"
+                          startIcon={<Edit />}
+                          onClick={() => {
+                            setOpenEditClusterDialog(cluster);
+                            setEditCluster({
+                              name: cluster.name,
+                              description: cluster.description,
+                            });
+                          }}
+                          disabled={loading}
+                        >
+                          Редактировать
+                        </Button>
+                        
+                        <Button
+                          size="small"
+                          startIcon={<Delete />}
+                          color="error"
+                          onClick={() => {
+                            if (window.confirm(`Удалить куст "${cluster.name}"? Это действие нельзя отменить.`)) {
+                              handleDeleteCluster(cluster);
+                            }
+                          }}
+                          disabled={groupsInCluster.length > 0 || sellersInCluster.length > 0 || loading}
+                        >
+                          Удалить
+                        </Button>
+                      </Box>
                     </CardContent>
                   </Card>
                 </Grid>
@@ -916,474 +1450,471 @@ const StaffPage: React.FC = () => {
         </TabPanel>
       </Paper>
 
-      {/* ================ ДИАЛОГИ ================ */}
-
       {/* Диалог создания пользователя */}
-      <Dialog
-        open={openCreateDialog}
-        onClose={() => setOpenCreateDialog(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Создание пользователя</DialogTitle>
-        <DialogContent dividers>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Создайте пользователя без связей. Назначить наставника, группу или куст можно позже.
-          </Alert>
-          
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Логин *"
-                value={newUser.username}
-                onChange={(e) => setNewUser({ ...newUser, username: e.target.value.trim() })}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Пароль *"
-                type={showPassword ? 'text' : 'password'}
-                value={newUser.password}
-                onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                required
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="ФИО *"
-                value={newUser.fullName}
-                onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Телеграм"
-                value={newUser.telegram}
-                onChange={(e) => setNewUser({ ...newUser, telegram: e.target.value })}
-                placeholder="@username"
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Город"
-                value={newUser.city}
-                onChange={(e) => setNewUser({ ...newUser, city: e.target.value })}
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Роль *</InputLabel>
-                <Select
-                  value={newUser.role}
-                  label="Роль *"
-                  onChange={(e) => setNewUser({ 
-                    ...newUser, 
-                    role: e.target.value as UserRole
-                  })}
-                >
-                  {[UserRole.SELLER, UserRole.MENTOR, UserRole.SENIOR_SELLER, UserRole.ADMIN].map((role) => (
-                    <MenuItem key={role} value={role}>
-                      {getRoleName(role)}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
+      <Dialog open={openCreateDialog} onClose={() => setOpenCreateDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Создать пользователя</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Логин"
+              fullWidth
+              required
+              value={newUser.username}
+              onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+            />
+            <TextField
+              label="Пароль"
+              type={showPassword ? 'text' : 'password'}
+              fullWidth
+              required
+              value={newUser.password}
+              onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <TextField
+              label="ФИО"
+              fullWidth
+              required
+              value={newUser.fullName}
+              onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })}
+            />
+            <FormControl fullWidth>
+              <InputLabel>Роль</InputLabel>
+              <Select
+                label="Роль"
+                value={newUser.role}
+                onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
+              >
+                {Object.values(UserRole).map((role) => (
+                  <MenuItem key={role} value={role}>
+                    {getRoleName(role)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Telegram"
+              fullWidth
+              value={newUser.telegram || ''}
+              onChange={(e) => setNewUser({ ...newUser, telegram: e.target.value })}
+            />
+            <TextField
+              label="Город"
+              fullWidth
+              value={newUser.city || ''}
+              onChange={(e) => setNewUser({ ...newUser, city: e.target.value })}
+            />
+            <TextField
+              label="Ставка за товар (₽)"
+              type="number"
+              fullWidth
+              value={newUser.rate || ''}
+              onChange={(e) => setNewUser({ ...newUser, rate: Number(e.target.value) })}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenCreateDialog(false)}>Отмена</Button>
-          <Button
-            onClick={handleCreateUser}
-            variant="contained"
-            disabled={!newUser.username || !newUser.fullName}
-          >
-            Создать
+          <Button onClick={() => setOpenCreateDialog(false)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleCreateUser} variant="contained" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Создать'}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Диалог редактирования пользователя */}
-      <Dialog
-        open={!!openEditDialog}
-        onClose={() => setOpenEditDialog(null)}
-        maxWidth="sm"
-        fullWidth
-      >
-        {openEditDialog && (
-          <>
-            <DialogTitle>Редактирование пользователя</DialogTitle>
-            <DialogContent dividers>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Логин"
-                    value={editUser.username || ''}
-                    onChange={(e) => setEditUser({ ...editUser, username: e.target.value.trim() })}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="ФИО"
-                    value={editUser.fullName || ''}
-                    onChange={(e) => setEditUser({ ...editUser, fullName: e.target.value })}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Телеграм"
-                    value={editUser.telegram || ''}
-                    onChange={(e) => setEditUser({ ...editUser, telegram: e.target.value })}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12 }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    label="Город"
-                    value={editUser.city || ''}
-                    onChange={(e) => setEditUser({ ...editUser, city: e.target.value })}
-                  />
-                </Grid>
+      <Dialog open={!!openEditDialog} onClose={() => setOpenEditDialog(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Редактировать пользователя</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Логин"
+              fullWidth
+              value={editUser.username || ''}
+              onChange={(e) => setEditUser({ ...editUser, username: e.target.value })}
+            />
+            <TextField
+              label="ФИО"
+              fullWidth
+              value={editUser.fullName || ''}
+              onChange={(e) => setEditUser({ ...editUser, fullName: e.target.value })}
+            />
+            <TextField
+              label="Telegram"
+              fullWidth
+              value={editUser.telegram || ''}
+              onChange={(e) => setEditUser({ ...editUser, telegram: e.target.value })}
+            />
+            <TextField
+              label="Город"
+              fullWidth
+              value={editUser.city || ''}
+              onChange={(e) => setEditUser({ ...editUser, city: e.target.value })}
+            />
+            <TextField
+              label="Ставка за товар (₽)"
+              type="number"
+              fullWidth
+              value={editUser.rate || ''}
+              onChange={(e) => setEditUser({ ...editUser, rate: Number(e.target.value) })}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenEditDialog(null)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleUpdateUser} variant="contained" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Сохранить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-                {/* Поля для администратора */}
-                {openEditDialog.role === UserRole.ADMIN && (
-                  <Grid size={{ xs: 12 }}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Кусты под управлением</InputLabel>
-                      <Select
-                        multiple
-                        value={editUser.adminClusterIds || []}
-                        onChange={(e) => setEditUser({ 
-                          ...editUser, 
-                          adminClusterIds: typeof e.target.value === 'string' 
-                            ? e.target.value.split(',').map(Number) 
-                            : e.target.value 
-                        })}
-                        input={<OutlinedInput label="Кусты под управлением" />}
-                        renderValue={(selected) => (
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {(selected as number[]).map((value) => {
-                              const cluster = clusters.find(c => c.id === value);
-                              return <Chip key={value} label={cluster?.name || value} size="small" />;
-                            })}
-                          </Box>
-                        )}
-                      >
-                        {clusters.map(cluster => (
-                          <MenuItem key={cluster.id} value={cluster.id}>
-                            <Checkbox checked={(editUser.adminClusterIds || []).includes(cluster.id)} />
-                            <ListItemText primary={cluster.name} />
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                )}
-              </Grid>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setOpenEditDialog(null)}>Отмена</Button>
-              <Button onClick={handleUpdateUser} variant="contained">
-                Сохранить
-              </Button>
-            </DialogActions>
-          </>
-        )}
+      {/* Диалог удаления пользователя */}
+      <Dialog open={!!openDeleteDialog} onClose={() => setOpenDeleteDialog(null)}>
+        <DialogTitle>Подтверждение удаления</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Вы уверены, что хотите удалить пользователя "{openDeleteDialog?.fullName}"?
+          </Typography>
+          <Typography variant="body2" color="error" sx={{ mt: 2 }}>
+            Это действие нельзя отменить.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenDeleteDialog(null)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleDeleteUser} color="error" variant="contained" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Удалить'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Диалог создания группы */}
-      <Dialog
-        open={openCreateGroupDialog}
-        onClose={() => setOpenCreateGroupDialog(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Создание группы</DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Название группы *"
-                value={newGroup.name}
-                onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Наставник *</InputLabel>
-                <Select
-                  value={newGroup.mentorId}
-                  label="Наставник *"
-                  onChange={(e) => setNewGroup({ ...newGroup, mentorId: Number(e.target.value) })}
-                >
-                  <MenuItem value={0}>Выберите наставника</MenuItem>
-                  {availableMentors.map(mentor => (
-                    <MenuItem key={mentor.id} value={mentor.id}>
-                      {mentor.fullName} ({mentor.username})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              {availableMentors.length === 0 && (
-                <Typography variant="caption" color="error">
-                  Нет доступных наставников. Сначала создайте наставника.
-                </Typography>
-              )}
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Описание"
-                value={newGroup.description}
-                onChange={(e) => setNewGroup({ ...newGroup, description: e.target.value })}
-                multiline
-                rows={2}
-              />
-            </Grid>
-          </Grid>
+      <Dialog open={openCreateGroupDialog} onClose={() => setOpenCreateGroupDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Создать группу</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Название группы"
+              fullWidth
+              required
+              value={newGroup.name}
+              onChange={(e) => setNewGroup({ ...newGroup, name: e.target.value })}
+            />
+            <FormControl fullWidth required>
+              <InputLabel>Наставник</InputLabel>
+              <Select
+                label="Наставник"
+                value={newGroup.mentorId}
+                onChange={(e) => setNewGroup({ ...newGroup, mentorId: Number(e.target.value) })}
+              >
+                <MenuItem value={0}>-- Выберите наставника --</MenuItem>
+                {availableMentors.map((mentor) => (
+                  <MenuItem key={mentor.id} value={mentor.id}>
+                    {mentor.fullName} ({mentor.username})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Описание"
+              fullWidth
+              multiline
+              rows={3}
+              value={newGroup.description || ''}
+              onChange={(e) => setNewGroup({ ...newGroup, description: e.target.value })}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenCreateGroupDialog(false)}>Отмена</Button>
-          <Button
-            onClick={handleCreateGroup}
-            variant="contained"
-            disabled={!newGroup.name || !newGroup.mentorId}
-          >
-            Создать группу
+          <Button onClick={() => setOpenCreateGroupDialog(false)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleCreateGroup} variant="contained" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Создать'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог редактирования группы */}
+      <Dialog open={!!openEditGroupDialog} onClose={() => setOpenEditGroupDialog(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Редактировать группу</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Название группы"
+              fullWidth
+              value={editGroup.name || ''}
+              onChange={(e) => setEditGroup({ ...editGroup, name: e.target.value })}
+            />
+            <TextField
+              label="Описание"
+              fullWidth
+              multiline
+              rows={3}
+              value={editGroup.description || ''}
+              onChange={(e) => setEditGroup({ ...editGroup, description: e.target.value })}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenEditGroupDialog(null)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleUpdateGroup} variant="contained" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Сохранить'}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Диалог создания куста */}
-      <Dialog
-        open={openCreateClusterDialog}
-        onClose={() => setOpenCreateClusterDialog(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Создание куста</DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Название куста *"
-                value={newCluster.name}
-                onChange={(e) => setNewCluster({ ...newCluster, name: e.target.value })}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Старший продавец *</InputLabel>
-                <Select
-                  value={newCluster.seniorSellerId}
-                  label="Старший продавец *"
-                  onChange={(e) => setNewCluster({ ...newCluster, seniorSellerId: Number(e.target.value) })}
-                >
-                  <MenuItem value={0}>Выберите старшего продавца</MenuItem>
-                  {availableSeniorSellers.map(senior => (
-                    <MenuItem key={senior.id} value={senior.id}>
-                      {senior.fullName} ({senior.username})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              {availableSeniorSellers.length === 0 && (
-                <Typography variant="caption" color="error">
-                  Нет доступных старших продавцов. Сначала создайте старшего продавца.
-                </Typography>
-              )}
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Описание"
-                value={newCluster.description}
-                onChange={(e) => setNewCluster({ ...newCluster, description: e.target.value })}
-                multiline
-                rows={2}
-              />
-            </Grid>
-          </Grid>
+      <Dialog open={openCreateClusterDialog} onClose={() => setOpenCreateClusterDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Создать куст</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Название куста"
+              fullWidth
+              required
+              value={newCluster.name}
+              onChange={(e) => setNewCluster({ ...newCluster, name: e.target.value })}
+            />
+            <FormControl fullWidth required>
+              <InputLabel>Старший продавец</InputLabel>
+              <Select
+                label="Старший продавец"
+                value={newCluster.seniorSellerId}
+                onChange={(e) => setNewCluster({ ...newCluster, seniorSellerId: Number(e.target.value) })}
+              >
+                <MenuItem value={0}>-- Выберите старшего продавца --</MenuItem>
+                {availableSeniorSellers.map((senior) => (
+                  <MenuItem key={senior.id} value={senior.id}>
+                    {senior.fullName} ({senior.username})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Описание"
+              fullWidth
+              multiline
+              rows={3}
+              value={newCluster.description || ''}
+              onChange={(e) => setNewCluster({ ...newCluster, description: e.target.value })}
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenCreateClusterDialog(false)}>Отмена</Button>
-          <Button
-            onClick={handleCreateCluster}
-            variant="contained"
-            disabled={!newCluster.name || !newCluster.seniorSellerId}
-          >
-            Создать куст
+          <Button onClick={() => setOpenCreateClusterDialog(false)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleCreateCluster} variant="contained" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Создать'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Диалог назначения связей */}
-      <Dialog
-        open={openAssignDialog.open}
+      {/* Диалог редактирования куста */}
+      <Dialog open={!!openEditClusterDialog} onClose={() => setOpenEditClusterDialog(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Редактировать куст</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+            <TextField
+              label="Название куста"
+              fullWidth
+              value={editCluster.name || ''}
+              onChange={(e) => setEditCluster({ ...editCluster, name: e.target.value })}
+            />
+            <TextField
+              label="Описание"
+              fullWidth
+              multiline
+              rows={3}
+              value={editCluster.description || ''}
+              onChange={(e) => setEditCluster({ ...editCluster, description: e.target.value })}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenEditClusterDialog(null)} disabled={loading}>
+            Отмена
+          </Button>
+          <Button onClick={handleUpdateCluster} variant="contained" disabled={loading}>
+            {loading ? <CircularProgress size={24} /> : 'Сохранить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог назначения */}
+      <Dialog 
+        open={openAssignDialog.open} 
         onClose={() => setOpenAssignDialog({ open: false, user: null, type: null })}
         maxWidth="sm"
         fullWidth
       >
-        {openAssignDialog.user && openAssignDialog.type && (
-          <>
-            <DialogTitle>
-              {openAssignDialog.type === 'mentor' && 'Назначить наставника'}
-              {openAssignDialog.type === 'group' && 'Добавить в группу'}
-              {openAssignDialog.type === 'cluster' && openAssignDialog.user.role === UserRole.MENTOR 
-                ? 'Добавить наставника в куст'
-                : openAssignDialog.user.role === UserRole.SENIOR_SELLER
-                ? 'Назначить куст старшему продавцу'
-                : 'Назначить куст администратору'}
-              {openAssignDialog.type === 'admin' && 'Управление кустами администратора'}
-            </DialogTitle>
-            <DialogContent dividers>
-              <Typography gutterBottom>
-                Пользователь: <strong>{openAssignDialog.user.fullName}</strong>
-              </Typography>
+        <DialogTitle>
+          {openAssignDialog.type === 'mentor' && 'Назначить наставника'}
+          {openAssignDialog.type === 'group' && 'Добавить в группу'}
+          {openAssignDialog.type === 'cluster' && 'Добавить в куст'}
+          {openAssignDialog.type === 'admin' && 'Назначить кусты администратору'}
+        </DialogTitle>
+        <DialogContent>
+          {openAssignDialog.type === 'mentor' && (
+            <>
+              <FormControl fullWidth sx={{ mt: 2 }}>
+                <InputLabel>Выберите наставника</InputLabel>
+                <Select
+                  value={selectedMentor}
+                  label="Выберите наставника"
+                  onChange={(e) => {
+                    setSelectedMentor(Number(e.target.value));
+                    // Если у наставника уже есть группа, показываем информацию о ней
+                    const mentor = users.find(u => u.id === Number(e.target.value));
+                    if (mentor?.groupId) {
+                      const group = groups.find(g => g.id === mentor.groupId);
+                      if (group) {
+                        showSnackbar(`У наставника уже есть группа: "${group.name}"`, 'info');
+                      }
+                    }
+                  }}
+                >
+                  <MenuItem value={0}>-- Не выбран --</MenuItem>
+                  {availableMentors.map((mentor) => (
+                    <MenuItem key={mentor.id} value={mentor.id}>
+                      {mentor.fullName} ({mentor.username})
+                      {mentor.groupId ? ' (есть группа)' : ' (без группы)'}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
               
-              {openAssignDialog.type === 'mentor' && (
-                <FormControl fullWidth size="small" sx={{ mt: 2 }}>
-                  <InputLabel>Наставник</InputLabel>
-                  <Select
-                    value={selectedMentor}
-                    label="Наставник"
-                    onChange={(e) => setSelectedMentor(Number(e.target.value))}
-                  >
-                    <MenuItem value={0}>Не выбран</MenuItem>
-                    {users
-                      .filter(u => u.role === UserRole.MENTOR)
-                      .map(mentor => (
-                        <MenuItem key={mentor.id} value={mentor.id}>
-                          {mentor.fullName} ({mentor.username})
-                        </MenuItem>
-                      ))}
-                  </Select>
-                </FormControl>
+              {selectedMentor > 0 && (
+                <Box sx={{ mt: 2, p: 1, bgcolor: 'background.default', borderRadius: 1 }}>
+                  <Typography variant="body2">
+                    {(() => {
+                      const mentor = users.find(u => u.id === selectedMentor);
+                      if (!mentor) return null;
+                      
+                      if (mentor.groupId) {
+                        const group = groups.find(g => g.id === mentor.groupId);
+                        return (
+                          <>
+                            У наставника уже есть группа: <strong>{group?.name}</strong>
+                            <br />
+                            Продавец будет добавлен в эту группу.
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            У наставника нет группы.
+                            <br />
+                            Будет создана новая группа с этим наставником.
+                          </>
+                        );
+                      }
+                    })()}
+                  </Typography>
+                </Box>
               )}
-              
-              {openAssignDialog.type === 'group' && (
-                <FormControl fullWidth size="small" sx={{ mt: 2 }}>
-                  <InputLabel>Группа</InputLabel>
-                  <Select
-                    value={selectedGroup}
-                    label="Группа"
-                    onChange={(e) => setSelectedGroup(Number(e.target.value))}
-                  >
-                    <MenuItem value={0}>Не выбрана</MenuItem>
-                    {groups.map(group => (
-                      <MenuItem key={group.id} value={group.id}>
-                        {group.name} (Наставник: {group.mentorName || 'Не назначен'})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-              
-              {(openAssignDialog.type === 'cluster' || openAssignDialog.type === 'admin') && (
-                <FormControl fullWidth size="small" sx={{ mt: 2 }}>
-                  <InputLabel>Куст</InputLabel>
-                  <Select
-                    value={selectedCluster}
-                    label="Куст"
-                    onChange={(e) => setSelectedCluster(Number(e.target.value))}
-                  >
-                    <MenuItem value={0}>Не выбран</MenuItem>
-                    {clusters.map(cluster => {
-                      const isAssigned = cluster.adminId === openAssignDialog.user?.id;
+            </>
+          )}
+          
+          {openAssignDialog.type === 'group' && (
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel>Выберите группу</InputLabel>
+              <Select
+                value={selectedGroup}
+                label="Выберите группу"
+                onChange={(e) => setSelectedGroup(Number(e.target.value))}
+              >
+                <MenuItem value={0}>-- Не выбрана --</MenuItem>
+                {groups.map((group) => (
+                  <MenuItem key={group.id} value={group.id}>
+                    {group.name} (Наставник: {users.find(u => u.id === group.mentorId)?.fullName || 'Не назначен'})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          
+          {openAssignDialog.type === 'cluster' && (
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel>Выберите куст</InputLabel>
+              <Select
+                value={selectedCluster}
+                label="Выберите куст"
+                onChange={(e) => setSelectedCluster(Number(e.target.value))}
+              >
+                <MenuItem value={0}>-- Не выбран --</MenuItem>
+                {clusters.map((cluster) => (
+                  <MenuItem key={cluster.id} value={cluster.id}>
+                    {cluster.name} (Старший продавец: {users.find(u => u.id === cluster.seniorSellerId)?.fullName || 'Не назначен'})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          
+          {openAssignDialog.type === 'admin' && (
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel>Выберите кусты</InputLabel>
+              <Select
+                multiple
+                value={selectedClustersForAdmin}
+                label="Выберите кусты"
+                onChange={(e) => setSelectedClustersForAdmin(e.target.value as number[])}
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {selected.map((clusterId) => {
+                      const cluster = clusters.find(c => c.id === clusterId);
                       return (
-                        <MenuItem key={cluster.id} value={cluster.id} disabled={isAssigned}>
-                          {cluster.name}
-                          {cluster.seniorSellerName && ` (Старший: ${cluster.seniorSellerName})`}
-                          {cluster.adminName && ` (Админ: ${cluster.adminName})`}
-                          {isAssigned && ' - уже назначен'}
-                        </MenuItem>
+                        <Chip 
+                          key={clusterId} 
+                          label={cluster ? cluster.name : `Куст #${clusterId}`}
+                          size="small"
+                        />
                       );
                     })}
-                  </Select>
-                </FormControl>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setOpenAssignDialog({ open: false, user: null, type: null })}>
-                Отмена
-              </Button>
-              <Button
-                onClick={handleAssign}
-                variant="contained"
-                disabled={
-                  (openAssignDialog.type === 'mentor' && !selectedMentor) ||
-                  (openAssignDialog.type === 'group' && !selectedGroup) ||
-                  ((openAssignDialog.type === 'cluster' || openAssignDialog.type === 'admin') && !selectedCluster)
-                }
+                  </Box>
+                )}
               >
-                Назначить
-              </Button>
-            </DialogActions>
-          </>
-        )}
-      </Dialog>
-
-      {/* Диалог подтверждения удаления */}
-      <Dialog
-        open={!!openDeleteDialog}
-        onClose={() => setOpenDeleteDialog(null)}
-      >
-        {openDeleteDialog && (
-          <>
-            <DialogTitle>Подтверждение удаления</DialogTitle>
-            <DialogContent>
-              <Typography>
-                Вы уверены, что хотите удалить пользователя{' '}
-                <strong>{openDeleteDialog.fullName}</strong> ({openDeleteDialog.username})?
-              </Typography>
-              <Typography variant="body2" color="error" sx={{ mt: 1 }}>
-                Это действие нельзя отменить.
-              </Typography>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setOpenDeleteDialog(null)}>Отмена</Button>
-              <Button onClick={handleDeleteUser} variant="contained" color="error">
-                Удалить
-              </Button>
-            </DialogActions>
-          </>
-        )}
+                {clusters.map((cluster) => (
+                  <MenuItem key={cluster.id} value={cluster.id}>
+                    <Checkbox checked={selectedClustersForAdmin.includes(cluster.id)} />
+                    {cluster.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setOpenAssignDialog({ open: false, user: null, type: null })}
+            disabled={loading}
+          >
+            Отмена
+          </Button>
+          <Button 
+            onClick={handleAssign}
+            variant="contained"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Назначить'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Snackbar */}

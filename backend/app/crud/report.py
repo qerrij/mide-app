@@ -116,7 +116,8 @@ class CRUDReport:
             transfer_amount=report_in.transfer_amount,
             comment=report_in.comment,
             status=ReportStatus.SUBMITTED,
-            transfer_photos=photo_paths  
+            transfer_photos=photo_paths,
+            accountant_amount=report_in.accountant_amount  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
         )
         
         db.add(db_report)

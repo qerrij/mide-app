@@ -3,17 +3,21 @@ export enum UserRole {
   ADMIN = 'ADMIN',
   SENIOR_SELLER = 'SENIOR_SELLER',
   MENTOR = 'MENTOR',
-  SELLER = 'SELLER'
+  SELLER = 'SELLER',
+  ACCOUNTANT = 'ACCOUNTANT'  // Добавляем новую роль бухгалтера
 }
 
-export enum ProductCategory {
-  DISPOSABLES = 'DISPOSABLES',
-  LIQUIDS = 'LIQUIDS',
-  CONSUMABLES = 'CONSUMABLES',
-  PODS = 'PODS',
-  ENERGY_DRINKS = 'ENERGY_DRINKS'
+// Удаляем старый ProductCategory enum и заменяем на структуру для работы с ID категорий
+export interface ProductCategory {
+  id: number;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
+// Добавляем новые статусы для отчетов
 export enum ReportStatus {
   DRAFT = 'DRAFT',
   SUBMITTED = 'SUBMITTED',
@@ -21,35 +25,11 @@ export enum ReportStatus {
   REJECTED = 'REJECTED'
 }
 
-export enum MovementStatus {
-  PENDING = 'PENDING',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  CANCELLED = 'CANCELLED'
-}
-
-export enum RejectionReason {
-  DEFECTIVE = 'DEFECTIVE',
-  INSUFFICIENT = 'INSUFFICIENT',
-  ERROR = 'ERROR',
-  OTHER = 'OTHER'
-}
-
-export enum DefectStatus {
-  PENDING = 'PENDING',
-  REVIEWED = 'REVIEWED',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED'
-}
-
-export enum NotificationType {
-  INVENTORY_REVIEW = 'INVENTORY_REVIEW',
-  MOVEMENT_REQUEST = 'MOVEMENT_REQUEST',
-  MOVEMENT_CONFIRMED = 'MOVEMENT_CONFIRMED',
-  MOVEMENT_REJECTED = 'MOVEMENT_REJECTED',
-  DEFECT_REPORTED = 'DEFECT_REPORTED',
-  REPORT_SUBMITTED = 'REPORT_SUBMITTED',
-  SYSTEM = 'SYSTEM'
+// Добавляем статусы для бухгалтера
+export enum AccountantReportStatus {
+  PENDING = 'PENDING',        // Ожидает проверки бухгалтером
+  APPROVED = 'APPROVED',      // Одобрено бухгалтером
+  REJECTED = 'REJECTED'       // Отклонено бухгалтером
 }
 
 // ================ ПОЛЬЗОВАТЕЛИ ================
@@ -60,16 +40,25 @@ export interface User {
   telegram?: string;
   city?: string;
   role: UserRole;
+  rate?: number;  // Добавляем ставку пользователя
   
   clusterId?: number;
   groupId?: number;
   mentorId?: number;
   seniorSellerId?: number;
+  adminId?: number;  // Добавляем adminId
   adminClusterIds?: number[];
   
   createdAt: Date;
   updatedAt?: Date;
   lastLogin?: Date;
+  
+  // Дополнительные поля для отображения (с сервера)
+  groupName?: string;
+  clusterName?: string;
+  mentorName?: string;
+  seniorSellerName?: string;
+  adminName?: string;
 }
 
 export interface CreateUserDto {
@@ -79,10 +68,12 @@ export interface CreateUserDto {
   telegram?: string;
   city?: string;
   role: UserRole;
+  rate?: number;  // Добавляем ставку
   clusterId?: number;
   groupId?: number;
   mentorId?: number;
   seniorSellerId?: number;
+  adminId?: number;
   adminClusterIds?: number[];
 }
 
@@ -93,10 +84,12 @@ export interface UpdateUserDto {
   telegram?: string;
   city?: string;
   role?: UserRole;
+  rate?: number;  // Добавляем ставку
   clusterId?: number;
   groupId?: number;
   mentorId?: number;
   seniorSellerId?: number;
+  adminId?: number;
   adminClusterIds?: number[];
 }
 
@@ -104,7 +97,8 @@ export interface UpdateUserDto {
 export interface Product {
   id: number;
   name: string;
-  category: ProductCategory;
+  categoryId: number;  // Меняем с enum на ID категории
+  categoryName?: string;  // Добавляем имя категории для отображения
   price: number;
   sku: string;
   description?: string;
@@ -136,12 +130,23 @@ export interface Report {
   comment?: string;
   reviewedBy?: number;
   reviewDate?: Date;
+  
+  // Новые поля для бухгалтера
+  accountantAmount?: number;  // Сумма указанная пользователем
+  accountantStatus?: AccountantReportStatus;
+  accountantComment?: string;
+  accountantFinalAmount?: number;  // Окончательная сумма указанная бухгалтером
+  accountantReviewedBy?: number;
+  accountantReviewDate?: Date;
+  accountantName?: string;
+  
   createdAt: Date;
   updatedAt?: Date;
 }
 
 export interface ReportCreateDto {
   products: ReportProduct[];
+  accountantAmount: number;  // Добавляем обязательное поле для суммы бухгалтера
   comment?: string;
 }
 
@@ -168,115 +173,8 @@ export interface ReportStats {
   submitted: number;
   approved: number;
   rejected: number;
+  totalAmount: number;
   lastReportDate?: Date;
-}
-
-// ================ ДРУГИЕ СУЩНОСТИ ================
-export interface Inventory {
-  id: number;
-  sellerId: number;
-  date: Date;
-  products: InventoryProduct[];
-  photos: string[];
-  recipientRole?: UserRole;
-  recipientId?: number;
-  status: ReportStatus;
-}
-
-export interface InventoryProduct {
-  productId: number;
-  expectedQuantity: number;
-  actualQuantity: number;
-}
-
-export interface Movement {
-  id: number;
-  fromSellerId: number;
-  toSellerId: number;
-  date: Date;
-  products: MovementProduct[];
-  photos: string[];
-  status: MovementStatus;
-  rejectionReason?: RejectionReason;
-  rejectionComment?: string;
-  confirmedBy?: number;
-  confirmedAt?: Date;
-}
-
-export interface MovementProduct {
-  productId: number;
-  quantity: number;
-  productName: string;
-  productCategory: ProductCategory;
-}
-
-export interface DefectReport {
-  id: number;
-  sellerId: number;
-  date: Date;
-  productId: number;
-  quantity: number;
-  photos: string[];
-  videos?: string[];
-  reason: string;
-  status: DefectStatus;
-  reviewedBy?: number;
-  reviewDate?: Date;
-  comment?: string;
-}
-
-export interface Notification {
-  id: number;
-  userId: number;
-  title: string;
-  message: string;
-  type: NotificationType;
-  read: boolean;
-  createdAt: Date;
-  data?: any;
-  relatedId?: number;
-}
-
-
-export interface SellerGroup {
-  id: number;
-  name: string;
-  clusterId: number;
-  mentorId: number;
-  createdAt: Date;
-}
-
-export interface StockItem {
-  id: number;
-  productId: number;
-  sellerId: number;
-  quantity: number;
-  defectiveQuantity: number;
-  lastUpdated: Date;
-}
-
-export interface StockSummary {
-  productId: number;
-  productName: string;
-  totalQuantity: number;
-  defectiveQuantity: number;
-  availableQuantity: number;
-  category: ProductCategory;
-}
-
-export interface UserStats {
-  userId: number;
-  totalReports: number;
-  totalSales: number;
-  totalDefects: number;
-  totalMovements: number;
-  lastReportDate?: Date;
-}
-
-export interface City {
-  id: number;
-  name: string;
-  region: string;
 }
 
 // ================ АВТОРИЗАЦИЯ ================
@@ -284,52 +182,6 @@ export interface LoginResponse {
   access_token: string;
   token_type: string;
   user: User;
-}
-
-// ================ ХЕЛПЕРЫ ================
-export const getRoleName = (role: UserRole): string => {
-  const names = {
-    [UserRole.OWNER]: 'Владелец',
-    [UserRole.ADMIN]: 'Администратор',
-    [UserRole.SENIOR_SELLER]: 'Старший продавец',
-    [UserRole.MENTOR]: 'Наставник',
-    [UserRole.SELLER]: 'Продавец',
-  };
-  return names[role];
-};
-
-export const getCategoryName = (category: ProductCategory): string => {
-  const names = {
-    [ProductCategory.DISPOSABLES]: 'Одноразки',
-    [ProductCategory.LIQUIDS]: 'Жидкости',
-    [ProductCategory.CONSUMABLES]: 'Расходники',
-    [ProductCategory.PODS]: 'Подики',
-    [ProductCategory.ENERGY_DRINKS]: 'Энергетики',
-  };
-  return names[category];
-};
-
-export const getStatusColor = (status: ReportStatus | MovementStatus | DefectStatus): string => {
-  if (status === ReportStatus.APPROVED || status === MovementStatus.APPROVED || status === DefectStatus.APPROVED) {
-    return '#4caf50';
-  }
-  if (status === ReportStatus.REJECTED || status === MovementStatus.REJECTED || status === DefectStatus.REJECTED) {
-    return '#f44336';
-  }
-  if (status === ReportStatus.SUBMITTED || status === MovementStatus.PENDING || status === DefectStatus.PENDING) {
-    return '#ff9800';
-  }
-  return '#9e9e9e';
-};
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pages: number;
-  limit: number;
-  has_next: boolean;
-  has_prev: boolean;
 }
 
 // ================ ГРУППЫ И КУСТЫ ================
@@ -340,10 +192,12 @@ export interface Group {
   clusterId?: number;
   seniorSellerId?: number;
   description?: string;
+  isActive?: boolean;
   createdAt: Date;
   updatedAt?: Date;
   sellerCount?: number;
   mentorName?: string;
+  clusterName?: string;
 }
 
 export interface CreateGroupDto {
@@ -360,6 +214,7 @@ export interface UpdateGroupDto {
   clusterId?: number;
   seniorSellerId?: number;
   description?: string;
+  isActive?: boolean;
 }
 
 export interface Cluster {
@@ -368,6 +223,7 @@ export interface Cluster {
   seniorSellerId: number;
   adminId?: number;
   description?: string;
+  isActive?: boolean;
   createdAt: Date;
   updatedAt?: Date;
   groupCount?: number;
@@ -388,4 +244,108 @@ export interface UpdateClusterDto {
   seniorSellerId?: number;
   adminId?: number;
   description?: string;
+  isActive?: boolean;
+}
+
+//==== ЭТО ПОКА ЧТО НЕ НУЖНО ====//
+
+export enum NotificationType {
+  INVENTORY_REVIEW = 'INVENTORY_REVIEW',
+  MOVEMENT_REQUEST = 'MOVEMENT_REQUEST',
+  MOVEMENT_CONFIRMED = 'MOVEMENT_CONFIRMED',
+  MOVEMENT_REJECTED = 'MOVEMENT_REJECTED',
+  DEFECT_REPORTED = 'DEFECT_REPORTED',
+  REPORT_SUBMITTED = 'REPORT_SUBMITTED',
+  SYSTEM = 'SYSTEM'
+}
+
+export interface Notification {
+  id: number;
+  userId: number;
+  title: string;
+  message: string;
+  type: NotificationType;
+  read: boolean;
+  createdAt: Date;
+  data?: any;
+  relatedId?: number;
+}
+
+export enum DefectStatus {
+  PENDING = 'PENDING',
+  REVIEWED = 'REVIEWED',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED'
+}
+
+
+
+// ================ ХЕЛПЕРЫ ================
+export const getRoleName = (role: UserRole): string => {
+  const names = {
+    [UserRole.OWNER]: 'Владелец',
+    [UserRole.ADMIN]: 'Администратор',
+    [UserRole.SENIOR_SELLER]: 'Старший продавец',
+    [UserRole.MENTOR]: 'Наставник',
+    [UserRole.SELLER]: 'Продавец',
+    [UserRole.ACCOUNTANT]: 'Бухгалтер',  // Добавляем бухгалтера
+  };
+  return names[role];
+};
+
+export const getStatusColor = (status: ReportStatus | AccountantReportStatus): string => {
+  if (status === ReportStatus.APPROVED || status === AccountantReportStatus.APPROVED) {
+    return '#4caf50';
+  }
+  if (status === ReportStatus.REJECTED || status === AccountantReportStatus.REJECTED) {
+    return '#f44336';
+  }
+  if (status === ReportStatus.SUBMITTED) {
+    return '#ff9800';
+  }
+  if (status === AccountantReportStatus.PENDING) {
+    return '#ff9800';
+  }
+  return '#9e9e9e';
+};
+
+export const getReportStatusText = (status: ReportStatus): string => {
+  const texts = {
+    [ReportStatus.DRAFT]: 'Черновик',
+    [ReportStatus.SUBMITTED]: 'Отправлен',
+    [ReportStatus.APPROVED]: 'Утвержден',
+    [ReportStatus.REJECTED]: 'Отклонен',
+  };
+  return texts[status];
+};
+
+export const getAccountantStatusText = (status: AccountantReportStatus): string => {
+  const texts = {
+    [AccountantReportStatus.PENDING]: 'На проверке у бухгалтера',
+    [AccountantReportStatus.APPROVED]: 'Проверен бухгалтером',
+    [AccountantReportStatus.REJECTED]: 'Отклонен бухгалтером',
+  };
+  return texts[status];
+};
+
+
+// ==== ОСТАТКИ ==== //
+
+export interface InventoryItem {
+  id: number;
+  userId: number;
+  productId: number;
+  quantity: number;
+  reservedQuantity: number;
+  productName?: string;
+  productSku?: string;
+  productPrice?: number;
+  userName?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface InventoryResponse {
+  quantity: number;
+  items: InventoryItem[];
 }

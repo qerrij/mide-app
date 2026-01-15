@@ -103,52 +103,68 @@ class CRUDUser:
         if existing_user:
             raise ValueError("User with this username already exists")
         
+        # Преобразуем 0 в None для полей с внешними ключами
+        user_data = user_in.dict()
+        
+        # Преобразуем 0 в None для всех nullable foreign keys
+        for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id']:
+            if field in user_data and user_data[field] == 0:
+                user_data[field] = None
+        
+        # Также проверяем admin_clusters
+        admin_clusters = user_data.get('admin_clusters')
+        if admin_clusters == [0]:
+            admin_clusters = []
+        
+        admin_clusters_str = None
+        if admin_clusters and isinstance(admin_clusters, list) and len(admin_clusters) > 0:
+            # Фильтруем нули
+            admin_clusters = [c for c in admin_clusters if c != 0]
+            if admin_clusters:
+                admin_clusters_str = json.dumps(admin_clusters)
+        
         # Только для продавца проверяем, если указан наставник
-        if user_in.role == UserRole.SELLER and user_in.mentor_id:
+        if user_data.get('role') == UserRole.SELLER and user_data.get('mentor_id'):
             mentor = db.query(User).filter(
-                User.id == user_in.mentor_id,
+                User.id == user_data['mentor_id'],
                 User.role == UserRole.MENTOR,
                 User.is_active == True
             ).first()
             if not mentor:
-                raise ValueError(f"Mentor with ID {user_in.mentor_id} not found or not a MENTOR")
+                raise ValueError(f"Mentor with ID {user_data['mentor_id']} not found or not a MENTOR")
         
         # Для наставника: если указан куст, проверяем его существование
-        if user_in.role == UserRole.MENTOR and user_in.cluster_id:
+        if user_data.get('role') == UserRole.MENTOR and user_data.get('cluster_id'):
             cluster = db.query(Cluster).filter(
-                Cluster.id == user_in.cluster_id,
+                Cluster.id == user_data['cluster_id'],
                 Cluster.is_active == True
             ).first()
             if not cluster:
-                raise ValueError(f"Cluster with ID {user_in.cluster_id} not found")
+                raise ValueError(f"Cluster with ID {user_data['cluster_id']} not found")
         
         # Для старшего продавца: если указан куст, проверяем его существование
-        if user_in.role == UserRole.SENIOR_SELLER and user_in.cluster_id:
+        if user_data.get('role') == UserRole.SENIOR_SELLER and user_data.get('cluster_id'):
             cluster = db.query(Cluster).filter(
-                Cluster.id == user_in.cluster_id,
+                Cluster.id == user_data['cluster_id'],
                 Cluster.is_active == True
             ).first()
             if not cluster:
-                raise ValueError(f"Cluster with ID {user_in.cluster_id} not found")
-        
-        admin_clusters_str = None
-        if user_in.admin_clusters:
-            if isinstance(user_in.admin_clusters, list):
-                admin_clusters_str = json.dumps(user_in.admin_clusters)
+                raise ValueError(f"Cluster with ID {user_data['cluster_id']} not found")
         
         db_user = User(
-            username=user_in.username,
-            password_hash=get_password_hash(user_in.password),
-            full_name=user_in.full_name,
-            telegram=user_in.telegram,
-            city=user_in.city,
-            role=user_in.role,
-            cluster_id=user_in.cluster_id,
-            group_id=user_in.group_id,
-            mentor_id=user_in.mentor_id,
-            senior_seller_id=user_in.senior_seller_id,
+            username=user_data['username'],
+            password_hash=get_password_hash(user_data['password']),
+            full_name=user_data['full_name'],
+            telegram=user_data.get('telegram'),
+            city=user_data.get('city'),
+            role=user_data.get('role'),
+            cluster_id=user_data.get('cluster_id'),
+            group_id=user_data.get('group_id'),
+            mentor_id=user_data.get('mentor_id'),
+            senior_seller_id=user_data.get('senior_seller_id'),
             admin_clusters=admin_clusters_str,
-            is_active=True
+            is_active=True,
+            rate=user_data.get('rate', 0.0),
         )
         
         try:
@@ -164,11 +180,43 @@ class CRUDUser:
             raise ValueError(f"Failed to create user: {str(e)}")
     
     def update(self, db: Session, user_id: int, user_in: UserUpdate) -> Optional[User]:
-        db_user = self.get(db, user_id)
+        db_user = self.get(db, user_id=user_id)
         if not db_user:
             return None
         
         update_data = user_in.dict(exclude_unset=True)
+        
+        # Преобразуем 0 в None для всех nullable foreign keys
+        for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id']:
+            if field in update_data and update_data[field] == 0:
+                update_data[field] = None
+        
+        # Обрабатываем admin_clusters
+        if "admin_clusters" in update_data:
+            admin_clusters = update_data["admin_clusters"]
+            if admin_clusters is not None:
+                # Фильтруем нули из admin_clusters
+                if isinstance(admin_clusters, list):
+                    admin_clusters = [c for c in admin_clusters if c != 0 and c is not None]
+                    if admin_clusters:
+                        update_data["admin_clusters"] = json.dumps(admin_clusters)
+                    else:
+                        update_data["admin_clusters"] = None
+                elif isinstance(admin_clusters, str):
+                    # Если это строка, пробуем распарсить JSON
+                    try:
+                        parsed = json.loads(admin_clusters)
+                        if isinstance(parsed, list):
+                            parsed = [c for c in parsed if c != 0 and c is not None]
+                            update_data["admin_clusters"] = json.dumps(parsed) if parsed else None
+                    except:
+                        update_data["admin_clusters"] = None
+                else:
+                    update_data["admin_clusters"] = None
+        else:
+            # Если admin_clusters не передается, не меняем его
+            if 'admin_clusters' in update_data:
+                del update_data['admin_clusters']
         
         if "role" in update_data and update_data["role"] != db_user.role:
             new_role = update_data["role"]
@@ -192,13 +240,6 @@ class CRUDUser:
         if "password" in update_data:
             update_data["password_hash"] = get_password_hash(update_data.pop("password"))
         
-        if "admin_clusters" in update_data:
-            admin_clusters = update_data.pop("admin_clusters")
-            if admin_clusters is not None and isinstance(admin_clusters, list):
-                update_data["admin_clusters"] = json.dumps(admin_clusters)
-            else:
-                update_data["admin_clusters"] = None
-        
         for field, value in update_data.items():
             if field != "password": 
                 setattr(db_user, field, value)
@@ -215,7 +256,7 @@ class CRUDUser:
             raise ValueError(f"Failed to update user: {str(e)}")
     
     def delete(self, db: Session, user_id: int) -> bool:
-        db_user = self.get(db, user_id)
+        db_user = self.get(db, user_id=user_id)
         if not db_user:
             return False
         

@@ -71,6 +71,12 @@ const Drawer: React.FC<DrawerProps> = ({ open, onClose }) => {
       path: '/stock',
       roles: [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR],
     },
+    {
+      title: 'Товары',
+      icon: <Inventory />,
+      path: '/products',
+      roles: [UserRole.OWNER]
+    },
   ];
 
   // Добавляем персонал только для админа и владельца

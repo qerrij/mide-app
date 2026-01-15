@@ -1,14 +1,16 @@
-import json
 from typing import List
-from app.models.user import User
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.crud.user import crud_user
 from app.crud.group import crud_group
 from app.crud.cluster import crud_cluster
-from app.schemas.user import UserRole, UserResponse
+from app.schemas.user import UserResponse, UserRole
 from app.api.dependencies import get_current_user, require_role
+from app.models.user import User
+from app.models.group import Group
+from app.models.cluster import Cluster
+import json
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
 
@@ -20,34 +22,67 @@ def assign_seller_to_mentor(
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.OWNER))
 ):
-    """
-    Назначить продавца наставнику
-    """
-    # Проверяем, что продавец существует и является продавцом
-    seller = crud_user.get(db, seller_id)
-    if not seller or seller.role != UserRole.SELLER:
-        raise HTTPException(status_code=404, detail="Seller not found")
-    
-    # Проверяем, что наставник существует и является наставником
-    mentor = crud_user.get(db, mentor_id)
-    if not mentor or mentor.role != UserRole.MENTOR:
-        raise HTTPException(status_code=404, detail="Mentor not found")
-    
-    # Проверяем, не состоит ли продавец уже в группе
-    if seller.group_id:
-        group = crud_group.get(db, seller.group_id)
-        if group and group.mentor_id != mentor_id:
-            raise HTTPException(status_code=400, detail="Seller is already in another group")
-    
-    # Назначаем наставника
-    seller.mentor_id = mentor_id
-    seller.cluster_id = mentor.cluster_id
-    seller.senior_seller_id = mentor.senior_seller_id
-    
-    db.commit()
-    db.refresh(seller)
-    
-    return seller
+    """Назначить продавца наставнику"""
+    try:
+        # Проверяем существование продавца и что он продавец
+        seller = crud_user.get(db, seller_id)
+        if not seller or seller.role != UserRole.SELLER:
+            raise HTTPException(status_code=404, detail="Seller not found")
+        
+        # Проверяем существование наставника
+        mentor = crud_user.get(db, mentor_id)
+        if not mentor or mentor.role != UserRole.MENTOR:
+            raise HTTPException(status_code=404, detail="Mentor not found")
+        
+        # Если наставник уже в группе, используем эту группу
+        if mentor.group_id:
+            # Обновляем продавца
+            seller.group_id = mentor.group_id
+            seller.mentor_id = mentor.id
+            seller.cluster_id = mentor.cluster_id
+            seller.senior_seller_id = mentor.senior_seller_id
+            
+            # Обновляем группу
+            group = db.query(Group).filter(Group.id == mentor.group_id).first()
+            if group:
+                # ВАЖНО: Обновляем seller_count в группе
+                if hasattr(group, 'seller_count'):
+                    group.seller_count = group.seller_count + 1 if group.seller_count else 1
+        else:
+            # Создаем новую группу с этим наставником
+            new_group = Group(
+                name=f"Группа {mentor.full_name}",
+                mentor_id=mentor.id,
+                cluster_id=mentor.cluster_id,
+                senior_seller_id=mentor.senior_seller_id,
+                seller_count=1  # ВАЖНО: Устанавливаем начальное значение
+            )
+            db.add(new_group)
+            db.commit()
+            db.refresh(new_group)
+            
+            # Обновляем наставника
+            mentor.group_id = new_group.id
+            db.commit()
+            
+            # Обновляем продавца
+            seller.group_id = new_group.id
+            seller.mentor_id = mentor.id
+            seller.cluster_id = mentor.cluster_id
+            seller.senior_seller_id = mentor.senior_seller_id
+        
+        db.commit()
+        
+        # ВАЖНО: Обновляем данные после коммита
+        db.refresh(seller)
+        db.refresh(mentor)
+        
+        crud_user._enrich_user_data(db, seller)
+        return seller
+            
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/seller-to-group/{seller_id}/{group_id}", response_model=UserResponse)
@@ -57,27 +92,73 @@ def assign_seller_to_group(
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.OWNER))
 ):
-    """
-    Назначить продавца в группу
-    """
-    seller = crud_user.get(db, seller_id)
-    if not seller or seller.role != UserRole.SELLER:
-        raise HTTPException(status_code=404, detail="Seller not found")
-    
-    group = crud_group.get(db, group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-    
-    # Назначаем продавца в группу
-    seller.group_id = group_id
-    seller.mentor_id = group.mentor_id
-    seller.cluster_id = group.cluster_id
-    seller.senior_seller_id = group.senior_seller_id
-    
-    db.commit()
-    db.refresh(seller)
-    
-    return seller
+    """Добавить продавца в группу"""
+    try:
+        # Проверяем существование продавца
+        seller = crud_user.get(db, seller_id)
+        if not seller or seller.role != UserRole.SELLER:
+            raise HTTPException(status_code=404, detail="Seller not found")
+        
+        # Проверяем существование группы
+        group = db.query(Group).filter(Group.id == group_id, Group.is_active == True).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Проверяем, что продавец уже не в другой группе
+        if seller.group_id and seller.group_id != group_id:
+            raise HTTPException(status_code=400, detail="Seller already in another group")
+        
+        # Получаем наставника группы
+        mentor = crud_user.get(db, group.mentor_id)
+        if not mentor or mentor.role != UserRole.MENTOR:
+            raise HTTPException(status_code=404, detail="Group mentor not found")
+        
+        # Обновляем продавца
+        seller.group_id = group_id
+        seller.mentor_id = mentor.id
+        seller.cluster_id = group.cluster_id
+        seller.senior_seller_id = group.senior_seller_id
+        
+        db.commit()
+        db.refresh(seller)
+        crud_user._enrich_user_data(db, seller)
+        return seller
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/remove-seller-from-group/{seller_id}", response_model=UserResponse)
+def remove_seller_from_group(
+    seller_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """Удалить продавца из группы"""
+    try:
+        seller = crud_user.get(db, seller_id)
+        if not seller or seller.role != UserRole.SELLER:
+            raise HTTPException(status_code=404, detail="Seller not found")
+        
+        if not seller.group_id:
+            raise HTTPException(status_code=400, detail="Seller is not in any group")
+        
+        # Отвязываем продавца
+        seller.group_id = None
+        seller.mentor_id = None
+        # Оставляем куст и старшего продавца, если они были назначены отдельно
+        # seller.cluster_id = None
+        # seller.senior_seller_id = None
+        
+        db.commit()
+        db.refresh(seller)
+        crud_user._enrich_user_data(db, seller)
+        return seller
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/mentor-to-cluster/{mentor_id}/{cluster_id}", response_model=UserResponse)
@@ -87,123 +168,59 @@ def assign_mentor_to_cluster(
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.OWNER))
 ):
-    """
-    Назначить наставника в куст
-    """
-    mentor = crud_user.get(db, mentor_id)
-    if not mentor or mentor.role != UserRole.MENTOR:
-        raise HTTPException(status_code=404, detail="Mentor not found")
-    
-    cluster = crud_cluster.get(db, cluster_id)
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    
-    # Проверяем, не управляет ли наставник уже группой
-    group = crud_group.get_by_mentor(db, mentor_id)
-    if group:
-        # Если наставник управляет группой, обновляем группу тоже
-        group.cluster_id = cluster_id
-        group.senior_seller_id = cluster.senior_seller_id
-    
-    # Назначаем наставника в куст
-    mentor.cluster_id = cluster_id
-    mentor.senior_seller_id = cluster.senior_seller_id
-    
-    # Обновляем всех продавцов этого наставника
-    sellers = db.query(User).filter(
-        User.mentor_id == mentor_id,
-        User.is_active == True
-    ).all()
-    
-    for seller in sellers:
-        seller.cluster_id = cluster_id
-        seller.senior_seller_id = cluster.senior_seller_id
-    
-    db.commit()
-    db.refresh(mentor)
-    
-    return mentor
-
-
-@router.post("/admin-to-cluster/{admin_id}/{cluster_id}", response_model=UserResponse)
-def assign_admin_to_cluster(
-    admin_id: int,
-    cluster_id: int,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_role(UserRole.OWNER))
-):
-    """
-    Назначить администратору куст
-    """
-    admin = crud_user.get(db, admin_id)
-    if not admin or admin.role != UserRole.ADMIN:
-        raise HTTPException(status_code=404, detail="Admin not found")
-    
-    cluster = crud_cluster.get(db, cluster_id)
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    
-    # Получаем текущие кусты администратора
-    admin_clusters = []
-    if admin.admin_clusters and isinstance(admin.admin_clusters, str):
-        try:
-            admin_clusters = json.loads(admin.admin_clusters)
-        except:
-            admin_clusters = []
-    
-    # Добавляем куст, если его еще нет
-    if cluster_id not in admin_clusters:
-        admin_clusters.append(cluster_id)
-        admin.admin_clusters = json.dumps(admin_clusters)
+    """Добавить наставника в куст"""
+    try:
+        # Проверяем существование наставника
+        mentor = crud_user.get(db, mentor_id)
+        if not mentor or mentor.role != UserRole.MENTOR:
+            raise HTTPException(status_code=404, detail="Mentor not found")
         
-        # Обновляем администратора в кусте
-        cluster.admin_id = admin_id
-    
-    db.commit()
-    db.refresh(admin)
-    
-    return admin
-
-
-@router.delete("/admin-from-cluster/{admin_id}/{cluster_id}", response_model=UserResponse)
-def remove_admin_from_cluster(
-    admin_id: int,
-    cluster_id: int,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_role(UserRole.OWNER))
-):
-    """
-    Убрать у администратора куст
-    """
-    admin = crud_user.get(db, admin_id)
-    if not admin or admin.role != UserRole.ADMIN:
-        raise HTTPException(status_code=404, detail="Admin not found")
-    
-    cluster = crud_cluster.get(db, cluster_id)
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    
-    # Получаем текущие кусты администратора
-    admin_clusters = []
-    if admin.admin_clusters and isinstance(admin.admin_clusters, str):
-        try:
-            admin_clusters = json.loads(admin.admin_clusters)
-        except:
-            admin_clusters = []
-    
-    # Удаляем куст
-    if cluster_id in admin_clusters:
-        admin_clusters.remove(cluster_id)
-        admin.admin_clusters = json.dumps(admin_clusters) if admin_clusters else None
+        # Проверяем существование куста
+        cluster = db.query(Cluster).filter(Cluster.id == cluster_id, Cluster.is_active == True).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
         
-        # Если это был администратор куста, очищаем поле
-        if cluster.admin_id == admin_id:
-            cluster.admin_id = None
-    
-    db.commit()
-    db.refresh(admin)
-    
-    return admin
+        # Получаем старшего продавца куста
+        senior_seller = crud_user.get(db, cluster.senior_seller_id)
+        if not senior_seller or senior_seller.role != UserRole.SENIOR_SELLER:
+            raise HTTPException(status_code=404, detail="Cluster senior seller not found")
+        
+        # Обновляем наставника
+        mentor.cluster_id = cluster_id
+        mentor.senior_seller_id = senior_seller.id
+        
+        # Обновляем группу наставника если она есть
+        if mentor.group_id:
+            group = db.query(Group).filter(Group.id == mentor.group_id).first()
+            if group:
+                group.cluster_id = cluster_id
+                group.senior_seller_id = senior_seller.id
+        
+        # Обновляем всех продавцов этого наставника
+        sellers = db.query(User).filter(
+            User.mentor_id == mentor.id,
+            User.is_active == True
+        ).all()
+        
+        for seller in sellers:
+            seller.cluster_id = cluster_id
+            seller.senior_seller_id = senior_seller.id
+        
+        db.commit()
+        
+        # ВАЖНО: Обновляем данные после коммита
+        db.refresh(mentor)
+        if mentor.group_id:
+            db.refresh(group)
+        for seller in sellers:
+            db.refresh(seller)
+        
+        crud_user._enrich_user_data(db, mentor)
+        return mentor
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/senior-to-cluster/{senior_id}/{cluster_id}", response_model=UserResponse)
@@ -213,51 +230,416 @@ def assign_senior_to_cluster(
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.OWNER))
 ):
-    """
-    Назначить старшего продавца руководителем куста
-    """
-    senior = crud_user.get(db, senior_id)
-    if not senior or senior.role != UserRole.SENIOR_SELLER:
-        raise HTTPException(status_code=404, detail="Senior seller not found")
-    
-    cluster = crud_cluster.get(db, cluster_id)
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    
-    # Проверяем, не управляет ли уже кустом
-    if cluster.senior_seller_id and cluster.senior_seller_id != senior_id:
-        raise HTTPException(status_code=400, detail="Cluster already has a senior seller")
-    
-    # Назначаем старшего продавца кусту
-    cluster.senior_seller_id = senior_id
-    senior.cluster_id = cluster_id
-    
-    db.commit()
-    db.refresh(senior)
-    
-    return senior
+    """Назначить старшего продавца кусту (создать куст или изменить)"""
+    try:
+        # Проверяем существование старшего продавца
+        senior_seller = crud_user.get(db, senior_id)
+        if not senior_seller or senior_seller.role != UserRole.SENIOR_SELLER:
+            raise HTTPException(status_code=404, detail="Senior seller not found")
+        
+        # Проверяем существование куста
+        cluster = db.query(Cluster).filter(Cluster.id == cluster_id, Cluster.is_active == True).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+        
+        # Если у старшего продавца уже есть другой куст, нельзя
+        if senior_seller.cluster_id and senior_seller.cluster_id != cluster_id:
+            # Проверяем, не управляет ли он уже другим кустом
+            existing_cluster = db.query(Cluster).filter(
+                Cluster.senior_seller_id == senior_id,
+                Cluster.is_active == True
+            ).first()
+            if existing_cluster:
+                raise HTTPException(status_code=400, detail="Senior seller already manages another cluster")
+        
+        # Обновляем куст
+        old_senior_id = cluster.senior_seller_id
+        cluster.senior_seller_id = senior_id
+        
+        # Обновляем старшего продавца
+        senior_seller.cluster_id = cluster_id
+        
+        # Если у куста был другой старший продавец, отвязываем его
+        if old_senior_id and old_senior_id != senior_id:
+            old_senior = crud_user.get(db, old_senior_id)
+            if old_senior:
+                old_senior.cluster_id = None
+        
+        # Обновляем всех наставников и продавцов в этом кусте
+        mentors = db.query(User).filter(
+            User.cluster_id == cluster_id,
+            User.role == UserRole.MENTOR,
+            User.is_active == True
+        ).all()
+        
+        for mentor in mentors:
+            mentor.senior_seller_id = senior_id
+            
+            # Обновляем группу наставника
+            if mentor.group_id:
+                group = db.query(Group).filter(Group.id == mentor.group_id).first()
+                if group:
+                    group.senior_seller_id = senior_id
+            
+            # Обновляем продавцов этого наставника
+            sellers = db.query(User).filter(
+                User.mentor_id == mentor.id,
+                User.is_active == True
+            ).all()
+            
+            for seller in sellers:
+                seller.senior_seller_id = senior_id
+        
+        db.commit()
+        db.refresh(senior_seller)
+        crud_user._enrich_user_data(db, senior_seller)
+        return senior_seller
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/remove-seller-from-group/{seller_id}", response_model=UserResponse)
-def remove_seller_from_group(
-    seller_id: int,
+@router.post("/group-to-cluster/{group_id}/{cluster_id}", response_model=UserResponse)
+def assign_group_to_cluster(
+    group_id: int,
+    cluster_id: int,
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.OWNER))
 ):
-    """
-    Убрать продавца из группы
-    """
-    seller = crud_user.get(db, seller_id)
-    if not seller or seller.role != UserRole.SELLER:
-        raise HTTPException(status_code=404, detail="Seller not found")
+    """Поместить группу в куст"""
+    try:
+        # Проверяем существование группы
+        group = db.query(Group).filter(Group.id == group_id, Group.is_active == True).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Проверяем существование куста
+        cluster = db.query(Cluster).filter(Cluster.id == cluster_id, Cluster.is_active == True).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+        
+        # Получаем старшего продавца куста
+        senior_seller = crud_user.get(db, cluster.senior_seller_id)
+        if not senior_seller or senior_seller.role != UserRole.SENIOR_SELLER:
+            raise HTTPException(status_code=404, detail="Cluster senior seller not found")
+        
+        # Обновляем группу
+        group.cluster_id = cluster_id
+        group.senior_seller_id = senior_seller.id
+        
+        # Обновляем наставника группы
+        mentor = crud_user.get(db, group.mentor_id)
+        if mentor:
+            mentor.cluster_id = cluster_id
+            mentor.senior_seller_id = senior_seller.id
+        
+        # Обновляем всех продавцов группы
+        sellers = db.query(User).filter(
+            User.group_id == group_id,
+            User.is_active == True
+        ).all()
+        
+        for seller in sellers:
+            seller.cluster_id = cluster_id
+            seller.senior_seller_id = senior_seller.id
+        
+        # ВАЖНО: Обновляем куст - увеличиваем счетчик групп
+        if hasattr(cluster, 'group_count'):
+            cluster.group_count = cluster.group_count + 1 if cluster.group_count else 1
+        
+        db.commit()
+        
+        # ВАЖНО: Обновляем данные после коммита
+        db.refresh(group)
+        if mentor:
+            db.refresh(mentor)
+        for seller in sellers:
+            db.refresh(seller)
+        db.refresh(cluster)
+        
+        # Возвращаем обновленного наставника
+        if mentor:
+            crud_user._enrich_user_data(db, mentor)
+            return mentor
+        else:
+            # Возвращаем любого продавца из группы для ответа
+            if sellers:
+                crud_user._enrich_user_data(db, sellers[0])
+                return sellers[0]
+            else:
+                raise HTTPException(status_code=404, detail="No users in group")
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/admin-to-cluster/{admin_id}/{cluster_id}", response_model=UserResponse)
+def assign_admin_to_cluster(
+    admin_id: int,
+    cluster_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """Добавить куст под управление администратору"""
+    try:
+        # Проверяем существование администратора
+        admin = crud_user.get(db, admin_id)
+        if not admin or admin.role != UserRole.ADMIN:
+            raise HTTPException(status_code=404, detail="Admin not found")
+        
+        # Проверяем существование куста
+        cluster = db.query(Cluster).filter(Cluster.id == cluster_id, Cluster.is_active == True).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+        
+        # Получаем текущие кусты администратора
+        admin_clusters = []
+        if admin.admin_clusters:
+            try:
+                admin_clusters = json.loads(admin.admin_clusters)
+            except:
+                admin_clusters = []
+        
+        # Проверяем, не добавлен ли уже этот куст
+        if cluster_id in admin_clusters:
+            raise HTTPException(status_code=400, detail="Cluster already assigned to this admin")
+        
+        # Добавляем куст
+        admin_clusters.append(cluster_id)
+        admin.admin_clusters = json.dumps(admin_clusters)
+        
+        # Обновляем куст (добавляем администратора если его еще нет)
+        if not cluster.admin_id:
+            cluster.admin_id = admin_id
+        
+        db.commit()
+        db.refresh(admin)
+        crud_user._enrich_user_data(db, admin)
+        return admin
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/admin-from-cluster/{admin_id}/{cluster_id}", response_model=UserResponse)
+def remove_admin_from_cluster(
+    admin_id: int,
+    cluster_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """Убрать куст из управления администратора"""
+    try:
+        # Проверяем существование администратора
+        admin = crud_user.get(db, admin_id)
+        if not admin or admin.role != UserRole.ADMIN:
+            raise HTTPException(status_code=404, detail="Admin not found")
+        
+        # Проверяем существование куста
+        cluster = db.query(Cluster).filter(Cluster.id == cluster_id, Cluster.is_active == True).first()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+        
+        # Получаем текущие кусты администратора
+        admin_clusters = []
+        if admin.admin_clusters:
+            try:
+                admin_clusters = json.loads(admin.admin_clusters)
+            except:
+                admin_clusters = []
+        
+        # Проверяем, есть ли этот куст у администратора
+        if cluster_id not in admin_clusters:
+            raise HTTPException(status_code=400, detail="Cluster not assigned to this admin")
+        
+        # Убираем куст
+        admin_clusters.remove(cluster_id)
+        admin.admin_clusters = json.dumps(admin_clusters) if admin_clusters else None
+        
+        # Если этот администратор был основным для куста, убираем его
+        if cluster.admin_id == admin_id:
+            # Ищем другого администратора для этого куста
+            other_admin = db.query(User).filter(
+                User.role == UserRole.ADMIN,
+                User.is_active == True,
+                User.admin_clusters.like(f'%{cluster_id}%')
+            ).first()
+            
+            if other_admin:
+                cluster.admin_id = other_admin.id
+            else:
+                cluster.admin_id = None
+        
+        db.commit()
+        db.refresh(admin)
+        crud_user._enrich_user_data(db, admin)
+        return admin
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/remove-mentor-from-group/{mentor_id}", response_model=UserResponse)
+def remove_mentor_from_group(
+    mentor_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """Отвязать наставника от группы"""
+    try:
+        # Проверяем существование наставника
+        mentor = crud_user.get(db, mentor_id)
+        if not mentor or mentor.role != UserRole.MENTOR:
+            raise HTTPException(status_code=404, detail="Mentor not found")
+        
+        if not mentor.group_id:
+            raise HTTPException(status_code=400, detail="Mentor is not in any group")
+        
+        # Находим группу
+        group = db.query(Group).filter(Group.id == mentor.group_id, Group.is_active == True).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Отвязываем наставника от группы
+        mentor.group_id = None
+        
+        # Удаляем группу или делаем ее неактивной
+        group.is_active = False
+        
+        # Отвязываем всех продавцов этой группы
+        sellers = db.query(User).filter(
+            User.group_id == group.id,
+            User.is_active == True
+        ).all()
+        
+        for seller in sellers:
+            seller.group_id = None
+            seller.mentor_id = None
+            # Оставляем куст и старшего продавца если они были назначены отдельно
+        
+        db.commit()
+        db.refresh(mentor)
+        crud_user._enrich_user_data(db, mentor)
+        return mentor
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/remove-senior-from-cluster/{senior_id}", response_model=UserResponse)
+def remove_senior_from_cluster(
+    senior_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """Отвязать старшего продавца от куста"""
+    try:
+        # Проверяем существование старшего продавца
+        senior_seller = crud_user.get(db, senior_id)
+        if not senior_seller or senior_seller.role != UserRole.SENIOR_SELLER:
+            raise HTTPException(status_code=404, detail="Senior seller not found")
+        
+        if not senior_seller.cluster_id:
+            raise HTTPException(status_code=400, detail="Senior seller is not managing any cluster")
+        
+        # Находим куст
+        cluster = db.query(Cluster).filter(
+            Cluster.senior_seller_id == senior_id,
+            Cluster.is_active == True
+        ).first()
+        
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+        
+        # Отвязываем старшего продавца от куста
+        cluster.senior_seller_id = None
+        senior_seller.cluster_id = None
+        
+        # Отвязываем всех наставников и продавцов от этого куста
+        mentors = db.query(User).filter(
+            User.cluster_id == cluster.id,
+            User.role == UserRole.MENTOR,
+            User.is_active == True
+        ).all()
+        
+        for mentor in mentors:
+            mentor.cluster_id = None
+            mentor.senior_seller_id = None
+            
+            # Отвязываем группу
+            if mentor.group_id:
+                group = db.query(Group).filter(Group.id == mentor.group_id).first()
+                if group:
+                    group.cluster_id = None
+                    group.senior_seller_id = None
+            
+            # Отвязываем продавцов
+            sellers = db.query(User).filter(
+                User.mentor_id == mentor.id,
+                User.is_active == True
+            ).all()
+            
+            for seller in sellers:
+                seller.cluster_id = None
+                seller.senior_seller_id = None
+        
+        db.commit()
+        db.refresh(senior_seller)
+        crud_user._enrich_user_data(db, senior_seller)
+        return senior_seller
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     
-    # Сбрасываем связи
-    seller.group_id = None
-    seller.mentor_id = None
-    seller.cluster_id = None
-    seller.senior_seller_id = None
-    
-    db.commit()
-    db.refresh(seller)
-    
-    return seller
+
+@router.post("/mentor-to-group/{mentor_id}/{group_id}", response_model=UserResponse)
+def assign_mentor_to_group(
+    mentor_id: int,
+    group_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """Назначить наставника группе"""
+    try:
+        # Проверяем существование наставника
+        mentor = crud_user.get(db, mentor_id)
+        if not mentor or mentor.role != UserRole.MENTOR:
+            raise HTTPException(status_code=404, detail="Mentor not found")
+        
+        # Проверяем существование группы
+        group = db.query(Group).filter(Group.id == group_id, Group.is_active == True).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Проверяем, не назначен ли уже наставник этой группе
+        if group.mentor_id and group.mentor_id != mentor_id:
+            raise HTTPException(status_code=400, detail="Group already has a mentor")
+        
+        # Обновляем группу
+        group.mentor_id = mentor_id
+        
+        # Обновляем наставника
+        mentor.group_id = group_id
+        
+        # Если у группы есть куст, обновляем наставника
+        if group.cluster_id:
+            mentor.cluster_id = group.cluster_id
+            mentor.senior_seller_id = group.senior_seller_id
+        
+        db.commit()
+        
+        # Обновляем данные
+        db.refresh(mentor)
+        db.refresh(group)
+        
+        crud_user._enrich_user_data(db, mentor)
+        return mentor
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))

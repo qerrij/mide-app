@@ -39,6 +39,9 @@ import {
   Snackbar,
   Tabs,
   Tab,
+  InputAdornment,
+  Badge,
+  Tooltip,
 } from '@mui/material';
 import {
   Add,
@@ -58,9 +61,25 @@ import {
   SupervisorAccount,
   Close,
   Image,
+  AttachMoney,
+  Category,
+  Inventory,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import { Product, ProductCategory, UserRole, Report, ReportStatus, getRoleName, getCategoryName, User } from '../types';
+import { 
+  Product, 
+  ProductCategory, 
+  UserRole, 
+  Report, 
+  ReportStatus, 
+  getRoleName, 
+  User, 
+  AccountantReportStatus,
+  getReportStatusText,
+  getAccountantStatusText,
+  getStatusColor,
+  InventoryItem
+} from '../types';
 import { reportService } from '../api/reportService';
 import { userService } from '../api/userService';
 import { productService } from '../api/productService';
@@ -69,6 +88,7 @@ interface SelectedProduct {
   productId: number;
   quantity: number;
   soldAmount: number;
+  availableQuantity?: number;
 }
 
 interface FilterState {
@@ -87,20 +107,327 @@ interface SnackbarState {
   severity: 'success' | 'error' | 'info';
 }
 
+const formatNumber = (value: number | null | undefined, defaultValue = 0): string => {
+  if (typeof value !== 'number' || isNaN(value)) {
+    return defaultValue.toFixed(2);
+  }
+  return value.toFixed(2);
+};
+
+const AccountantReportView: React.FC<{ report: Report }> = ({ report }) => {
+  const { user: currentUser } = useAuth();
+  const [finalAmount, setFinalAmount] = useState<number>(report.accountantFinalAmount || report.accountantAmount || 0);
+  const [comment, setComment] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
+
+  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info') => {
+    setSnackbar({ open: true, message, severity });
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  const handleApprove = async () => {
+    if (finalAmount <= 0) {
+      showSnackbar('Укажите корректную сумму', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await reportService.reviewByAccountant(
+        report.id,
+        'approve',
+        finalAmount,
+        comment || 'Отчет утвержден бухгалтером'
+      );
+      showSnackbar('Отчет утвержден', 'success');
+      window.location.reload();
+    } catch (error) {
+      showSnackbar('Ошибка при утверждении отчета', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!comment.trim()) {
+      showSnackbar('Укажите причину отказа', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await reportService.reviewByAccountant(
+        report.id,
+        'reject',
+        undefined,
+        comment
+      );
+      showSnackbar('Отчет отклонен', 'success');
+      window.location.reload();
+    } catch (error) {
+      showSnackbar('Ошибка при отклонении отчета', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (currentUser?.role !== UserRole.ACCOUNTANT || report.status !== ReportStatus.SUBMITTED || report.accountantStatus) {
+    return null;
+  }
+
+  return (
+    <Box sx={{ mt: 2, p: 2, backgroundColor: '#fff8e1', borderRadius: 1 }}>
+      <Typography variant="h6" gutterBottom color="#f57c00">
+        Проверка бухгалтера
+      </Typography>
+      
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6 }}>
+          <Typography variant="body2">
+            <strong>Сумма указанная продавцом:</strong>
+          </Typography>
+          <Typography variant="h6" color="#f57c00">
+            {formatNumber(report.accountantAmount)}₽
+          </Typography>
+        </Grid>
+        
+        <Grid size={{ xs: 12, sm: 6 }}>
+          <Typography variant="body2">
+            <strong>Итого за товары:</strong>
+          </Typography>
+          <Typography variant="h6">
+            {formatNumber(report.transferAmount)}₽
+          </Typography>
+        </Grid>
+        
+        <Grid size={{ xs: 12 }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Окончательная сумма *"
+            type="number"
+            value={finalAmount}
+            onChange={(e) => setFinalAmount(parseFloat(e.target.value) || 0)}
+            InputProps={{
+              endAdornment: <InputAdornment position="end">₽</InputAdornment>,
+            }}
+            sx={{ mt: 1 }}
+          />
+        </Grid>
+        
+        <Grid size={{ xs: 12 }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Комментарий"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            multiline
+            rows={2}
+            sx={{ mt: 1 }}
+          />
+        </Grid>
+        
+        <Grid size={{ xs: 12 }} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleApprove}
+            disabled={loading || finalAmount <= 0}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Утвердить'}
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={handleReject}
+            disabled={loading || !comment.trim()}
+          >
+            Отклонить
+          </Button>
+        </Grid>
+      </Grid>
+      
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+};
+
+const FinalApprovalView: React.FC<{ report: Report, users: User[] }> = ({ report, users }) => {
+  const { user: currentUser } = useAuth();
+  const [comment, setComment] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
+
+  const showSnackbar = (message: string, severity: 'success' | 'error' | 'info') => {
+    setSnackbar({ open: true, message, severity });
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  const handleApprove = async () => {
+    try {
+      setLoading(true);
+      await reportService.finalApproveReport(
+        report.id,
+        'approve',
+        comment || 'Отчет утвержден руководителем'
+      );
+      showSnackbar('Отчет утвержден', 'success');
+      window.location.reload();
+    } catch (error) {
+      showSnackbar('Ошибка при утверждении отчета', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!comment.trim()) {
+      showSnackbar('Укажите причину отказа', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await reportService.finalApproveReport(
+        report.id,
+        'reject',
+        comment
+      );
+      showSnackbar('Отчет отклонен', 'success');
+      window.location.reload();
+    } catch (error) {
+      showSnackbar('Ошибка при отклонении отчета', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canApprove = () => {
+    if (!currentUser) return false;
+    
+    if (currentUser.role === UserRole.OWNER) return true;
+    
+    const seller = users.find(u => u.id === report.sellerId);
+    if (!seller) return false;
+    
+    if (currentUser.role === UserRole.ADMIN) {
+      return currentUser.adminClusterIds?.includes(seller.clusterId || 0) || false;
+    }
+    
+    if (currentUser.role === UserRole.SENIOR_SELLER) {
+      return seller.clusterId === currentUser.clusterId;
+    }
+    
+    if (currentUser.role === UserRole.MENTOR) {
+      return seller.mentorId === currentUser.id;
+    }
+    
+    return false;
+  };
+
+  if (!canApprove() || report.accountantStatus !== AccountantReportStatus.APPROVED || report.status !== ReportStatus.SUBMITTED) {
+    return null;
+  }
+
+  return (
+    <Box sx={{ mt: 2, p: 2, backgroundColor: '#e8f5e8', borderRadius: 1 }}>
+      <Typography variant="h6" gutterBottom color="#2e7d32">
+        Окончательное утверждение
+      </Typography>
+      
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, sm: 6 }}>
+          <Typography variant="body2">
+            <strong>Сумма бухгалтера:</strong>
+          </Typography>
+          <Typography variant="h6" color="#2e7d32">
+            {formatNumber(report.accountantFinalAmount)}₽
+          </Typography>
+        </Grid>
+        
+        <Grid size={{ xs: 12 }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Комментарий"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            multiline
+            rows={2}
+            sx={{ mt: 1 }}
+          />
+        </Grid>
+        
+        <Grid size={{ xs: 12 }} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 2 }}>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleApprove}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Утвердить окончательно'}
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={handleReject}
+            disabled={loading || !comment.trim()}
+          >
+            Отклонить
+          </Button>
+        </Grid>
+      </Grid>
+      
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+};
+
 const ReportsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
   const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [userInventory, setUserInventory] = useState<InventoryItem[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | 'all'>('all');
+  const [accountantAmount, setAccountantAmount] = useState<number>(0);
   const [photos, setPhotos] = useState<File[]>([]);
+  const [comment, setComment] = useState<string>('');
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
   const [expandedReport, setExpandedReport] = useState<number | null>(null);
-  const [discount, setDiscount] = useState<number>(0);
   const [filters, setFilters] = useState<FilterState>({});
   const [viewMode, setViewMode] = useState<'history' | 'create'>('history');
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingReports, setLoadingReports] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [loadingInventory, setLoadingInventory] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [snackbar, setSnackbar] = useState<SnackbarState>({
     open: false,
@@ -108,31 +435,15 @@ const ReportsPage: React.FC = () => {
     severity: 'info',
   });
   
-  // Новые состояния для фильтрации товаров по категориям
-  const [productCategoryFilter, setProductCategoryFilter] = useState<ProductCategory | 'all'>('all');
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-
-  // Для владельца показываем историю по умолчанию
   useEffect(() => {
     if (currentUser?.role === UserRole.OWNER) {
       setViewMode('history');
     }
   }, [currentUser]);
 
-  // Загрузка пользователей, товаров и отчетов
   useEffect(() => {
     loadData();
   }, []);
-
-  // Фильтрация товаров по категории при изменении выбранной категории или загрузке товаров
-  useEffect(() => {
-    if (productCategoryFilter === 'all') {
-      setFilteredProducts(products);
-    } else {
-      const filtered = products.filter(product => product.category === productCategoryFilter);
-      setFilteredProducts(filtered);
-    }
-  }, [productCategoryFilter, products]);
 
   const loadData = async () => {
     try {
@@ -140,8 +451,13 @@ const ReportsPage: React.FC = () => {
       await Promise.all([
         loadUsers(),
         loadProducts(),
+        loadCategories(),
         loadReports(),
       ]);
+      
+      if (currentUser) {
+        await loadUserInventory();
+      }
     } catch (error) {
       console.error('Ошибка при загрузке данных:', error);
       showSnackbar('Ошибка при загрузке данных', 'error');
@@ -153,13 +469,11 @@ const ReportsPage: React.FC = () => {
   const loadUsers = async () => {
     try {
       const usersData = await userService.getAllUsers();
-      console.log('Загруженные пользователи:', usersData);
       setUsers(Array.isArray(usersData) ? usersData : []);
     } catch (error: any) {
       console.error('Ошибка при загрузке пользователей:', error);
       
       if (error.response?.status === 403 && currentUser?.role !== UserRole.OWNER) {
-        console.log('Используем только текущего пользователя');
         setUsers(currentUser ? [currentUser] : []);
         return;
       }
@@ -173,12 +487,45 @@ const ReportsPage: React.FC = () => {
       setLoadingProducts(true);
       const productsData = await productService.getAllProducts();
       setProducts(productsData);
-      setFilteredProducts(productsData); // Инициализируем отфильтрованные товары
     } catch (error) {
       console.error('Ошибка при загрузке товаров:', error);
       showSnackbar('Ошибка при загрузке товаров', 'error');
     } finally {
       setLoadingProducts(false);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const categoriesData = await productService.getAllCategories();
+      setCategories(categoriesData);
+    } catch (error) {
+      console.error('Ошибка при загрузке категорий:', error);
+    }
+  };
+
+  const loadUserInventory = async () => {
+    if (!currentUser) return;
+    
+    try {
+      setLoadingInventory(true);
+      
+      let inventoryData;
+      if (currentUser.role === UserRole.OWNER) {
+        // Для владельца - общий инвентарь компании
+        inventoryData = await productService.getCompanyInventory();
+      } else {
+        // Для всех остальных - их собственный инвентарь
+        inventoryData = await productService.getMyInventory();
+      }
+      
+      console.log('Inventory data for user', currentUser.id, ':', inventoryData);
+      setUserInventory(inventoryData.items || []);
+    } catch (error) {
+      console.error('Ошибка при загрузке инвентаря:', error);
+      showSnackbar('Ошибка при загрузке инвентаря', 'error');
+    } finally {
+      setLoadingInventory(false);
     }
   };
 
@@ -201,7 +548,6 @@ const ReportsPage: React.FC = () => {
       if (filters.status) filtersData.status = filters.status;
 
       const reportsData = await reportService.getReports(filtersData);
-      console.log('Загруженные отчеты:', reportsData);
       setReports(reportsData);
       
     } catch (error) {
@@ -220,8 +566,15 @@ const ReportsPage: React.FC = () => {
     setSnackbar({ ...snackbar, open: false });
   };
 
+  // Получить доступное количество товара у текущего пользователя
+  const getAvailableQuantity = (productId: number): number => {
+    const inventoryItem = userInventory.find(item => item.productId === productId && item.userId === currentUser?.id);
+    return inventoryItem ? inventoryItem.quantity - inventoryItem.reservedQuantity : 0;
+  };
+
   const handleProductSelect = (productId: number) => {
     const existingIndex = selectedProducts.findIndex(p => p.productId === productId);
+    const availableQuantity = getAvailableQuantity(productId);
     
     if (existingIndex === -1) {
       const product = products.find(p => p.id === productId);
@@ -229,7 +582,8 @@ const ReportsPage: React.FC = () => {
         setSelectedProducts(prev => [...prev, {
           productId,
           quantity: 1,
-          soldAmount: product.price
+          soldAmount: product.price,
+          availableQuantity: availableQuantity
         }]);
         
         if (!openCreateDialog) {
@@ -247,6 +601,15 @@ const ReportsPage: React.FC = () => {
       removeProduct(productId);
       return;
     }
+    
+    const availableQuantity = getAvailableQuantity(productId);
+    const selectedProduct = selectedProducts.find(p => p.productId === productId);
+    
+    if (selectedProduct && quantity > availableQuantity) {
+      showSnackbar(`Доступно только ${availableQuantity} шт. этого товара`, 'info');
+      return;
+    }
+    
     setSelectedProducts(prev =>
       prev.map(p =>
         p.productId === productId ? { ...p, quantity } : p
@@ -256,13 +619,6 @@ const ReportsPage: React.FC = () => {
 
   const removeProduct = (productId: number) => {
     setSelectedProducts(prev => prev.filter(p => p.productId !== productId));
-  };
-
-  const calculateTotal = () => {
-    const total = selectedProducts.reduce((sum, item) => {
-      return sum + (item.soldAmount * item.quantity);
-    }, 0);
-    return total - discount;
   };
 
   const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -290,6 +646,24 @@ const ReportsPage: React.FC = () => {
       return;
     }
 
+    if (accountantAmount <= 0) {
+      showSnackbar('Укажите сумму для бухгалтера', 'error');
+      return;
+    }
+
+    // Проверяем, что у всех товаров достаточно количества
+    for (const selectedProduct of selectedProducts) {
+      const availableQuantity = getAvailableQuantity(selectedProduct.productId);
+      if (selectedProduct.quantity > availableQuantity) {
+        const product = products.find(p => p.id === selectedProduct.productId);
+        showSnackbar(
+          `Недостаточно товара "${product?.name}". Доступно: ${availableQuantity}, запрошено: ${selectedProduct.quantity}`,
+          'error'
+        );
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       
@@ -301,17 +675,20 @@ const ReportsPage: React.FC = () => {
       
       const newReport = await reportService.createReport(
         reportProducts,
+        accountantAmount,
         photos,
-        discount > 0 ? `Применена скидка: ${discount}₽` : undefined
+        comment
       );
-      
-      console.log('Создан новый отчет:', newReport);
       
       setReports(prev => [newReport, ...prev]);
       
+      // Обновляем инвентарь после отправки отчета
+      await loadUserInventory();
+      
       setSelectedProducts([]);
+      setAccountantAmount(0);
       setPhotos([]);
-      setDiscount(0);
+      setComment('');
       setOpenCreateDialog(false);
       setViewMode('history');
       
@@ -333,7 +710,6 @@ const ReportsPage: React.FC = () => {
   const getClustersByAdmin = (adminId?: number) => {
     if (!adminId) return [];
     const admin = users.find(u => u.id === adminId);
-    console.log('Admin для кластеров:', admin);
     return admin?.adminClusterIds || [];
   };
 
@@ -347,14 +723,8 @@ const ReportsPage: React.FC = () => {
     return users.filter(u => u.role === UserRole.SELLER && u.mentorId === mentorId);
   };
 
-  // Получение имени пользователя с безопасной обработкой
   const getUserName = (userId?: number): string => {
-    if (!userId) {
-      console.log('getUserName получил undefined или null userId');
-      return 'Неизвестный пользователь';
-    }
-    
-    console.log(`Ищем пользователя с ID: ${userId} в массиве из ${users.length} пользователей`);
+    if (!userId) return 'Неизвестный пользователь';
     const user = users.find(u => u.id === userId);
     return user ? user.fullName : `Пользователь #${userId}`;
   };
@@ -374,29 +744,34 @@ const ReportsPage: React.FC = () => {
     }
   };
 
-  const getCategoryColor = (category: ProductCategory): string => {
-    const colors = {
-      [ProductCategory.DISPOSABLES]: '#674fb6',
-      [ProductCategory.LIQUIDS]: '#56b8d1',
-      [ProductCategory.CONSUMABLES]: '#2a436d',
-      [ProductCategory.PODS]: '#3f1f4b',
-      [ProductCategory.ENERGY_DRINKS]: '#6d3f57',
-    };
-    return colors[category];
-  };
-
   const findProductById = (productId: number): Product | undefined => {
     return products.find(p => p.id === productId);
   };
 
+  const getCategoryName = (categoryId: number): string => {
+    const category = categories.find(c => c.id === categoryId);
+    return category?.name || `Категория #${categoryId}`;
+  };
+
+  // Фильтрация товаров по категории
+  const filteredProducts = selectedCategoryId === 'all' 
+    ? products 
+    : products.filter(product => product.categoryId === selectedCategoryId);
+
+  // Группировка товаров по категориям
+  const productsByCategory = filteredProducts.reduce((acc, product) => {
+    const categoryName = getCategoryName(product.categoryId);
+    if (!acc[categoryName]) {
+      acc[categoryName] = [];
+    }
+    acc[categoryName].push(product);
+    return acc;
+  }, {} as Record<string, Product[]>);
+
   // Отображение деталей отчета
   const renderReportDetails = (report: Report) => {
-    console.log('Детали отчета:', report);
     const seller = users.find(u => u.id === report.sellerId);
-    
-    // Проверяем наличие фото
     const hasPhotos = report.transferPhotos && Array.isArray(report.transferPhotos) && report.transferPhotos.length > 0;
-    console.log('Фото в отчете:', report.transferPhotos, 'hasPhotos:', hasPhotos);
     
     return (
       <Box sx={{ mt: 2, p: 2, backgroundColor: '#f9f9f9', borderRadius: 1 }}>
@@ -417,98 +792,120 @@ const ReportsPage: React.FC = () => {
               {new Date(report.date).toLocaleDateString('ru-RU')}
             </Typography>
           </Grid>
-          {seller?.mentorId && (
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="subtitle2" color="#4c5454">
-                Наставник:
-              </Typography>
-              <Typography variant="body1">
-                {getUserName(seller.mentorId)}
-              </Typography>
-            </Grid>
-          )}
-          {seller?.clusterId && (
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="subtitle2" color="#4c5454">
-                Куст:
-              </Typography>
-              <Typography variant="body1">
-                Куст #{seller.clusterId}
-              </Typography>
-            </Grid>
-          )}
           
           <Grid size={{ xs: 12 }}>
-            <Typography variant="subtitle2" color="#4c5454" sx={{ mt: 1 }}>
-              Товары:
-            </Typography>
-            <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Товар</TableCell>
-                    <TableCell align="right">Количество</TableCell>
-                    {currentUser?.role === UserRole.OWNER && (
+            <Paper sx={{ p: 2, backgroundColor: '#fff8e1', mt: 1 }}>
+              <Typography variant="subtitle2" color="#f57c00" gutterBottom>
+                Сумма для бухгалтера:
+              </Typography>
+              <Grid container spacing={1}>
+                <Grid size={{ xs: 6 }}>
+                  <Typography variant="body2">
+                    Указанная продавцом:
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6 }} sx={{ textAlign: 'right' }}>
+                  <Typography variant="body2" fontWeight="bold">
+                    {formatNumber(report.accountantAmount)}₽
+                  </Typography>
+                </Grid>
+                
+                {report.accountantStatus && (
+                  <>
+                    {report.accountantFinalAmount && (
                       <>
-                        <TableCell align="right">Цена за шт.</TableCell>
-                        <TableCell align="right">Сумма</TableCell>
+                        <Grid size={{ xs: 6 }}>
+                          <Typography variant="body2">
+                            Утвержденная сумма:
+                          </Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6 }} sx={{ textAlign: 'right' }}>
+                          <Typography variant="body2" fontWeight="bold" color="#2e7d32">
+                            {formatNumber(report.accountantFinalAmount)}₽
+                          </Typography>
+                        </Grid>
                       </>
                     )}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {report.products.map((item: any, index: number) => {
-                    const productId = item.product_id || item.productId;
-                    const product = findProductById(productId);
-                    const soldAmount = item.sold_amount || item.soldAmount || 0;
-                    const quantity = item.quantity || 0;
-                    const itemTotal = quantity * soldAmount;
                     
-                    return (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Box sx={{ 
-                              width: 8, 
-                              height: 8, 
-                              borderRadius: '50%', 
-                              backgroundColor: product ? getCategoryColor(product.category) : '#ccc' 
-                            }} />
-                            {product?.name || `Товар #${productId}`}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="right">{quantity}</TableCell>
-                        {currentUser?.role === UserRole.OWNER && (
-                          <>
-                            <TableCell align="right">{soldAmount.toFixed(2)}₽</TableCell>
-                            <TableCell align="right">{itemTotal.toFixed(2)}₽</TableCell>
-                          </>
-                        )}
-                      </TableRow>
-                    );
-                  })}
-                  
-                  {/* Строка с итогом для OWNER */}
-                  {currentUser?.role === UserRole.OWNER && (
+                    <Grid size={{ xs: 12 }}>
+                      <Chip
+                        label={getAccountantStatusText(report.accountantStatus)}
+                        size="small"
+                        sx={{
+                          backgroundColor: getStatusColor(report.accountantStatus),
+                          color: 'white'
+                        }}
+                      />
+                    </Grid>
+                    
+                    {report.accountantComment && (
+                      <Grid size={{ xs: 12 }}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          <strong>Комментарий бухгалтера:</strong> {report.accountantComment}
+                        </Alert>
+                      </Grid>
+                    )}
+                  </>
+                )}
+              </Grid>
+            </Paper>
+          </Grid>
+          
+          {(currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.ADMIN || 
+            currentUser?.role === UserRole.SENIOR_SELLER || currentUser?.role === UserRole.MENTOR) && (
+            <Grid size={{ xs: 12 }}>
+              <Typography variant="subtitle2" color="#4c5454" sx={{ mt: 1 }}>
+                Товары:
+              </Typography>
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead>
                     <TableRow>
-                      <TableCell colSpan={3} align="right">
+                      <TableCell>Товар</TableCell>
+                      <TableCell>Категория</TableCell>
+                      <TableCell align="right">Количество</TableCell>
+                      <TableCell align="right">Цена за шт.</TableCell>
+                      <TableCell align="right">Сумма</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {report.products.map((item, index) => {
+                      const product = findProductById(item.productId);
+                      const itemTotal = item.quantity * item.soldAmount;
+                      
+                      return (
+                        <TableRow key={index}>
+                          <TableCell>
+                            {product?.name || `Товар #${item.productId}`}
+                          </TableCell>
+                          <TableCell>
+                            {product ? getCategoryName(product.categoryId) : 'Неизвестно'}
+                          </TableCell>
+                          <TableCell align="right">{item.quantity}</TableCell>
+                          <TableCell align="right">{formatNumber(item.soldAmount)}₽</TableCell>
+                          <TableCell align="right">{formatNumber(itemTotal)}₽</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    
+                    <TableRow>
+                      <TableCell colSpan={4} align="right">
                         <Typography variant="subtitle1" fontWeight="bold">
-                          Итого к переводу:
+                          Итого за товары:
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
                         <Typography variant="subtitle1" fontWeight="bold">
-                          {report.transferAmount?.toFixed(2) || '0.00'}₽
+                          {formatNumber(report.transferAmount)}₽
                         </Typography>
                       </TableCell>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Grid>
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Grid>
+          )}
 
-          {/* Блок с фотографиями - ВСЕГДА отображаем если есть доступ */}
           {(hasPhotos || currentUser?.role === UserRole.OWNER) && (
             <Grid size={{ xs: 12 }}>
               <Typography variant="subtitle2" color="#4c5454" sx={{ mt: 2, mb: 1 }}>
@@ -519,7 +916,6 @@ const ReportsPage: React.FC = () => {
                 <Grid container spacing={1}>
                   {report.transferPhotos.map((photo: string, index: number) => {
                     const photoUrl = reportService.getPhotoUrl(photo);
-                    console.log(`Фото ${index}:`, photo, 'URL:', photoUrl);
                     
                     return (
                       <Grid size={{ xs: 6, sm: 4, md: 3 }} key={index}>
@@ -563,20 +959,17 @@ const ReportsPage: React.FC = () => {
             </Grid>
           )}
 
-          {report.reviewedBy && (
-            <Grid size={{ xs: 12 }}>
-              <Typography variant="caption" color="#8a8a8a">
-                Проверено: {getUserName(report.reviewedBy)} • {report.reviewDate ? new Date(report.reviewDate).toLocaleDateString('ru-RU') : ''}
-              </Typography>
-            </Grid>
-          )}
           {report.comment && (
             <Grid size={{ xs: 12 }}>
-              <Alert severity="warning" sx={{ mt: 1 }}>
-                {report.comment}
+              <Alert severity="info" sx={{ mt: 2 }}>
+                <strong>Комментарий продавца:</strong> {report.comment}
               </Alert>
             </Grid>
           )}
+
+          <AccountantReportView report={report} />
+
+          <FinalApprovalView report={report} users={users} />
         </Grid>
       </Box>
     );
@@ -588,13 +981,6 @@ const ReportsPage: React.FC = () => {
     const clusterMentors = filters.clusterId ? getMentorsByCluster(filters.clusterId) : [];
     const mentorSellers = filters.mentorId ? getSellersByMentor(filters.mentorId) : [];
     
-    console.log('Рендер фильтров:', {
-      accessibleAdmins,
-      adminClusters,
-      clusterMentors,
-      mentorSellers
-    });
-    
     return (
       <Paper sx={{ p: 2, mb: 3 }}>
         <Typography variant="h6" gutterBottom color="#3f1f4b">
@@ -602,7 +988,6 @@ const ReportsPage: React.FC = () => {
           Фильтрация по иерархии
         </Typography>
         <Grid container spacing={2}>
-          {/* Администраторы - только для OWNER */}
           {currentUser?.role === UserRole.OWNER && accessibleAdmins.length > 0 && (
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <FormControl fullWidth size="small">
@@ -631,7 +1016,6 @@ const ReportsPage: React.FC = () => {
             </Grid>
           )}
           
-          {/* Кусты - для OWNER и ADMIN */}
           {(currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.ADMIN) && (
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <FormControl fullWidth size="small">
@@ -656,16 +1040,11 @@ const ReportsPage: React.FC = () => {
                       </Box>
                     </MenuItem>
                   ))}
-                  {/* Для ADMIN показываем все кусты */}
-                  {currentUser?.role === UserRole.ADMIN && !filters.adminId && (
-                    <MenuItem value={1}>Куст 1</MenuItem>
-                  )}
                 </Select>
               </FormControl>
             </Grid>
           )}
           
-          {/* Наставники */}
           {(currentUser?.role === UserRole.OWNER || currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.SENIOR_SELLER) && (
             <Grid size={{ xs: 12, sm: 6, md: 3 }}>
               <FormControl fullWidth size="small">
@@ -694,7 +1073,6 @@ const ReportsPage: React.FC = () => {
             </Grid>
           )}
           
-          {/* Продавцы */}
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <FormControl fullWidth size="small">
               <InputLabel>Продавец</InputLabel>
@@ -720,7 +1098,6 @@ const ReportsPage: React.FC = () => {
             </FormControl>
           </Grid>
 
-          {/* Фильтр по статусу */}
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <FormControl fullWidth size="small">
               <InputLabel>Статус</InputLabel>
@@ -735,16 +1112,13 @@ const ReportsPage: React.FC = () => {
                 <MenuItem value="">Все статусы</MenuItem>
                 {Object.values(ReportStatus).map(status => (
                   <MenuItem key={status} value={status}>
-                    {status === ReportStatus.APPROVED ? 'Подтверждено' : 
-                     status === ReportStatus.REJECTED ? 'Отклонено' : 
-                     status === ReportStatus.SUBMITTED ? 'Отправлено' : 'Черновик'}
+                    {getReportStatusText(status)}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
           </Grid>
 
-          {/* Кнопки */}
           <Grid size={{ xs: 12 }} sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
             <Button
               variant="outlined"
@@ -778,8 +1152,9 @@ const ReportsPage: React.FC = () => {
         setOpenCreateDialog(false);
         if (selectedProducts.length === 0) {
           setSelectedProducts([]);
-          setDiscount(0);
+          setAccountantAmount(0);
           setPhotos([]);
+          setComment('');
         }
       }}
       maxWidth="md"
@@ -792,6 +1167,9 @@ const ReportsPage: React.FC = () => {
         <Stepper activeStep={selectedProducts.length > 0 ? 1 : 0} sx={{ mt: 2, mb: 3 }}>
           <Step>
             <StepLabel>Выбор товаров</StepLabel>
+          </Step>
+          <Step>
+            <StepLabel>Указание суммы</StepLabel>
           </Step>
           <Step>
             <StepLabel>Добавление фото</StepLabel>
@@ -832,16 +1210,18 @@ const ReportsPage: React.FC = () => {
                     }
                   >
                     <ListItemIcon>
-                      <Box sx={{ 
-                        width: 12, 
-                        height: 12, 
-                        borderRadius: '50%', 
-                        backgroundColor: getCategoryColor(product.category) 
-                      }} />
+                      <AttachMoney sx={{ color: '#674fb6' }} />
                     </ListItemIcon>
                     <ListItemText
-                      primary={product.name}
-                      secondary={`Категория: ${getCategoryName(product.category)}`} // УБРАЛИ СУММУ ЗАКАЗА
+                      primary={
+                        <Box>
+                          {product.name}
+                          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                            Доступно: {item.availableQuantity || 0} шт.
+                          </Typography>
+                        </Box>
+                      }
+                      secondary={`Цена: ${product.price}₽ • Сумма: ${(item.quantity * item.soldAmount).toFixed(2)}₽`}
                     />
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                       <TextField
@@ -851,11 +1231,14 @@ const ReportsPage: React.FC = () => {
                         onChange={(e) => handleQuantityChange(item.productId, parseInt(e.target.value) || 1)}
                         inputProps={{ 
                           min: 1,
+                          max: item.availableQuantity,
                           style: { 
                             width: 80,
                             textAlign: 'center'
                           } 
                         }}
+                        error={item.quantity > (item.availableQuantity || 0)}
+                        helperText={item.quantity > (item.availableQuantity || 0) ? `Макс: ${item.availableQuantity}` : ''}
                       />
                     </Box>
                   </ListItem>
@@ -876,30 +1259,32 @@ const ReportsPage: React.FC = () => {
 
             <Divider sx={{ my: 2 }} />
 
-            {/* Скидка */}
-            <Box sx={{ mb: 2 }}>
-              <Button
-                variant="outlined"
-                startIcon={<Discount />}
-                onClick={() => setDiscount(discount === 0 ? 100 : 0)}
-                color={discount > 0 ? "primary" : "inherit"}
-                fullWidth
-              >
-                {discount > 0 ? `Применена скидка: ${discount}₽` : 'Добавить скидку'}
-              </Button>
-              {discount > 0 && (
-                <Typography variant="caption" color="#8a8a8a" display="block" sx={{ mt: 1, textAlign: 'center' }}>
-                  Скидка будет учтена при создании отчета
-                </Typography>
-              )}
-            </Box>
+            <TextField
+              fullWidth
+              size="small"
+              label="Комментарий к отчету"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              multiline
+              rows={2}
+              sx={{ mb: 2 }}
+            />
 
-            {/* УБРАЛИ ПОКАЗ ИТОГОЙ СУММЫ */}
-            {/* <Typography variant="subtitle2" gutterBottom color="#3f1f4b">
-              Итого: {calculateTotal()}₽
-            </Typography> */}
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Сумма для бухгалтера *"
+              value={accountantAmount}
+              onChange={(e) => setAccountantAmount(parseFloat(e.target.value) || 0)}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">₽</InputAdornment>,
+              }}
+              helperText="Укажите сумму, которую вы фактически перевели"
+              required
+              sx={{ mb: 2 }}
+            />
 
-            {/* Загрузка фотографий */}
             <Box sx={{ mt: 3 }}>
               <Typography variant="subtitle2" gutterBottom color="#3f1f4b">
                 Фотографии перевода ({photos.length}/5)
@@ -936,7 +1321,6 @@ const ReportsPage: React.FC = () => {
                 </Typography>
               </Box>
 
-              {/* Список загруженных фото */}
               {photos.length > 0 && (
                 <Grid container spacing={1}>
                   {photos.map((photo, index) => (
@@ -975,8 +1359,9 @@ const ReportsPage: React.FC = () => {
             setOpenCreateDialog(false);
             if (selectedProducts.length === 0) {
               setSelectedProducts([]);
-              setDiscount(0);
+              setAccountantAmount(0);
               setPhotos([]);
+              setComment('');
             }
           }}
         >
@@ -985,7 +1370,7 @@ const ReportsPage: React.FC = () => {
         <Button
           variant="contained"
           onClick={handleSubmitReport}
-          disabled={selectedProducts.length === 0 || photos.length === 0 || loading}
+          disabled={selectedProducts.length === 0 || photos.length === 0 || accountantAmount <= 0 || loading}
           sx={{
             backgroundColor: '#674fb6',
             '&:hover': {
@@ -1007,8 +1392,7 @@ const ReportsPage: React.FC = () => {
           Отчеты о продажах
         </Typography>
         
-        {/* Показываем кнопку создания отчета для всех, кроме OWNER */}
-        {currentUser?.role !== UserRole.OWNER && (
+        {currentUser?.role !== UserRole.OWNER && currentUser?.role !== UserRole.ACCOUNTANT && (
           <Button
             variant="contained"
             startIcon={<Add />}
@@ -1051,7 +1435,6 @@ const ReportsPage: React.FC = () => {
             ) : (
               <List>
                 {reports.map((report) => {
-                  // Безопасное получение sellerId
                   const sellerId = report.sellerId;
                   const sellerName = getUserName(sellerId);
                   const sellerRole = users.find(u => u.id === sellerId)?.role;
@@ -1094,19 +1477,25 @@ const ReportsPage: React.FC = () => {
                                   />
                                 </>
                               )}
+                              {report.accountantStatus && (
+                                <Chip
+                                  label={getAccountantStatusText(report.accountantStatus)}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: getStatusColor(report.accountantStatus),
+                                    color: 'white'
+                                  }}
+                                />
+                              )}
                             </Box>
                           }
                           secondary={
                             <Box>
                               <Typography variant="body2" component="span">
                                 {new Date(report.date).toLocaleDateString('ru-RU')} • 
-                                {report.products.reduce((sum: number, item: any) => sum + (item.quantity || item.quantity || 0), 0)} шт. • 
-                                {report.status === ReportStatus.APPROVED && currentUser?.role === UserRole.OWNER && (
-                                  <> Сумма: {(report.transferAmount || 0).toFixed(2)}₽ •</>
-                                )}
-                                Статус: {report.status === ReportStatus.APPROVED ? 'Подтверждено' : 
-                                        report.status === ReportStatus.REJECTED ? 'Отклонено' : 
-                                        report.status === ReportStatus.SUBMITTED ? 'Отправлено' : 'Черновик'}
+                                {report.products.reduce((sum, item) => sum + item.quantity, 0)} шт. • 
+                                Статус: {getReportStatusText(report.status)}
+                                {report.accountantAmount && ` • Сумма: ${formatNumber(report.accountantAmount)}₽`}
                               </Typography>
                               {report.status === ReportStatus.REJECTED && report.comment && (
                                 <Typography variant="caption" color="error" display="block">
@@ -1136,118 +1525,176 @@ const ReportsPage: React.FC = () => {
           
           <Alert severity="info" sx={{ mb: 3 }}>
             Выберите товары для отчета. Укажите количество для каждого товара. 
-            Один товар можно добавить только один раз.
+            Один товар можно добавить только один раз. <strong>Красным выделены товары, которых нет в наличии.</strong>
           </Alert>
 
-          {/* Фильтр по категориям товаров */}
-          <Paper sx={{ p: 2, mb: 3 }}>
-            <Typography variant="subtitle2" gutterBottom color="#3f1f4b">
-              Фильтр по категориям:
-            </Typography>
-            <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-              <Tabs 
-                value={productCategoryFilter} 
-                onChange={(e, newValue) => setProductCategoryFilter(newValue)}
-                variant="scrollable"
-                scrollButtons="auto"
+          <Box sx={{ mb: 3 }}>
+            <FormControl sx={{ minWidth: 200 }}>
+              <InputLabel id="category-filter-label">
+                <Category sx={{ mr: 1, verticalAlign: 'middle' }} />
+                Категория товаров
+              </InputLabel>
+              <Select
+                labelId="category-filter-label"
+                value={selectedCategoryId}
+                label="Категория товаров"
+                onChange={(e) => setSelectedCategoryId(e.target.value as number | 'all')}
               >
-                <Tab 
-                  label="Все товары" 
-                  value="all" 
-                  icon={<Box sx={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: '#ccc' }} />}
-                  iconPosition="start"
-                />
-                {Object.values(ProductCategory).map(category => (
-                  <Tab 
-                    key={category}
-                    label={getCategoryName(category)}
-                    value={category}
-                    icon={<Box sx={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: getCategoryColor(category) }} />}
-                    iconPosition="start"
-                  />
+                <MenuItem value="all">Все категории</MenuItem>
+                {categories.map(category => (
+                  <MenuItem key={category.id} value={category.id}>
+                    {category.name}
+                  </MenuItem>
                 ))}
-              </Tabs>
-            </Box>
-          </Paper>
+              </Select>
+            </FormControl>
+          </Box>
 
-          {loadingProducts ? (
+          {loadingProducts || loadingInventory ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
               <CircularProgress />
             </Box>
-          ) : filteredProducts.length === 0 ? (
+          ) : products.length === 0 ? (
             <Alert severity="warning">
-              Нет товаров в выбранной категории. Выберите другую категорию.
+              Нет товаров. Сначала создайте товары в системе.
             </Alert>
           ) : (
-            <Grid container spacing={2}>
-              {filteredProducts.map((product) => {
-                const isSelected = selectedProducts.some(p => p.productId === product.id);
-                return (
-                  <Grid size={{ xs: 12, sm: 6, md: 4 }} key={product.id}>
-                    <Card
-                      sx={{
-                        cursor: isSelected ? 'default' : 'pointer',
-                        opacity: isSelected ? 0.7 : 1,
-                        '&:hover': {
-                          transform: isSelected ? 'none' : 'translateY(-2px)',
-                          boxShadow: isSelected ? 1 : 3,
-                        },
-                        transition: 'all 0.2s',
-                        position: 'relative',
-                      }}
-                      onClick={() => !isSelected && handleProductSelect(product.id)}
-                    >
-                      {isSelected && (
-                        <Box sx={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          backgroundColor: '#4caf50',
-                          color: 'white',
-                          borderRadius: '50%',
-                          width: 24,
-                          height: 24,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '0.75rem',
-                        }}>
-                          ✓
-                        </Box>
-                      )}
-                      <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                          <Box sx={{ 
-                            width: 10, 
-                            height: 10, 
-                            borderRadius: '50%', 
-                            backgroundColor: getCategoryColor(product.category) 
-                          }} />
-                          <Typography variant="caption" color="#8a8a8a">
-                            {getCategoryName(product.category)}
-                          </Typography>
-                        </Box>
-                        <Typography variant="h6" sx={{ 
-                          color: getCategoryColor(product.category), 
-                          mb: 1,
-                          textDecoration: isSelected ? 'line-through' : 'none'
-                        }}>
-                          {product.name}
-                        </Typography>
-                        <Typography variant="caption" color="#8a8a8a">
-                          SKU: {product.sku}
-                        </Typography>
-                        {isSelected && (
-                          <Typography variant="caption" color="#4caf50" display="block" sx={{ mt: 1 }}>
-                            Уже в отчете
-                          </Typography>
-                        )}
-                      </CardContent>
-                    </Card>
+            <>
+              {Object.entries(productsByCategory).map(([categoryName, categoryProducts]) => (
+                <Box key={categoryName} sx={{ mb: 4 }}>
+                  <Typography variant="h6" gutterBottom color="#674fb6" sx={{ display: 'flex', alignItems: 'center' }}>
+                    <Category sx={{ mr: 1 }} />
+                    {categoryName}
+                    <Chip 
+                      label={`${categoryProducts.length} товаров`} 
+                      size="small" 
+                      variant="outlined"
+                      sx={{ ml: 2 }}
+                    />
+                  </Typography>
+                  
+                  <Grid container spacing={2}>
+                    {categoryProducts.map((product) => {
+                      const isSelected = selectedProducts.some(p => p.productId === product.id);
+                      const availableQuantity = getAvailableQuantity(product.id);
+                      const isOutOfStock = availableQuantity <= 0;
+                      const alreadyInReport = selectedProducts.some(p => p.productId === product.id);
+                      
+                      return (
+                        <Grid size={{ xs: 12, sm: 6, md: 4 }} key={product.id}>
+                          <Tooltip 
+                            title={
+                              isOutOfStock 
+                                ? "Товара нет в наличии" 
+                                : alreadyInReport 
+                                  ? "Товар уже добавлен в отчет"
+                                  : `В наличии: ${availableQuantity} шт.`
+                            }
+                          >
+                            <Card
+                              sx={{
+                                cursor: isSelected || isOutOfStock ? 'default' : 'pointer',
+                                opacity: isSelected ? 0.7 : isOutOfStock ? 0.5 : 1,
+                                '&:hover': {
+                                  transform: isSelected || isOutOfStock ? 'none' : 'translateY(-2px)',
+                                  boxShadow: isSelected || isOutOfStock ? 1 : 3,
+                                },
+                                transition: 'all 0.2s',
+                                position: 'relative',
+                                border: isOutOfStock ? '2px solid #ffcdd2' : '1px solid #e0e0e0',
+                                backgroundColor: isOutOfStock ? '#fff5f5' : 'inherit',
+                              }}
+                              onClick={() => !isSelected && !isOutOfStock && handleProductSelect(product.id)}
+                            >
+                              {isSelected && (
+                                <Box sx={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  right: 8,
+                                  backgroundColor: '#4caf50',
+                                  color: 'white',
+                                  borderRadius: '50%',
+                                  width: 24,
+                                  height: 24,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '0.75rem',
+                                }}>
+                                  ✓
+                                </Box>
+                              )}
+                              
+                              {isOutOfStock && (
+                                <Box sx={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  right: 8,
+                                  backgroundColor: '#ff4444',
+                                  color: 'white',
+                                  borderRadius: '4px',
+                                  padding: '2px 6px',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 'bold',
+                                }}>
+                                  НЕТ
+                                </Box>
+                              )}
+                              
+                              <CardContent>
+                                <Typography variant="h6" sx={{ 
+                                  color: isOutOfStock ? '#f44336' : '#674fb6', 
+                                  mb: 1,
+                                  textDecoration: isSelected ? 'line-through' : 'none'
+                                }}>
+                                  {product.name}
+                                </Typography>
+                                
+                                <Typography variant="body2" color="text.secondary" gutterBottom>
+                                  Цена: {product.price}₽
+                                </Typography>
+                                
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                                  <Typography variant="caption" color="#8a8a8a">
+                                    SKU: {product.sku}
+                                  </Typography>
+                                  
+                                  <Badge
+                                    badgeContent={availableQuantity}
+                                    color={
+                                      availableQuantity === 0 
+                                        ? 'error'
+                                        : availableQuantity < 5
+                                        ? 'warning'
+                                        : 'primary'
+                                    }
+                                    sx={{ '& .MuiBadge-badge': { fontSize: '0.7rem' } }}
+                                  >
+                                    <Inventory fontSize="small" />
+                                  </Badge>
+                                </Box>
+                                
+                                {isSelected && (
+                                  <Typography variant="caption" color="#4caf50" display="block" sx={{ mt: 1 }}>
+                                    Уже в отчете
+                                  </Typography>
+                                )}
+                                
+                                {isOutOfStock && (
+                                  <Typography variant="caption" color="#f44336" display="block" sx={{ mt: 1 }}>
+                                    Товара нет в наличии
+                                  </Typography>
+                                )}
+                              </CardContent>
+                            </Card>
+                          </Tooltip>
+                        </Grid>
+                      );
+                    })}
                   </Grid>
-                );
-              })}
-            </Grid>
+                </Box>
+              ))}
+            </>
           )}
 
           <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1278,7 +1725,6 @@ const ReportsPage: React.FC = () => {
 
       {renderCreateForm()}
 
-      {/* Snackbar для уведомлений */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}

@@ -46,12 +46,20 @@ import {
   Visibility,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import { UserRole, ProductCategory } from '../types';
+import { UserRole } from '../types';
 
 interface TabPanelProps {
   children?: React.ReactNode;
   index: number;
   value: number;
+}
+
+export enum ProductCategory {
+  DISPOSABLES = 'DISPOSABLES',
+  LIQUIDS = 'LIQUIDS',
+  CONSUMABLES = 'CONSUMABLES',
+  PODS = 'PODS',
+  ENERGY_DRINKS = 'ENERGY_DRINKS'
 }
 
 const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {

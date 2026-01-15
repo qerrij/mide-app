@@ -1,6 +1,15 @@
 import axiosInstance from './axios';
 import { axiosMultipartInstance } from './axios';
-import { Report, ReportUpdateDto, ReportFilter, ReportStats, ReportProductResponse } from '../types';
+import { 
+  Report, 
+  ReportUpdateDto, 
+  ReportFilter, 
+  ReportStats, 
+  ReportProductResponse,
+  ReportCreateDto,
+  ReportStatus,
+  AccountantReportStatus
+} from '../types';
 
 // Функция для трансформации snake_case в camelCase для отчета
 const transformReportFromApi = (report: any): Report => {
@@ -22,17 +31,18 @@ const transformReportFromApi = (report: any): Report => {
     comment: report.comment,
     reviewedBy: report.reviewed_by,
     reviewDate: report.review_date ? new Date(report.review_date) : undefined,
+    
+    // Новые поля бухгалтера
+    accountantAmount: report.accountant_amount,
+    accountantStatus: report.accountant_status,
+    accountantComment: report.accountant_comment,
+    accountantFinalAmount: report.accountant_final_amount,
+    accountantReviewedBy: report.accountant_reviewed_by,
+    accountantReviewDate: report.accountant_review_date ? new Date(report.accountant_review_date) : undefined,
+    accountantName: report.accountant_name,
+    
     createdAt: new Date(report.created_at),
     updatedAt: report.updated_at ? new Date(report.updated_at) : undefined,
-  };
-};
-
-// Функция для трансформации camelCase в snake_case при отправке
-const transformReportToApi = (report: any): any => {
-  return {
-    seller_id: report.sellerId,
-    products_data: JSON.stringify(report.products),
-    comment: report.comment,
   };
 };
 
@@ -62,15 +72,16 @@ export const reportService = {
     return transformReportFromApi(response.data);
   },
 
-  // Создать отчет с фото
+  // Создать отчет с фото и суммой для бухгалтера
   createReport: async (
     products: Array<{ productId: number; quantity: number; soldAmount: number }>,
+    accountantAmount: number,  // НОВЫЙ ПАРАМЕТР
     photos: File[],
     comment?: string
   ): Promise<Report> => {
     const formData = new FormData();
     
-    // Добавляем товары как JSON (уже в snake_case)
+    // Добавляем товары как JSON
     const productsForApi = products.map(p => ({
       product_id: p.productId,
       quantity: p.quantity,
@@ -78,6 +89,9 @@ export const reportService = {
     }));
     
     formData.append('products_data', JSON.stringify(productsForApi));
+    
+    // Добавляем сумму для бухгалтера
+    formData.append('accountant_amount', accountantAmount.toString());
     
     // Добавляем комментарий
     if (comment) {
@@ -91,13 +105,11 @@ export const reportService = {
     
     const response = await axiosMultipartInstance.post<any>('/api/reports', formData);
     
-    // Преобразуем ответ из snake_case в camelCase
     return transformReportFromApi(response.data);
   },
 
-  // Обновить статус отчета
+  // Обновить статус отчета (для руководителей)
   updateReport: async (id: number, reportData: ReportUpdateDto): Promise<Report> => {
-    // Преобразуем camelCase в snake_case для отправки
     const dataForApi: any = {};
     if (reportData.status) dataForApi.status = reportData.status;
     if (reportData.comment) dataForApi.comment = reportData.comment;
@@ -107,9 +119,57 @@ export const reportService = {
     return transformReportFromApi(response.data);
   },
 
-  // Удалить отчет
-  deleteReport: async (id: number): Promise<void> => {
-    await axiosInstance.delete(`/api/reports/${id}`);
+  // Проверка отчета бухгалтером
+  reviewByAccountant: async (
+    reportId: number,
+    action: 'approve' | 'reject',
+    finalAmount?: number,
+    comment?: string
+  ): Promise<Report> => {
+    const formData = new FormData();
+    formData.append('action', action);
+    
+    if (action === 'approve' && finalAmount !== undefined) {
+      formData.append('final_amount', finalAmount.toString());
+    }
+    
+    if (comment) {
+      formData.append('comment', comment);
+    }
+    
+    const response = await axiosMultipartInstance.post<any>(
+      `/api/reports/${reportId}/accountant-review`,
+      formData
+    );
+    return transformReportFromApi(response.data);
+  },
+
+  // Финальное утверждение отчета руководителем
+  finalApproveReport: async (
+    reportId: number,
+    action: 'approve' | 'reject',
+    comment?: string
+  ): Promise<Report> => {
+    const formData = new FormData();
+    formData.append('action', action);
+    
+    if (comment) {
+      formData.append('comment', comment);
+    }
+    
+    const response = await axiosMultipartInstance.post<any>(
+      `/api/reports/${reportId}/final-approval`,
+      formData
+    );
+    return transformReportFromApi(response.data);
+  },
+
+  // Получить отчеты, ожидающие проверки бухгалтером
+  getPendingAccountantReports: async (skip: number = 0, limit: number = 100): Promise<Report[]> => {
+    const response = await axiosInstance.get<any[]>('/api/reports/accountant/pending', {
+      params: { skip, limit }
+    });
+    return response.data.map(transformReportFromApi);
   },
 
   // Получить статистику
@@ -132,7 +192,6 @@ export const reportService = {
       return photoPath;
     }
     
-    // Проверяем разные варианты путей
     if (photoPath.startsWith('uploads/')) {
       return `http://localhost:8000/${photoPath}`;
     }
@@ -141,7 +200,6 @@ export const reportService = {
       return `http://localhost:8000/uploads/${photoPath}`;
     }
     
-    // По умолчанию
     return `http://localhost:8000/uploads/${photoPath}`;
   },
 };

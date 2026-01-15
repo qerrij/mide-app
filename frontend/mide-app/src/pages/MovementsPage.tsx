@@ -42,7 +42,7 @@ import {
   Person,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import { UserRole, MovementStatus, RejectionReason } from '../types';
+import { UserRole } from '../types';
 
 interface Movement {
   id: number;
@@ -63,6 +63,21 @@ interface Movement {
   comment?: string;
   expanded?: boolean;
 }
+
+export enum MovementStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED'
+}
+
+export enum RejectionReason {
+  DEFECTIVE = 'DEFECTIVE',
+  INSUFFICIENT = 'INSUFFICIENT',
+  ERROR = 'ERROR',
+  OTHER = 'OTHER'
+}
+
 
 const MovementsPage: React.FC = () => {
   const { user } = useAuth();

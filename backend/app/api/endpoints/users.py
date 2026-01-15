@@ -4,14 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.crud.user import crud_user
-from app.crud.group import crud_group
-from app.crud.cluster import crud_cluster
 from app.schemas.user import UserResponse, UserCreate, UserUpdate, UserRole
 from app.api.dependencies import get_current_user, require_role, require_roles
-import json
 
 router = APIRouter(prefix="/users", tags=["users"])
-
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
@@ -24,7 +20,6 @@ def create_user(
         return user
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-
 
 @router.get("/", response_model=List[UserResponse])
 def read_users(
@@ -39,9 +34,7 @@ def read_users(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """
-    Получить пользователей с учетом роли текущего пользователя
-    """
+    """Получить пользователей с учетом роли текущего пользователя"""
     # OWNER получает всех пользователей с фильтрами
     if current_user.role == UserRole.OWNER:
         query = db.query(User).filter(User.is_active == True)
@@ -130,40 +123,32 @@ def read_users(
     
     return []
 
-
 @router.get("/{user_id}", response_model=UserResponse)
 def read_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    # Владелец может видеть всех
-    if current_user.role == UserRole.OWNER:
-        pass
-    # Админ может видеть пользователей своих кустов
-    elif current_user.role == UserRole.ADMIN:
-        user = crud_user.get(db, user_id=user_id)
-        if not user or not current_user.admin_clusters or user.cluster_id not in current_user.admin_clusters:
-            raise HTTPException(status_code=403, detail="Not enough permissions")
-    # Старший продавец может видеть пользователей своего куста
-    elif current_user.role == UserRole.SENIOR_SELLER:
-        user = crud_user.get(db, user_id=user_id)
-        if not user or user.cluster_id != current_user.cluster_id:
-            raise HTTPException(status_code=403, detail="Not enough permissions")
-    # Наставник может видеть своих подопечных
-    elif current_user.role == UserRole.MENTOR:
-        user = crud_user.get(db, user_id=user_id)
-        if not user or user.mentor_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not enough permissions")
-    # Продавец может видеть только себя
-    elif current_user.role == UserRole.SELLER and current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
-    
     user = crud_user.get(db, user_id=user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Проверка прав доступа
+    if current_user.role == UserRole.OWNER:
+        pass
+    elif current_user.role == UserRole.ADMIN:
+        if not current_user.admin_clusters or user.cluster_id not in current_user.admin_clusters:
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+    elif current_user.role == UserRole.SENIOR_SELLER:
+        if user.cluster_id != current_user.cluster_id:
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+    elif current_user.role == UserRole.MENTOR:
+        if user.mentor_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not enough permissions")
+    elif current_user.role == UserRole.SELLER and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    
     return user
-
 
 @router.put("/{user_id}", response_model=UserResponse)
 def update_user(
@@ -184,7 +169,6 @@ def update_user(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
@@ -197,7 +181,6 @@ def delete_user(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return None
-
 
 @router.get("/available/mentors", response_model=List[UserResponse])
 def get_available_mentors(
@@ -221,7 +204,6 @@ def get_available_mentors(
         crud_user._enrich_user_data(db, mentor)
     
     return mentors
-
 
 @router.get("/available/senior_sellers", response_model=List[UserResponse])
 def get_available_senior_sellers(
