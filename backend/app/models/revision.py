@@ -64,6 +64,7 @@ class Revision(Base):
     target_cluster = relationship("Cluster", foreign_keys=[target_cluster_id])
     verified_by = relationship("User", foreign_keys=[verified_by_id])
     
+    
     # Детали ревизии (связь один-ко-многим)
     # items = relationship("RevisionItem", back_populates="revision", cascade="all, delete-orphan")
     discrepancies = relationship("RevisionDiscrepancy", back_populates="revision", cascade="all, delete-orphan")

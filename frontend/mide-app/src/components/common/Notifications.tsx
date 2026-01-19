@@ -24,9 +24,6 @@ import {
   Cancel,
   Assessment,
   Warning,
-  Inventory,
-  PhotoCamera,
-  Videocam,
   ArrowForward,
   MarkEmailRead,
   Delete,
@@ -36,8 +33,6 @@ import { notificationService } from '../../api/notificationService';
 import {
   Notification,
   NotificationType,
-  getNotificationTypeText,
-  getNotificationPriorityColor,
 } from '../../types';
 
 const Notifications: React.FC = () => {
@@ -92,11 +87,6 @@ const Notifications: React.FC = () => {
     if (notification.status === 'UNREAD') {
       try {
         await notificationService.markAsRead(notification.id);
-        // setNotifications(prev => 
-        //   prev.map(n => 
-        //     n.id === notification.id ? { ...n, status: 'READ', readAt: new Date() } : n
-        //   )
-        // );
         setUnreadCount(prev => Math.max(0, prev - 1));
       } catch (error) {
         console.error('Error marking notification as read:', error);
@@ -111,9 +101,6 @@ const Notifications: React.FC = () => {
   const handleMarkAllAsRead = async () => {
     try {
       await notificationService.markAllAsRead();
-      // setNotifications(prev => 
-      //   prev.map(n => ({ ...n, status: 'READ', readAt: new Date() }))
-      // );
       setUnreadCount(0);
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -238,13 +225,26 @@ const Notifications: React.FC = () => {
         PaperProps={{
           sx: {
             width: 400,
-            maxHeight: 500,
+            height: 'auto',
+            maxHeight: 'calc(100vh - 100px)',
             mt: 1.5,
             maxWidth: '90vw',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+        MenuListProps={{
+          sx: {
+            p: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
           },
         }}
       >
-        <Box sx={{ p: 2, pb: 1 }}>
+        {/* Заголовок */}
+        <Box sx={{ p: 2, pb: 1, flexShrink: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="h6" sx={{ color: '#2a0f35' }}>
               Уведомления
@@ -262,7 +262,12 @@ const Notifications: React.FC = () => {
           <Divider />
         </Box>
 
-        <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
+        {/* Список уведомлений */}
+        <Box sx={{ 
+          flex: 1, 
+          overflowY: 'auto',
+          minHeight: 0, // Важно для flex-контейнера
+        }}>
           {loading ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <CircularProgress size={24} />
@@ -363,23 +368,24 @@ const Notifications: React.FC = () => {
           )}
         </Box>
 
-        {notifications.length > 0 && (
-          <>
-            <Divider />
-            <Box sx={{ p: 1.5, textAlign: 'center' }}>
-              <Button
-                size="small"
-                onClick={() => {
-                  // Здесь можно добавить навигацию на полную страницу уведомлений
-                  navigate('/notifications');
-                  handleClose();
-                }}
-              >
-                Все уведомления
-              </Button>
-            </Box>
-          </>
-        )}
+        {/* Кнопка "Все уведомления" - ВСЕГДА показываем */}
+        <Box sx={{ 
+          flexShrink: 0,
+          borderTop: '1px solid #f0f0f0',
+        }}>
+          <Box sx={{ p: 1.5, textAlign: 'center' }}>
+            <Button
+              size="small"
+              onClick={() => {
+                navigate('/notifications');
+                handleClose();
+              }}
+              fullWidth
+            >
+              Все уведомления
+            </Button>
+          </Box>
+        </Box>
       </Menu>
 
       {/* Диалог деталей уведомления */}
@@ -430,35 +436,23 @@ const Notifications: React.FC = () => {
                     Дополнительная информация:
                   </Typography>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {selectedNotification.data.photos && (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <PhotoCamera sx={{ color: getNotificationColor(selectedNotification.type), fontSize: 20 }} />
-                        <Typography variant="body2" sx={{ color: '#4c5454' }}>
-                          Фото: {selectedNotification.data.photos} шт.
-                        </Typography>
-                      </Box>
-                    )}
-                    {selectedNotification.data.items && Array.isArray(selectedNotification.data.items) && (
-                      <Box>
-                        <Typography variant="body2" sx={{ color: '#2a0f35', mb: 0.5 }}>
-                          Товары:
-                        </Typography>
-                        {selectedNotification.data.items.map((item: string, index: number) => (
-                          <Typography key={index} variant="body2" sx={{ color: '#4c5454', pl: 2 }}>
-                            • {item}
-                          </Typography>
-                        ))}
-                      </Box>
-                    )}
                     {Object.entries(selectedNotification.data).map(([key, value]) => {
-                      if (key === 'photos' || key === 'items') return null;
+                      // Пропускаем поля, которые не нужно показывать
+                      if (typeof value === 'object' && !Array.isArray(value)) {
+                        return null;
+                      }
+                      
                       return (
                         <Box key={key} sx={{ display: 'flex', gap: 1 }}>
                           <Typography variant="body2" sx={{ color: '#2a0f35', minWidth: 120 }}>
                             {key}:
                           </Typography>
                           <Typography variant="body2" sx={{ color: '#4c5454' }}>
-                            {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                            {Array.isArray(value) 
+                              ? value.join(', ') 
+                              : typeof value === 'object' 
+                                ? JSON.stringify(value) 
+                                : String(value)}
                           </Typography>
                         </Box>
                       );

@@ -85,17 +85,36 @@ def read_group(
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
+    # Проверяем права доступа
     if current_user.role == UserRole.OWNER:
-        pass
+        pass  # Владелец видит все
+    
     elif current_user.role == UserRole.ADMIN:
+        # Админ может видеть группы в кустах, которыми он управляет
         if not current_user.admin_clusters or group.cluster_id not in current_user.admin_clusters:
             raise HTTPException(status_code=403, detail="Not enough permissions")
+    
     elif current_user.role == UserRole.SENIOR_SELLER:
+        # Старший продавец видит группы своего куста
         if group.cluster_id != current_user.cluster_id:
             raise HTTPException(status_code=403, detail="Not enough permissions")
+    
     elif current_user.role == UserRole.MENTOR:
+        # Ментор видит свою группу
         if group.mentor_id != current_user.id:
+            # Также может видеть группу, если сам в ней состоит
+            if current_user.group_id != group_id:
+                raise HTTPException(status_code=403, detail="Not enough permissions")
+    
+    elif current_user.role == UserRole.SELLER:
+        # Продавец видит только свою группу
+        if current_user.group_id != group_id:
             raise HTTPException(status_code=403, detail="Not enough permissions")
+    
+    elif current_user.role == UserRole.ACCOUNTANT:
+        # Бухгалтер может видеть все группы
+        pass
+    
     else:
         raise HTTPException(status_code=403, detail="Not enough permissions")
     

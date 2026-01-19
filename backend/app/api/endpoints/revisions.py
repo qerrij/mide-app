@@ -3,12 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.crud.revision import crud_revision
+from app.models.revision import Revision, RevisionFilling
 from app.schemas.revision import (
     RevisionResponse, RevisionRequest, RevisionUpdate, 
-    RevisionVerify, RevisionFill, RevisionFilter,
+    RevisionVerify,
     RevisionStatus, RevisionType,
     RevisionFillingCreate, RevisionFillingResponse,
-    RevisionSummaryResponse
+    RevisionSummaryResponse, RevisionDeleteResponse  
 )
 from app.api.dependencies import get_current_user, require_roles
 from app.models.user import User, UserRole
@@ -615,77 +616,58 @@ def get_discrepancies_by_user(
     if revision.requested_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
-    # Проверяем, что ревизия проверена
-    if revision.status != RevisionStatus.VERIFIED:
-        raise HTTPException(status_code=400, detail="Ревизия еще не проверена")
+    # Разрешаем просмотр расхождений для ревизий в статусе COMPLETED
+    if revision.status not in [RevisionStatus.COMPLETED, RevisionStatus.VERIFIED]:
+        raise HTTPException(
+            status_code=400, 
+            detail="Ревизия еще не заполнена или не проверена"
+        )
     
-    # Получаем расхождения по пользователям из базы
+    # Получаем все расхождения для этой ревизии
     from app.models.revision import RevisionDiscrepancy
-    from sqlalchemy import func
     
-    # Группируем расхождения по пользователям
-    discrepancies_by_user = db.query(
-        RevisionDiscrepancy.user_id,
-        func.sum(RevisionDiscrepancy.discrepancy).label('total_discrepancy'),
-        func.sum(
-            func.case(
-                (RevisionDiscrepancy.is_positive == True, RevisionDiscrepancy.discrepancy),
-                else_=0
-            )
-        ).label('positive_total'),
-        func.sum(
-            func.case(
-                (RevisionDiscrepancy.is_positive == False, func.abs(RevisionDiscrepancy.discrepancy)),
-                else_=0
-            )
-        ).label('negative_total')
-    ).filter(
-        RevisionDiscrepancy.revision_id == revision_id
-    ).group_by(
-        RevisionDiscrepancy.user_id
-    ).all()
+    all_discrepancies = db.query(RevisionDiscrepancy)\
+        .options(
+            joinedload(RevisionDiscrepancy.product),
+            joinedload(RevisionDiscrepancy.user)
+        )\
+        .filter(RevisionDiscrepancy.revision_id == revision_id)\
+        .all()
     
-    # Получаем детали для каждого пользователя
-    result = []
-    for user_data in discrepancies_by_user:
-        # Получаем детальные расхождения для этого пользователя
-        user_discrepancies = db.query(RevisionDiscrepancy)\
-            .options(
-                joinedload(RevisionDiscrepancy.product),
-                joinedload(RevisionDiscrepancy.user)
-            )\
-            .filter(
-                RevisionDiscrepancy.revision_id == revision_id,
-                RevisionDiscrepancy.user_id == user_data.user_id
-            )\
-            .all()
+    # Группируем расхождения по пользователям в Python
+    user_discrepancies = {}
+    
+    for disc in all_discrepancies:
+        user_id = disc.user_id
+        if user_id not in user_discrepancies:
+            user = disc.user
+            user_discrepancies[user_id] = {
+                'user_id': user_id,
+                'user_name': user.full_name if user else f'Пользователь {user_id}',
+                'total_discrepancy': 0,
+                'positive_total': 0,
+                'negative_total': 0,
+                'discrepancies': []
+            }
         
-        # Получаем информацию о пользователе
-        user = db.query(User).filter(User.id == user_data.user_id).first()
-        
-        discrepancies_list = []
-        for disc in user_discrepancies:
-            product = disc.product
-            discrepancies_list.append({
-                'product_id': disc.product_id,
-                'product_name': product.name if product else f'Товар {disc.product_id}',
-                'product_sku': product.sku if product else f'SKU{disc.product_id}',
-                'expected': disc.expected_quantity,
-                'actual': disc.actual_quantity,
-                'discrepancy': disc.discrepancy,
-                'is_positive': disc.is_positive
-            })
-        
-        result.append({
-            'user_id': user_data.user_id,
-            'user_name': user.full_name if user else f'Пользователь {user_data.user_id}',
-            'total_discrepancy': user_data.total_discrepancy or 0,
-            'positive_total': user_data.positive_total or 0,
-            'negative_total': user_data.negative_total or 0,
-            'discrepancies': discrepancies_list
+        product = disc.product
+        user_discrepancies[user_id]['discrepancies'].append({
+            'product_id': disc.product_id,
+            'product_name': product.name if product else f'Товар {disc.product_id}',
+            'product_sku': product.sku if product else f'SKU{disc.product_id}',
+            'expected': disc.expected_quantity,
+            'actual': disc.actual_quantity,
+            'discrepancy': disc.discrepancy,
+            'is_positive': disc.is_positive
         })
+        
+        user_discrepancies[user_id]['total_discrepancy'] += disc.discrepancy
+        if disc.is_positive:
+            user_discrepancies[user_id]['positive_total'] += disc.discrepancy
+        else:
+            user_discrepancies[user_id]['negative_total'] += abs(disc.discrepancy)
     
-    return result
+    return list(user_discrepancies.values())
 
 
 @router.get("/{revision_id}/discrepancies-by-product")
@@ -703,79 +685,267 @@ def get_discrepancies_by_product(
     if revision.requested_by_id != current_user.id:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
-    # Проверяем, что ревизия проверена
-    if revision.status != RevisionStatus.VERIFIED:
-        raise HTTPException(status_code=400, detail="Ревизия еще не проверена")
+    # Разрешаем просмотр расхождений для ревизий в статусе COMPLETED
+    if revision.status not in [RevisionStatus.COMPLETED, RevisionStatus.VERIFIED]:
+        raise HTTPException(
+            status_code=400, 
+            detail="Ревизия еще не заполнена или не проверена"
+        )
     
-    # Получаем расхождения по продуктам из базы
+    # Получаем все расхождения для этой ревизии
     from app.models.revision import RevisionDiscrepancy
-    from sqlalchemy import func
+    from app.models.product import Product
     
-    # Группируем расхождения по продуктам
-    discrepancies_by_product = db.query(
-        RevisionDiscrepancy.product_id,
-        func.sum(RevisionDiscrepancy.discrepancy).label('total_discrepancy'),
-        func.sum(
-            func.case(
-                (RevisionDiscrepancy.is_positive == True, RevisionDiscrepancy.discrepancy),
-                else_=0
-            )
-        ).label('positive_total'),
-        func.sum(
-            func.case(
-                (RevisionDiscrepancy.is_positive == False, func.abs(RevisionDiscrepancy.discrepancy)),
-                else_=0
-            )
-        ).label('negative_total')
-    ).filter(
-        RevisionDiscrepancy.revision_id == revision_id
-    ).group_by(
-        RevisionDiscrepancy.product_id
-    ).all()
+    all_discrepancies = db.query(RevisionDiscrepancy)\
+        .options(
+            joinedload(RevisionDiscrepancy.product),
+            joinedload(RevisionDiscrepancy.user)
+        )\
+        .filter(RevisionDiscrepancy.revision_id == revision_id)\
+        .all()
     
-    # Получаем детали для каждого продукта
-    result = []
-    for product_data in discrepancies_by_product:
-        # Получаем детальные расхождения для этого продукта
-        product_discrepancies = db.query(RevisionDiscrepancy)\
-            .options(
-                joinedload(RevisionDiscrepancy.product),
-                joinedload(RevisionDiscrepancy.user)
-            )\
-            .filter(
-                RevisionDiscrepancy.revision_id == revision_id,
-                RevisionDiscrepancy.product_id == product_data.product_id
-            )\
-            .all()
+    # Группируем расхождения по продуктам в Python
+    product_discrepancies = {}
+    
+    for disc in all_discrepancies:
+        product_id = disc.product_id
+        if product_id not in product_discrepancies:
+            product = disc.product
+            product_discrepancies[product_id] = {
+                'product_id': product_id,
+                'product_name': product.name if product else f'Товар {product_id}',
+                'product_sku': product.sku if product else f'SKU{product_id}',
+                'category_name': product.category.name if product and product.category else 'Категория',
+                'total_discrepancy': 0,
+                'positive_total': 0,
+                'negative_total': 0,
+                'user_discrepancies': []
+            }
         
-        # Получаем информацию о продукте
-        from app.models.product import Product
-        product = db.query(Product)\
-            .options(joinedload(Product.category))\
-            .filter(Product.id == product_data.product_id)\
-            .first()
-        
-        user_discrepancies_list = []
-        for disc in product_discrepancies:
-            user = disc.user
-            user_discrepancies_list.append({
-                'user_id': disc.user_id,
-                'user_name': user.full_name if user else f'Пользователь {disc.user_id}',
-                'expected': disc.expected_quantity,
-                'actual': disc.actual_quantity,
-                'discrepancy': disc.discrepancy,
-                'is_positive': disc.is_positive
-            })
-        
-        result.append({
-            'product_id': product_data.product_id,
-            'product_name': product.name if product else f'Товар {product_data.product_id}',
-            'product_sku': product.sku if product else f'SKU{product_data.product_id}',
-            'category_name': product.category.name if product and product.category else 'Категория',
-            'total_discrepancy': product_data.total_discrepancy or 0,
-            'positive_total': product_data.positive_total or 0,
-            'negative_total': product_data.negative_total or 0,
-            'user_discrepancies': user_discrepancies_list
+        user = disc.user
+        product_discrepancies[product_id]['user_discrepancies'].append({
+            'user_id': disc.user_id,
+            'user_name': user.full_name if user else f'Пользователь {disc.user_id}',
+            'expected': disc.expected_quantity,
+            'actual': disc.actual_quantity,
+            'discrepancy': disc.discrepancy,
+            'is_positive': disc.is_positive
         })
+        
+        product_discrepancies[product_id]['total_discrepancy'] += disc.discrepancy
+        if disc.is_positive:
+            product_discrepancies[product_id]['positive_total'] += disc.discrepancy
+        else:
+            product_discrepancies[product_id]['negative_total'] += abs(disc.discrepancy)
     
-    return result
+    return list(product_discrepancies.values())
+
+
+@router.get("/{revision_id}/calculate-discrepancies")
+def calculate_discrepancies(
+    revision_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Рассчитать расхождения (предварительно, без сохранения в БД)"""
+    revision = crud_revision.get(db, revision_id)
+    if not revision:
+        raise HTTPException(status_code=404, detail="Ревизия не найдена")
+    
+    # Проверяем права доступа - только владелец ревизии может рассчитывать расхождения
+    if revision.requested_by_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    # Проверяем, что ревизия заполнена
+    if revision.status != RevisionStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400, 
+            detail="Ревизия еще не заполнена всеми участниками"
+        )
+    
+    # Создаем временные расхождения
+    discrepancies = _calculate_discrepancies_for_revision(db, revision)
+    
+    # Группируем по пользователям для удобства
+    from collections import defaultdict
+    user_discrepancies = defaultdict(lambda: {
+        'user_id': None,
+        'user_name': None,
+        'total_discrepancy': 0,
+        'positive_total': 0,
+        'negative_total': 0,
+        'discrepancies': []
+    })
+    
+    for disc in discrepancies:
+        user_id = disc['user_id']
+        if user_discrepancies[user_id]['user_id'] is None:
+            # Получаем информацию о пользователе
+            user = db.query(User).filter(User.id == user_id).first()
+            user_discrepancies[user_id]['user_id'] = user_id
+            user_discrepancies[user_id]['user_name'] = user.full_name if user else f'Пользователь {user_id}'
+        
+        user_discrepancies[user_id]['discrepancies'].append(disc)
+        user_discrepancies[user_id]['total_discrepancy'] += disc['discrepancy']
+        if disc['is_positive']:
+            user_discrepancies[user_id]['positive_total'] += disc['discrepancy']
+        else:
+            user_discrepancies[user_id]['negative_total'] += abs(disc['discrepancy'])
+    
+    return list(user_discrepancies.values())
+
+def _calculate_discrepancies_for_revision(db: Session, revision: Revision):
+    """Рассчитать расхождения для ревизии"""
+    from app.models.revision import RevisionFilling
+    from app.models.inventory import UserInventory
+    
+    discrepancies = []
+    
+    # Получаем все заполнения
+    fillings = db.query(RevisionFilling)\
+        .filter(
+            RevisionFilling.revision_id == revision.id,
+            RevisionFilling.is_completed == True
+        )\
+        .all()
+    
+    for filling in fillings:
+        # Для каждого товара в заполнении ищем расхождения с инвентарем
+        for item in filling.items:
+            inventory = db.query(UserInventory).filter(
+                UserInventory.user_id == filling.user_id,
+                UserInventory.product_id == item.product_id
+            ).first()
+            
+            expected = inventory.quantity if inventory else 0
+            actual = item.quantity
+            discrepancy = actual - expected
+            
+            # Получаем информацию о продукте
+            from app.models.product import Product
+            product = db.query(Product)\
+                .options(joinedload(Product.category))\
+                .filter(Product.id == item.product_id)\
+                .first()
+            
+            discrepancies.append({
+                'revision_id': revision.id,
+                'product_id': item.product_id,
+                'user_id': filling.user_id,
+                'expected_quantity': expected,
+                'actual_quantity': actual,
+                'discrepancy': discrepancy,
+                'is_positive': discrepancy > 0,
+                'product_name': product.name if product else f'Товар {item.product_id}',
+                'product_sku': product.sku if product else f'SKU{item.product_id}',
+                'category_name': product.category.name if product and product.category else 'Категория'
+            })
+    
+    return discrepancies
+
+@router.delete("/{revision_id}", response_model=RevisionDeleteResponse)
+def delete_revision(
+    revision_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Удалить ревизию"""
+    try:
+        revision = db.query(Revision).filter(Revision.id == revision_id).first()
+        if not revision:
+            raise HTTPException(status_code=404, detail="Ревизия не найдена")
+        
+        is_owner_revision = revision.requested_by_id == current_user.id
+        is_system_owner = current_user.role == UserRole.OWNER
+        
+        if not (is_owner_revision or is_system_owner):
+            raise HTTPException(
+                status_code=403, 
+                detail="Только владелец ревизии или OWNER могут удалить ревизию"
+            )
+
+        if is_owner_revision and not is_system_owner:
+            if revision.status == RevisionStatus.VERIFIED:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Нельзя удалить проверенную ревизию"
+                )
+        
+        import os
+        from pathlib import Path
+        
+        fillings = db.query(RevisionFilling).filter(
+            RevisionFilling.revision_id == revision_id
+        ).all()
+        
+        all_photo_paths = []
+        
+        if revision.photos:
+            all_photo_paths.extend(revision.photos)
+        
+        for filling in fillings:
+            if filling.photos:
+                all_photo_paths.extend(filling.photos)
+        
+        unique_photo_paths = set(all_photo_paths)
+        for photo_path in unique_photo_paths:
+            try:
+                if photo_path:
+                    full_path = Path(f"uploads/{photo_path}")
+                    if full_path.exists():
+                        os.remove(full_path)
+            except Exception as e:
+                print(f"Error deleting photo {photo_path}: {e}")
+        
+        try:
+            revision_dir = Path(f"uploads/revisions/{revision_id}")
+            if revision_dir.exists():
+                import shutil
+                shutil.rmtree(revision_dir)
+        except Exception as e:
+            print(f"Error deleting revision directory: {e}")
+        
+        db.delete(revision)
+        db.commit()
+        
+        return RevisionDeleteResponse(
+            success=True,
+            message="Ревизия успешно удалена",
+            revision_id=revision_id
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при удалении ревизии: {str(e)}"
+        )
+    
+@router.post("/{revision_id}/revert-changes", response_model=RevisionResponse)
+def revert_revision_changes(
+    revision_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Отменить изменения инвентаря после проверки ревизии"""
+    try:
+        revision = crud_revision.revert_revision_changes(
+            db, 
+            revision_id=revision_id, 
+            user_id=current_user.id
+        )
+        
+        # Добавляем статистику для ответа
+        result = crud_revision.get_with_summary(db, revision_id, current_user.id)
+        revision.total_filled = result['total_filled'] if result else 0
+        revision.total_users = len(crud_revision._get_users_for_revision(db, revision))
+        revision.is_group_revision = revision.type in [
+            RevisionType.GROUP, RevisionType.CLUSTER, RevisionType.CITY, RevisionType.GENERAL
+        ]
+        
+        return revision
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -338,5 +338,50 @@ class CRUDInventory:
             )
         
         return True
+    
+
+    def apply_revision_discrepancies(
+        self, 
+        db: Session, 
+        revision_id: int
+    ) -> Dict[str, any]:
+        """Применить расхождения ревизии к инвентарю пользователей"""
+        from app.models.revision import RevisionDiscrepancy
+        
+        # Получаем все расхождения для ревизии
+        discrepancies = db.query(RevisionDiscrepancy)\
+            .filter(RevisionDiscrepancy.revision_id == revision_id)\
+            .all()
+        
+        applied_count = 0
+        total_positive = 0
+        total_negative = 0
+        
+        # Применяем каждое расхождение
+        for disc in discrepancies:
+            # Изменение количества (плюс или минус)
+            quantity_change = disc.discrepancy
+            
+            # Обновляем инвентарь пользователя
+            self.update_inventory(
+                db,
+                user_id=disc.user_id,
+                product_id=disc.product_id,
+                quantity_change=quantity_change
+            )
+            
+            applied_count += 1
+            
+            # Считаем статистику
+            if disc.is_positive:
+                total_positive += quantity_change
+            else:
+                total_negative += abs(quantity_change)
+        
+        return {
+            'applied_count': applied_count,
+            'total_positive': total_positive,
+            'total_negative': total_negative
+        }
 
 crud_inventory = CRUDInventory()

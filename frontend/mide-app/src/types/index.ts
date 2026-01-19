@@ -400,6 +400,7 @@ export interface UserDiscrepancyDetail {
   productName?: string;
   expected: number;
   actual: number;
+  productSku?: string;
   discrepancy: number;
   isPositive: boolean;
 }
@@ -426,6 +427,8 @@ export interface ProductDiscrepancySummary {
   productId: number;
   productName?: string;
   totalDiscrepancy: number;
+  productSku?: string;  // Добавьте это поле
+  categoryName?: string;  // Добавьте это поле
   positiveTotal: number;
   negativeTotal: number;
   userDiscrepancies: ProductDiscrepancyDetail[];

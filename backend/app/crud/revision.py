@@ -76,6 +76,8 @@ class CRUDRevision:
                    .limit(limit)\
                    .all()
     
+    
+    
     def get_revisions_for_user(
         self,
         db: Session,
@@ -88,71 +90,131 @@ class CRUDRevision:
         if not user:
             return []
         
+        # Если пользователь OWNER - он видит все ревизии
+        if user.role == UserRole.OWNER:
+            query = db.query(Revision)\
+                .options(
+                    joinedload(Revision.requested_by),
+                    joinedload(Revision.target_user),
+                    joinedload(Revision.target_group),
+                    joinedload(Revision.target_cluster)
+                )
+            
+            return query.order_by(Revision.requested_at.desc())\
+                    .offset(skip)\
+                    .limit(limit)\
+                    .all()
+        
+        # Получаем всех подчиненных
+        subordinates = self._get_subordinate_users(db, user)
+        subordinate_ids = [sub.id for sub in subordinates]
+        
+        # РЕВИЗИИ, КОТОРЫЕ ЗАПРОСИЛИ ПОДЧИНЕННЫЕ - НОВОЕ УСЛОВИЕ
+        revisions_by_subordinates = db.query(Revision.id)\
+            .filter(
+                Revision.requested_by_id.in_(subordinate_ids)
+            )\
+            .subquery()
+        
+        # РЕВИЗИИ, КОТОРЫЕ ЗАПОЛНЯЛИ ПОДЧИНЕННЫЕ - НОВОЕ УСЛОВИЕ
+        revisions_with_subordinate_filling = db.query(Revision.id)\
+            .join(RevisionFilling, Revision.id == RevisionFilling.revision_id)\
+            .filter(RevisionFilling.user_id.in_(subordinate_ids))\
+            .subquery()
+        
+        # РЕВИЗИИ, ГДЕ ПОДЧИНЕННЫЕ ЯВЛЯЮТСЯ ЦЕЛЬЮ - НОВОЕ УСЛОВИЕ
+        revisions_targeting_subordinates = db.query(Revision.id)\
+            .filter(
+                Revision.target_user_id.in_(subordinate_ids)
+            )\
+            .subquery()
+        
+        # ОСТАВЛЯЕМ ВСЕ ПРЕДЫДУЩИЕ УСЛОВИЯ + ДОБАВЛЯЕМ НОВЫЕ
+        
+        # 1. Ревизии, которые пользователь запросил сам
+        requested_by_me = db.query(Revision.id)\
+            .filter(Revision.requested_by_id == user_id)\
+            .subquery()
+        
+        # 2. Ревизии, для которых создана запись RevisionFilling для этого пользователя
+        revisions_with_my_filling = db.query(Revision.id)\
+            .join(RevisionFilling, Revision.id == RevisionFilling.revision_id)\
+            .filter(RevisionFilling.user_id == user_id)\
+            .subquery()
+        
+        # 3. Ревизии, где пользователь явно указан как target_user
+        revisions_targeting_me = db.query(Revision.id)\
+            .filter(Revision.target_user_id == user_id)\
+            .subquery()
+        
+        # 4. Для GROUP ревизий: пользователь видит ревизии своей группы
+        revisions_for_my_group = db.query(Revision.id)\
+            .filter(
+                Revision.type == RevisionType.GROUP,
+                Revision.target_group_id == user.group_id
+            )\
+            .subquery()
+        
+        # 5. Для CLUSTER ревизий: пользователь видит ревизии своего куста
+        revisions_for_my_cluster = db.query(Revision.id)\
+            .filter(
+                Revision.type == RevisionType.CLUSTER,
+                Revision.target_cluster_id == user.cluster_id
+            )\
+            .subquery()
+        
+        # 6. Для CITY ревизий: пользователь видит ревизии своего города
+        revisions_for_my_city = db.query(Revision.id)\
+            .filter(
+                Revision.type == RevisionType.CITY,
+                Revision.target_city == user.city
+            )\
+            .subquery()
+        
+        # 7. GENERAL ревизии: все пользователи (кроме OWNER и ACCOUNTANT) видят общие ревизии
+        general_revisions = db.query(Revision.id)\
+            .filter(Revision.type == RevisionType.GENERAL)\
+            .subquery()
+        
+        # Собираем ВСЕ условия в один OR
+        all_revision_ids = db.query(Revision.id)\
+            .filter(
+                or_(
+                    # Стандартные условия (как раньше)
+                    Revision.id.in_(requested_by_me),
+                    Revision.id.in_(revisions_with_my_filling),
+                    Revision.id.in_(revisions_targeting_me),
+                    Revision.id.in_(revisions_for_my_group),
+                    Revision.id.in_(revisions_for_my_cluster),
+                    Revision.id.in_(revisions_for_my_city),
+                    # Общие ревизии видят все, кроме ACCOUNTANT
+                    and_(
+                        Revision.type == RevisionType.GENERAL,
+                        user.role != UserRole.ACCOUNTANT
+                    ),
+                    # НОВЫЕ УСЛОВИЯ: ревизии подчиненных
+                    Revision.id.in_(revisions_by_subordinates),
+                    Revision.id.in_(revisions_with_subordinate_filling),
+                    Revision.id.in_(revisions_targeting_subordinates)
+                )
+            )\
+            .distinct()\
+            .subquery()
+        
+        # Теперь получаем полные данные ревизий
         query = db.query(Revision)\
             .options(
                 joinedload(Revision.requested_by),
                 joinedload(Revision.target_user),
                 joinedload(Revision.target_group),
                 joinedload(Revision.target_cluster)
-            )
-        
-        # В зависимости от роли пользователя
-        if user.role == UserRole.OWNER:
-            # Владелец видит все
-            pass
-        elif user.role == UserRole.ADMIN:
-            # Админ видит ревизии своих кустов и общие
-            if user.admin_clusters:
-                try:
-                    admin_clusters = json.loads(user.admin_clusters)
-                    query = query.filter(
-                        or_(
-                            Revision.type == RevisionType.GENERAL,
-                            Revision.target_cluster_id.in_(admin_clusters),
-                            Revision.type == RevisionType.CITY,
-                            # Также ревизии, которые он запросил
-                            Revision.requested_by_id == user_id
-                        )
-                    )
-                except:
-                    query = query.filter(Revision.requested_by_id == user_id)
-            else:
-                query = query.filter(Revision.requested_by_id == user_id)
-        elif user.role == UserRole.SENIOR_SELLER:
-            # Старший продавец видит ревизии своего куста и общие
-            query = query.filter(
-                or_(
-                    Revision.type == RevisionType.GENERAL,
-                    Revision.target_cluster_id == user.cluster_id,
-                    Revision.type == RevisionType.CITY,
-                    Revision.requested_by_id == user_id
-                )
-            )
-        elif user.role == UserRole.MENTOR:
-            # Ментор видит только ревизии своей группы
-            query = query.filter(
-                or_(
-                    Revision.target_group_id == user.group_id,
-                    Revision.requested_by_id == user_id
-                )
-            )
-        elif user.role == UserRole.SELLER or user.role == UserRole.ACCOUNTANT:
-            # Продавец и бухгалтер видят только свои ревизии или общие
-            query = query.filter(
-                or_(
-                    Revision.target_user_id == user_id,
-                    Revision.type == RevisionType.GENERAL,
-                    Revision.target_group_id == user.group_id,
-                    Revision.target_cluster_id == user.cluster_id,
-                    Revision.target_city == user.city,
-                    Revision.requested_by_id == user_id
-                )
-            )
+            )\
+            .filter(Revision.id.in_(all_revision_ids))
         
         return query.order_by(Revision.requested_at.desc())\
-                   .offset(skip)\
-                   .limit(limit)\
-                   .all()
+                .offset(skip)\
+                .limit(limit)\
+                .all()
     
     def get_with_summary(self, db: Session, revision_id: int, current_user_id: int) -> Optional[Dict]:
         """Получить ревизию со сводной информацией"""
@@ -201,6 +263,60 @@ class CRUDRevision:
                 result['user_filling'] = user_filling
         
         return result
+    
+    def _get_subordinate_users(self, db: Session, user: User) -> List[User]:
+        """Получить всех подчиненных пользователя в иерархии"""
+        subordinates = []
+        
+        if user.role == UserRole.OWNER:
+            # Владелец видит всех пользователей
+            subordinates = db.query(User).filter(User.id != user.id).all()
+        
+        elif user.role == UserRole.ADMIN:
+            # Админ видит всех, кроме OWNER
+            subordinates = db.query(User).filter(
+                User.role.in_([
+                    UserRole.SENIOR_SELLER, 
+                    UserRole.MENTOR, 
+                    UserRole.SELLER,
+                    UserRole.ACCOUNTANT
+                ])
+            ).all()
+        
+        elif user.role == UserRole.SENIOR_SELLER:
+            # Старший продавец видит продавцов и менторов своего куста
+            if user.cluster_id:
+                # Получаем все группы в кусте
+                groups_in_cluster = db.query(Group).filter(
+                    Group.cluster_id == user.cluster_id
+                ).all()
+                
+                group_ids = [g.id for g in groups_in_cluster]
+                
+                # Продавцы в этих группах
+                sellers = db.query(User).filter(
+                    User.group_id.in_(group_ids),
+                    User.role == UserRole.SELLER
+                ).all()
+                
+                # Менторы этих групп
+                mentors_ids = [g.mentor_id for g in groups_in_cluster if g.mentor_id]
+                mentors = db.query(User).filter(
+                    User.id.in_(mentors_ids)
+                ).all()
+                
+                subordinates = sellers + mentors
+        
+        elif user.role == UserRole.MENTOR:
+            # Ментор видит продавцов своей группы
+            if user.group_id:
+                subordinates = db.query(User).filter(
+                    User.group_id == user.group_id,
+                    User.role == UserRole.SELLER,
+                    User.id != user.id
+                ).all()
+        
+        return subordinates
     
     def create_request(
         self, 
@@ -267,28 +383,64 @@ class CRUDRevision:
         
         db.commit()
     
-    def _get_users_for_revision(self, db: Session, revision: Revision) -> List[User]:
-        """Получить список пользователей для заполнения ревизии"""
-        query = db.query(User).filter(User.is_active == True)
+    def _get_users_for_revision(self, db: Session, revision):
+        """Получить всех пользователей, которые должны заполнить ревизию"""
+        if revision.type == RevisionType.USER:
+            return [db.query(User).filter(User.id == revision.target_user_id).first()]
         
-        if revision.type == RevisionType.USER and revision.target_user_id:
-            query = query.filter(User.id == revision.target_user_id)
+        query = db.query(User)
         
-        elif revision.type == RevisionType.GROUP and revision.target_group_id:
+        if revision.type == RevisionType.GROUP:
             query = query.filter(User.group_id == revision.target_group_id)
+        elif revision.type == RevisionType.CLUSTER:
+            # Включаем всех пользователей куста + менторов групп
+            if revision.target_cluster_id:
+                # Получаем все группы в кусте
+                groups_in_cluster = db.query(Group).filter(
+                    Group.cluster_id == revision.target_cluster_id
+                ).all()
+                
+                group_ids = [g.id for g in groups_in_cluster]
+                
+                # Получаем всех пользователей в этих группах (продавцы)
+                sellers = query.filter(User.group_id.in_(group_ids)).all()
+                
+                # Получаем менторов этих групп
+                mentors_ids = [g.mentor_id for g in groups_in_cluster if g.mentor_id]
+                mentors = db.query(User).filter(User.id.in_(mentors_ids)).all()
+                
+                # Получаем старшего продавца куста
+                cluster = db.query(Cluster).filter(
+                    Cluster.id == revision.target_cluster_id
+                ).first()
+                senior_seller = None
+                if cluster and cluster.senior_seller_id:
+                    senior_seller = db.query(User).filter(
+                        User.id == cluster.senior_seller_id
+                    ).first()
+                
+                # Объединяем всех
+                users = list(set(sellers + mentors + ([senior_seller] if senior_seller else [])))
+                return [u for u in users if u]
         
-        elif revision.type == RevisionType.CLUSTER and revision.target_cluster_id:
-            query = query.filter(User.cluster_id == revision.target_cluster_id)
-        
-        elif revision.type == RevisionType.CITY and revision.target_city:
+        elif revision.type == RevisionType.CITY:
             query = query.filter(User.city == revision.target_city)
-        
         elif revision.type == RevisionType.GENERAL:
-            # Все кроме OWNER заполняют общие ревизии
-            query = query.filter(User.role != UserRole.OWNER)
+            # Все пользователи, кроме владельцев
+            pass
         
-        # Исключаем владельца из заполнения
+        # Исключаем владельцев
         query = query.filter(User.role != UserRole.OWNER)
+        
+        # ВАЖНО: Включаем менторов
+        query = query.filter(
+            or_(
+                User.role == UserRole.SELLER,
+                User.role == UserRole.MENTOR,
+                User.role == UserRole.SENIOR_SELLER,
+                User.role == UserRole.ADMIN
+            )
+        )
         
         return query.all()
     
@@ -427,10 +579,12 @@ class CRUDRevision:
             db.add(item)
         
         # Проверяем, все ли заполнили ревизию
-        self._check_if_all_filled(db, revision)
+        
         
         db.commit()
         db.refresh(filling)
+
+        self._check_if_all_filled(db, revision)
         
         # Отправляем уведомление тому, кто запросил ревизию
         filler = db.query(User).filter(User.id == user_id).first()
@@ -460,25 +614,38 @@ class CRUDRevision:
     
     def _check_if_all_filled(self, db: Session, revision: Revision):
         """Проверить, все ли заполнили ревизию и обновить статус"""
+        # Для индивидуальной ревизии сразу отмечаем как заполненную
         if revision.type == RevisionType.USER:
-            # Для индивидуальной ревизии сразу отмечаем как заполненную
             revision.status = RevisionStatus.COMPLETED
             revision.completed_at = datetime.now()
+            db.commit()
+            return
+        
+        # Для групповой ревизии проверяем все заполнения
+        # Получаем всех пользователей, которые должны заполнить
+        users = self._get_users_for_revision(db, revision)
+        total_users = len(users)
+        
+        if total_users == 0:
+            return
+        
+        # Считаем сколько заполнили (is_completed=True)
+        filled_count = db.query(RevisionFilling)\
+            .filter(
+                RevisionFilling.revision_id == revision.id,
+                RevisionFilling.is_completed == True
+            )\
+            .count()
+        
+        print(f"DEBUG: Revision {revision.id} - filled: {filled_count}, total: {total_users}")
+        
+        if filled_count == total_users:
+            print(f"DEBUG: All users filled revision {revision.id}. Updating status to COMPLETED")
+            revision.status = RevisionStatus.COMPLETED
+            revision.completed_at = datetime.now()
+            db.commit()
         else:
-            # Для групповой ревизии проверяем все заполнения
-            users = self._get_users_for_revision(db, revision)
-            total_users = len(users)
-            
-            filled_count = db.query(RevisionFilling)\
-                .filter(
-                    RevisionFilling.revision_id == revision.id,
-                    RevisionFilling.is_completed == True
-                )\
-                .count()
-            
-            if filled_count == total_users:
-                revision.status = RevisionStatus.COMPLETED
-                revision.completed_at = datetime.now()
+            print(f"DEBUG: Not all filled: {filled_count}/{total_users}")
     
     def verify_revision(
         self, 
@@ -511,8 +678,55 @@ class CRUDRevision:
         revision.verified_at = datetime.now()
         revision.verification_comment = verify_data.verification_comment
         
-        # Находим и сохраняем расхождения
-        self._find_and_save_discrepancies(db, revision)
+        # Получаем все заполнения
+        fillings = db.query(RevisionFilling)\
+            .filter(
+                RevisionFilling.revision_id == revision.id,
+                RevisionFilling.is_completed == True
+            )\
+            .all()
+        
+        # Очищаем старые расхождения
+        db.query(RevisionDiscrepancy).filter(RevisionDiscrepancy.revision_id == revision.id).delete()
+        
+        from app.crud.inventory import crud_inventory
+        
+        # Для каждого заполнения находим расхождения и сразу применяем их
+        for filling in fillings:
+            for item in filling.items:
+                inventory = db.query(UserInventory).filter(
+                    UserInventory.user_id == filling.user_id,
+                    UserInventory.product_id == item.product_id
+                ).first()
+                
+                expected = inventory.quantity if inventory else 0
+                actual = item.quantity
+                discrepancy = actual - expected
+                
+                if discrepancy != 0:
+                    # Создаем запись о расхождении
+                    disc = RevisionDiscrepancy(
+                        revision_id=revision.id,
+                        product_id=item.product_id,
+                        user_id=filling.user_id,
+                        expected_quantity=expected,
+                        actual_quantity=actual,
+                        discrepancy=discrepancy,
+                        is_positive=discrepancy > 0
+                    )
+                    db.add(disc)
+                    
+                    # Применяем расхождение к инвентарю
+                    try:
+                        print(f"Applying: User {filling.user_id}, Product {item.product_id}: {discrepancy}")
+                        crud_inventory.update_inventory(
+                            db,
+                            user_id=filling.user_id,
+                            product_id=item.product_id,
+                            quantity_change=discrepancy
+                        )
+                    except Exception as e:
+                        print(f"Error updating inventory: {e}")
         
         db.commit()
         db.refresh(revision)
@@ -619,9 +833,27 @@ class CRUDRevision:
         if not user:
             return False
         
-        # OWNER не заполняет ревизии
-        if user.role == UserRole.OWNER:
+        # OWNER и ACCOUNTANT не заполняют ревизии
+        if user.role in [UserRole.OWNER, UserRole.ACCOUNTANT]:
             return False
+        
+        # МЕНТОР не может запрашивать, но МОЖЕТ заполнять!
+        # (предыдущая логика была неправильной)
+        
+        # Проверяем статус ревизии
+        if revision.status != RevisionStatus.REQUESTED:
+            return False
+        
+        # Проверяем, заполнил ли уже пользователь эту ревизию
+        existing_filling = db.query(RevisionFilling)\
+            .filter(
+                RevisionFilling.revision_id == revision.id,
+                RevisionFilling.user_id == user_id
+            )\
+            .first()
+        
+        if existing_filling and existing_filling.is_completed:
+            return False  # Уже заполнил
         
         # Проверяем доступ в зависимости от типа ревизии
         if revision.type == RevisionType.USER:
@@ -631,14 +863,27 @@ class CRUDRevision:
             return user.group_id == revision.target_group_id
         
         elif revision.type == RevisionType.CLUSTER:
-            return user.cluster_id == revision.target_cluster_id
+            # Для кустовых ревизий:
+            # 1. Все пользователи куста (включая менторов и сеньоров)
+            # 2. Старший продавец куста
+            if revision.target_cluster_id:
+                # Проверяем, принадлежит ли пользователь к этому кусту
+                if user.cluster_id == revision.target_cluster_id:
+                    return True
+                
+                # Проверяем, является ли пользователь старшим продавцом куста
+                cluster = db.query(Cluster).filter(
+                    Cluster.id == revision.target_cluster_id
+                ).first()
+                if cluster and cluster.senior_seller_id == user_id:
+                    return True
         
         elif revision.type == RevisionType.CITY:
             return user.city == revision.target_city
         
         elif revision.type == RevisionType.GENERAL:
-            # Все кроме OWNER могут заполнять общие ревизии
-            return user.role != UserRole.OWNER
+            # Общие ревизии могут заполнять все, кроме OWNER и ACCOUNTANT
+            return user.role not in [UserRole.OWNER, UserRole.ACCOUNTANT]
         
         return False
     
@@ -763,6 +1008,109 @@ class CRUDRevision:
             'total_filled': len(fillings),
             'total_users': len(self._get_users_for_revision(db, revision))
         }
+    def delete(self, db: Session, revision_id: int, current_user_id: int) -> bool:
+        """Удалить ревизию (только владелец ревизии или OWNER)"""
+        revision = self.get(db, revision_id)
+        if not revision:
+            raise ValueError("Ревизия не найдена")
+        
+        # Проверяем права
+        if revision.requested_by_id != current_user_id:
+            # Проверяем, является ли пользователь OWNER
+            current_user = db.query(User).filter(User.id == current_user_id).first()
+            if not current_user or current_user.role != UserRole.OWNER:
+                raise ValueError("Только владелец ревизии или OWNER могут удалить ревизию")
+        
+        # Проверяем статус ревизии
+        if revision.status == RevisionStatus.VERIFIED:
+            raise ValueError("Нельзя удалить проверенную ревизию")
+        
+        try:
+            # Удаляем связанные данные в правильном порядке (важно для каскадного удаления)
+            # 1. Удаляем расхождения
+            db.query(RevisionDiscrepancy).filter(
+                RevisionDiscrepancy.revision_id == revision_id
+            ).delete()
+            
+            # 2. Удаляем заполнения и их товары (каскадно через relationship)
+            fillings = db.query(RevisionFilling).filter(
+                RevisionFilling.revision_id == revision_id
+            ).all()
+            
+            for filling in fillings:
+                # Удаляем фото из файловой системы
+                if filling.photos:
+                    import os
+                    from pathlib import Path
+                    for photo_path in filling.photos:
+                        try:
+                            full_path = Path(f"uploads/{photo_path}")
+                            if full_path.exists():
+                                os.remove(full_path)
+                        except Exception as e:
+                            print(f"Error deleting photo {photo_path}: {e}")
+            
+            # 3. Удаляем саму ревизию (заполнения удалятся каскадно)
+            db.delete(revision)
+            db.commit()
+            
+            return True
+            
+        except Exception as e:
+            db.rollback()
+            raise ValueError(f"Ошибка при удалении ревизии: {str(e)}")
+        
+    # В CRUDRevision добавляем:
+
+    def revert_revision_changes(
+        self, 
+        db: Session, 
+        revision_id: int, 
+        user_id: int
+    ) -> Revision:
+        """Отменить изменения инвентаря после проверки ревизии"""
+        from app.crud.inventory import crud_inventory
+        from app.models.revision import RevisionDiscrepancy
+        
+        revision = self.get(db, revision_id)
+        if not revision:
+            raise ValueError("Ревизия не найдена")
+        
+        # Проверяем права (только тот, кто проверил ревизию)
+        if revision.verified_by_id != user_id:
+            raise ValueError("Только тот, кто проверил ревизию, может отменить изменения")
+        
+        # Проверяем статус
+        if revision.status != RevisionStatus.VERIFIED:
+            raise ValueError("Ревизия еще не проверена")
+        
+        # Получаем все расхождения
+        discrepancies = db.query(RevisionDiscrepancy)\
+            .filter(RevisionDiscrepancy.revision_id == revision_id)\
+            .all()
+        
+        # Восстанавливаем инвентарь (отменяем изменения)
+        for disc in discrepancies:
+            # Отменяем изменение (инвертируем знак)
+            quantity_change = -disc.discrepancy
+            
+            crud_inventory.update_inventory(
+                db,
+                user_id=disc.user_id,
+                product_id=disc.product_id,
+                quantity_change=quantity_change
+            )
+        
+        # Обновляем статус ревизии
+        revision.status = RevisionStatus.COMPLETED
+        revision.verified_by_id = None
+        revision.verified_at = None
+        revision.verification_comment = f"Изменения отменены пользователем {user_id}"
+        
+        db.commit()
+        db.refresh(revision)
+        
+        return revision
 
 
 crud_revision = CRUDRevision()

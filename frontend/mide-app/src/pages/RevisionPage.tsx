@@ -21,10 +21,6 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Alert,
   CircularProgress,
   Stack,
@@ -37,7 +33,6 @@ import {
   Refresh as RefreshIcon,
   Search as SearchIcon,
   FilterList as FilterIcon,
-  Assignment as AssignmentIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -52,11 +47,19 @@ import {
   getRevisionStatusColor,
 } from '../types';
 import { userService } from '../api/userService';
+import { groupService } from '../api/groupService';
+import { clusterService } from '../api/clusterService';
+
+// Интерфейс для обогащенной ревизии
+interface EnrichedRevision extends Revision {
+  targetName?: string;
+  requestedName?: string;
+}
 
 const RevisionsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [revisions, setRevisions] = useState<Revision[]>([]);
+  const [revisions, setRevisions] = useState<EnrichedRevision[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -65,51 +68,87 @@ const RevisionsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<RevisionStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<RevisionType | 'all'>('all');
   
-  // Загрузка ревизий
-const loadRevisions = async () => {
-  try {
-    setLoading(true);
-    setError(null);
-    
-    let revisionsData: Revision[];
-    if (user?.role === UserRole.OWNER) {
-      revisionsData = await revisionService.getRevisions(0, 100);
-    } else {
-      revisionsData = await revisionService.getMyRevisions(0, 100);
+  // Функция для получения имени цели ревизии
+  const getTargetName = async (revision: Revision): Promise<string> => {
+    try {
+      if (revision.type === RevisionType.USER && revision.targetUserId) {
+        // Для пользователя
+        return await userService.getUserName(revision.targetUserId);
+      } else if (revision.type === RevisionType.GROUP && revision.targetGroupId) {
+        // Для группы
+        const group = await groupService.getGroupById(revision.targetGroupId);
+        return group.name;
+      } else if (revision.type === RevisionType.CLUSTER && revision.targetClusterId) {
+        // Для куста
+        const cluster = await clusterService.getClusterById(revision.targetClusterId);
+        return cluster.name;
+      } else if (revision.type === RevisionType.CITY && revision.targetCity) {
+        // Для города
+        return revision.targetCity;
+      } else if (revision.type === RevisionType.GENERAL) {
+        // Общая ревизия
+        return 'Все пользователи';
+      }
+    } catch (error) {
+      console.error(`Error getting target name for revision ${revision.id}:`, error);
     }
     
-    // Обогащаем данные о запросивших
-    const enrichedRevisions = await Promise.all(
-      revisionsData.map(async (revision) => {
-        try {
-          // Если имя не полное, пытаемся получить данные пользователя
-          if (revision.requestedByName?.startsWith('Пользователь ')) {
-            try {
-              const userData = await userService.getUserById(revision.requestedById);
-              return {
-                ...revision,
-                requestedByName: userData.fullName || userData.username || revision.requestedByName
-              };
-            } catch (error) {
-              console.error('Error fetching user:', error);
-            }
-          }
-          return revision;
-        } catch (error) {
-          console.error('Error enriching revision:', error);
-          return revision;
-        }
-      })
-    );
+    // Fallback
+    if (revision.type === RevisionType.USER && revision.targetUserId) {
+      return `Пользователь ${revision.targetUserId}`;
+    } else if (revision.type === RevisionType.GROUP && revision.targetGroupId) {
+      return `Группа ${revision.targetGroupId}`;
+    } else if (revision.type === RevisionType.CLUSTER && revision.targetClusterId) {
+      return `Куст ${revision.targetClusterId}`;
+    }
     
-    setRevisions(enrichedRevisions);
-  } catch (err: any) {
-    setError(err.message || 'Ошибка при загрузке ревизий');
-    console.error('Error loading revisions:', err);
-  } finally {
-    setLoading(false);
-  }
-};
+    return 'Не указано';
+  };
+  
+  // Обогащение ревизии данными
+  const enrichRevision = async (revision: Revision): Promise<EnrichedRevision> => {
+    const enriched: EnrichedRevision = { ...revision };
+    
+    try {
+      // Имя запросившего
+      enriched.requestedName = await userService.getUserName(revision.requestedById);
+    } catch (error) {
+      console.error(`Error getting requester name for revision ${revision.id}:`, error);
+      enriched.requestedName = `Пользователь ${revision.requestedById}`;
+    }
+    
+    // Имя цели
+    enriched.targetName = await getTargetName(revision);
+    
+    return enriched;
+  };
+  
+  // Загрузка ревизий
+  const loadRevisions = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      let revisionsData: Revision[];
+      if (user?.role === UserRole.OWNER) {
+        revisionsData = await revisionService.getRevisions(0, 100);
+      } else {
+        revisionsData = await revisionService.getMyRevisions(0, 100);
+      }
+      
+      // Обогащаем все ревизии
+      const enrichedRevisions = await Promise.all(
+        revisionsData.map(revision => enrichRevision(revision))
+      );
+      
+      setRevisions(enrichedRevisions);
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при загрузке ревизий');
+      console.error('Error loading revisions:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadRevisions();
@@ -120,11 +159,8 @@ const loadRevisions = async () => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = 
       revision.id.toString().includes(searchTerm) ||
-      revision.requestedByName?.toLowerCase().includes(searchLower) ||
-      revision.targetUserName?.toLowerCase().includes(searchLower) ||
-      revision.targetGroupName?.toLowerCase().includes(searchLower) ||
-      revision.targetClusterName?.toLowerCase().includes(searchLower) ||
-      revision.targetCity?.toLowerCase().includes(searchLower);
+      revision.requestedName?.toLowerCase().includes(searchLower) ||
+      revision.targetName?.toLowerCase().includes(searchLower);
     
     const matchesStatus = statusFilter === 'all' || revision.status === statusFilter;
     const matchesType = typeFilter === 'all' || revision.type === typeFilter;
@@ -133,35 +169,55 @@ const loadRevisions = async () => {
   });
 
   // Может ли пользователь запрашивать ревизии
-  const canRequestRevision = user?.role !== UserRole.MENTOR;
+  const canRequestRevision = user?.role && [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER].includes(user.role);
 
-  // Может ли пользователь проверять ревизии
-  const canVerifyRevision = user?.role !== UserRole.MENTOR;
+  // Может ли пользователь проверять конкретную ревизию
+  const canVerifyRevision = (revision: Revision): boolean => {
+    if (!user) return false;
+    // Проверять может только тот, кто запросил ревизию
+    return revision.requestedById === user.id && 
+           revision.status === RevisionStatus.COMPLETED;
+  };
 
   // Может ли пользователь заполнять ревизию
   const canFillRevision = (revision: Revision): boolean => {
     if (!user) return false;
     
-    if (user.role === UserRole.OWNER) return false;
-    
-    switch (revision.type) {
-      case RevisionType.USER:
-        return revision.targetUserId === user.id;
-      case RevisionType.GROUP:
-        return user.groupId === revision.targetGroupId;
-      case RevisionType.CLUSTER:
-        return user.clusterId === revision.targetClusterId;
-      case RevisionType.CITY:
-        return user.city === revision.targetCity;
-      case RevisionType.GENERAL:
-        return user.role === UserRole.ADMIN || 
-               user.role === UserRole.SENIOR_SELLER || 
-               user.role === UserRole.MENTOR || 
-               user.role === UserRole.SELLER || 
-               user.role === UserRole.ACCOUNTANT;
-      default:
-        return false;
+    // OWNER и ACCOUNTANT не заполняют ревизии
+    if (user.role === UserRole.OWNER || user.role === UserRole.ACCOUNTANT) {
+      return false;
     }
+    
+    // Проверяем статус ревизии
+    if (revision.status !== RevisionStatus.REQUESTED && 
+        revision.status !== RevisionStatus.IN_PROGRESS) {
+      return false;
+    }
+    
+    // Проверяем, заполнил ли уже пользователь
+    const hasUserFilling = revision.fillings?.some(
+      f => f.userId === user.id && f.isCompleted
+    );
+    
+    // Если уже заполнил - нельзя заполнять снова
+    if (hasUserFilling) {
+      return false;
+    }
+    
+    // Проверяем доступ в зависимости от типа
+    if (revision.type === RevisionType.USER) {
+      return revision.targetUserId === user.id;
+    } else if (revision.type === RevisionType.GROUP) {
+      return user.groupId === revision.targetGroupId;
+    } else if (revision.type === RevisionType.CLUSTER) {
+      return user.clusterId === revision.targetClusterId;
+    } else if (revision.type === RevisionType.CITY) {
+      return user.city === revision.targetCity;
+    } else if (revision.type === RevisionType.GENERAL) {
+      return true; // OWNER и ACCOUNTANT уже отсеяны выше
+    }
+    
+    return false;
   };
 
   // Обработчик создания новой ревизии
@@ -193,16 +249,6 @@ const loadRevisions = async () => {
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
-
-  // Функция для получения отображаемой цели
-  const getTargetDisplay = (revision: Revision): string => {
-    if (revision.targetUserName) return revision.targetUserName;
-    if (revision.targetGroupName) return revision.targetGroupName;
-    if (revision.targetClusterName) return revision.targetClusterName;
-    if (revision.targetCity) return revision.targetCity;
-    if (revision.type === RevisionType.GENERAL) return 'Все пользователи';
-    return 'Не указано';
   };
 
   if (loading) {
@@ -343,6 +389,7 @@ const loadRevisions = async () => {
               <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>ID</TableCell>
               <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Тип</TableCell>
               <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Запросил</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Назначение</TableCell>
               <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Статус</TableCell>
               <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Дата запроса</TableCell>
               <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Действия</TableCell>
@@ -351,7 +398,7 @@ const loadRevisions = async () => {
           <TableBody>
             {filteredRevisions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
+                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
                   <Typography variant="body1" color="#4c5454">
                     Ревизии не найдены
                   </Typography>
@@ -370,7 +417,12 @@ const loadRevisions = async () => {
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      {revision.requestedByName}
+                      {revision.requestedName}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {revision.targetName}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -383,6 +435,11 @@ const loadRevisions = async () => {
                         fontWeight: 500,
                       }}
                     />
+                    {revision.isGroupRevision && (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {revision.totalFilled || 0}/{revision.totalUsers || 0}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell>{formatDate(revision.requestedAt)}</TableCell>
                   <TableCell>
@@ -397,7 +454,7 @@ const loadRevisions = async () => {
                         </IconButton>
                       </Tooltip>
                       
-                      {revision.status === RevisionStatus.REQUESTED && canFillRevision(revision) && (
+                      {canFillRevision(revision) && (
                         <Tooltip title="Заполнить ревизию">
                           <IconButton
                             size="small"
@@ -409,7 +466,7 @@ const loadRevisions = async () => {
                         </Tooltip>
                       )}
                       
-                      {revision.status === RevisionStatus.COMPLETED && canVerifyRevision && (
+                      {canVerifyRevision(revision) && (
                         <Tooltip title="Проверить ревизию">
                           <IconButton
                             size="small"

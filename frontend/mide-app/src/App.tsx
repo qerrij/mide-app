@@ -16,6 +16,7 @@ import ProductsPage from './pages/ProductsPage';
 import RevisionsPage from './pages/RevisionPage';
 import RequestRevisionPage from './pages/RequestRevisionPage';
 import FillRevisionPage from './pages/FillRevisionPage';
+import NotificationsPage from './pages/NotificationsPage';
 
 import VerifyRevisionPage from './pages/VerifyRevisionPage';
 import ViewRevisionPage from './pages/ViewRevisionPage';
@@ -133,6 +134,8 @@ function App() {
                           <VerifyRevisionPage />
                         </RoleBasedRoute>
                       } />
+
+                      <Route path="/notifications" element={<NotificationsPage />} />
                       
                       {/* <Route path="/movements" element={
                         <RoleBasedRoute allowedRoles={[

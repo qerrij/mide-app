@@ -232,33 +232,55 @@ async def create_report(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
     
-    def _create_report_notifications(self, db: Session, report, current_user):
-        """Создать уведомления о новом отчете"""
-        notifications_data = []
+def _create_report_notifications(self, db: Session, report, current_user):
+    """Создать уведомления о новом отчете"""
+    notifications_data = []
         
-        # Уведомляем наставника (если есть)
-        if current_user.mentor_id:
-            notifications_data.append({
-                'user_id': current_user.mentor_id,
-                'type': NotificationType.REPORT_SUBMITTED,
-                'title': 'Новый отчет',
-                'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
-                'data': {
-                    'report_id': report.id,
-                    'seller_id': current_user.id,
-                    'seller_name': current_user.full_name,
-                    'amount': report.transfer_amount,
-                    'date': report.date.isoformat() if report.date else None
-                },
-                'entity_type': 'report',
-                'entity_id': report.id,
-                'priority': 3
-            })
+    # Уведомляем наставника (если есть)
+    if current_user.mentor_id:
+        notifications_data.append({
+            'user_id': current_user.mentor_id,
+            'type': NotificationType.REPORT_SUBMITTED,
+            'title': 'Новый отчет',
+            'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': current_user.id,
+                'seller_name': current_user.full_name,
+                'amount': report.transfer_amount,
+                'date': report.date.isoformat() if report.date else None
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 3
+        })
         
-        # Уведомляем старшего продавца (если есть и не совпадает с наставником)
-        if current_user.senior_seller_id and current_user.senior_seller_id != current_user.mentor_id:
+    # Уведомляем старшего продавца (если есть и не совпадает с наставником)
+    if current_user.senior_seller_id and current_user.senior_seller_id != current_user.mentor_id:
+        notifications_data.append({
+            'user_id': current_user.senior_seller_id,
+            'type': NotificationType.REPORT_SUBMITTED,
+            'title': 'Новый отчет в кусте',
+            'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': current_user.id,
+                'seller_name': current_user.full_name,
+                'amount': report.transfer_amount,
+                'date': report.date.isoformat() if report.date else None
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 3
+        })
+        
+    # Уведомляем администратора куста (если есть)
+    if current_user.cluster_id:
+        from app.models.cluster import Cluster
+        cluster = db.query(Cluster).filter(Cluster.id == current_user.cluster_id).first()
+        if cluster and cluster.admin_id and cluster.admin_id not in [current_user.mentor_id, current_user.senior_seller_id]:
             notifications_data.append({
-                'user_id': current_user.senior_seller_id,
+                'user_id': cluster.admin_id,
                 'type': NotificationType.REPORT_SUBMITTED,
                 'title': 'Новый отчет в кусте',
                 'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
@@ -274,35 +296,13 @@ async def create_report(
                 'priority': 3
             })
         
-        # Уведомляем администратора куста (если есть)
-        if current_user.cluster_id:
-            from app.models.cluster import Cluster
-            cluster = db.query(Cluster).filter(Cluster.id == current_user.cluster_id).first()
-            if cluster and cluster.admin_id and cluster.admin_id not in [current_user.mentor_id, current_user.senior_seller_id]:
-                notifications_data.append({
-                    'user_id': cluster.admin_id,
-                    'type': NotificationType.REPORT_SUBMITTED,
-                    'title': 'Новый отчет в кусте',
-                    'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
-                    'data': {
-                        'report_id': report.id,
-                        'seller_id': current_user.id,
-                        'seller_name': current_user.full_name,
-                        'amount': report.transfer_amount,
-                        'date': report.date.isoformat() if report.date else None
-                    },
-                    'entity_type': 'report',
-                    'entity_id': report.id,
-                    'priority': 3
-                })
-        
-        # Создаем уведомления
-        if notifications_data:
-            crud_notification.create_multiple(
-                db,
-                notifications_data=notifications_data,
-                sender_id=current_user.id
-            )
+    # Создаем уведомления
+    if notifications_data:
+        crud_notification.create_multiple(
+            db,
+            notifications_data=notifications_data,
+            sender_id=current_user.id
+        )
 
 @router.put("/{report_id}", response_model=ReportResponse)
 def update_report(

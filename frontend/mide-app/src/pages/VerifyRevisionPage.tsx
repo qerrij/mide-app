@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Paper,
@@ -20,37 +20,32 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Avatar,
-  Stack,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  Tabs,
-  Tab,
-  Card,
-  CardContent,
+  Avatar,
+  Stack,
+  Divider,
+  Fade,
 } from '@mui/material';
 import {
   ArrowBack,
   CheckCircle,
+  Cancel,
   ExpandMore,
   ArrowUpward,
   ArrowDownward,
   PhotoCamera,
-  Add,
-  Remove,
   Person,
   Group,
   LocationCity,
   Home,
   Language,
-  TrendingUp,
-  TrendingDown,
-  People,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { revisionService } from '../api/revisionService';
+import { userService } from '../api/userService';
 import {
   Revision,
   RevisionStatus,
@@ -59,8 +54,6 @@ import {
   getRevisionTypeText,
   getRevisionStatusColor,
   UserDiscrepancySummary,
-  ProductDiscrepancySummary,
-  canVerifyRevision,
   getTargetName,
 } from '../types';
 
@@ -75,14 +68,19 @@ const VerifyRevisionPage: React.FC = () => {
   const [success, setSuccess] = useState(false);
   
   const [revision, setRevision] = useState<Revision | null>(null);
-  const [userDiscrepancies, setUserDiscrepancies] = useState<UserDiscrepancySummary[]>([]);
-  const [productDiscrepancies, setProductDiscrepancies] = useState<ProductDiscrepancySummary[]>([]);
+  const [requestedByName, setRequestedByName] = useState<string>('');
+  const [discrepancies, setDiscrepancies] = useState<UserDiscrepancySummary[]>([]);
   
   const [verificationComment, setVerificationComment] = useState('');
-  const [activeTab, setActiveTab] = useState(0);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showPhotoDialog, setShowPhotoDialog] = useState(false);
-  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
-  const [selectedFilling, setSelectedFilling] = useState<number | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<{ photos: string[], index: number } | null>(null);
+  const [expandedUsers, setExpandedUsers] = useState<number[]>([]);
+  
+  // Ссылка на блок подтверждения
+  const confirmationRef = useRef<HTMLDivElement>(null);
+  // Состояние видимости кнопки подтверждения
+  const [showConfirmButton, setShowConfirmButton] = useState(true);
 
   // Загрузка данных ревизии
   useEffect(() => {
@@ -95,42 +93,68 @@ const VerifyRevisionPage: React.FC = () => {
           throw new Error('ID ревизии не указан');
         }
         
-        if (!user?.id) {
-          throw new Error('Пользователь не авторизован');
-        }
-        
         const revisionData = await revisionService.getRevisionById(parseInt(id));
+        console.log('Loaded revision:', revisionData);
         
         // Проверяем, можно ли проверять эту ревизию
         if (revisionData.status !== RevisionStatus.COMPLETED) {
           throw new Error('Эта ревизия не готова к проверке');
         }
         
-        // Проверяем права пользователя
-        if (!canVerifyRevision(revisionData, user.id)) {
+        // Проверяем права пользователя - может ли он проверять эту ревизию
+        if (user?.id !== revisionData.requestedById) {
           throw new Error('Только тот, кто запросил ревизию, может её проверять');
         }
         
-        // Загружаем расхождения если ревизия уже проверена
-        if (revisionData.status === RevisionStatus.VERIFIED) {
+        // Загружаем имя пользователя, который запросил ревизию
+        if (revisionData.requestedById) {
           try {
-            const [userDisc, productDisc] = await Promise.all([
-              revisionService.getDiscrepanciesByUser(parseInt(id)),
-              revisionService.getDiscrepanciesByProduct(parseInt(id))
-            ]);
-            setUserDiscrepancies(userDisc);
-            setProductDiscrepancies(productDisc);
-          } catch (discError) {
-            console.log('Расхождения еще не рассчитаны или недоступны');
+            const requester = await userService.getUserById(revisionData.requestedById);
+            setRequestedByName(requester.fullName);
+          } catch (error) {
+            console.error('Error loading requester:', error);
+            setRequestedByName(revisionData.requestedByName || `Пользователь ${revisionData.requestedById}`);
           }
         }
         
-        // Устанавливаем первое заполнение по умолчанию
-        if (revisionData.fillings.length > 0) {
-          setSelectedFilling(revisionData.fillings[0].id);
-        }
+        // Обогащаем имена пользователей в заполнениях
+        const enrichedFillings = await Promise.all(
+          revisionData.fillings.map(async (filling) => {
+            // Проверяем, нужно ли обогащать имя
+            if (filling.userId && (!filling.userName || filling.userName.startsWith('Пользователь'))) {
+              try {
+                const userData = await userService.getUserById(filling.userId);
+                return {
+                  ...filling,
+                  userName: userData.fullName
+                };
+              } catch (error) {
+                console.error('Error loading user for filling:', error);
+                return filling;
+              }
+            }
+            return filling;
+          })
+        );
         
-        setRevision(revisionData);
+        setRevision({
+          ...revisionData,
+          fillings: enrichedFillings
+        });
+        
+        // Загружаем ПРЕДВАРИТЕЛЬНЫЕ расхождения
+        try {
+          const calculatedDiscrepancies = await revisionService.calculateDiscrepancies(parseInt(id));
+          console.log('Calculated discrepancies:', calculatedDiscrepancies);
+          
+          // Расхождения УЖЕ содержат имена пользователей из бэкенда
+          setDiscrepancies(calculatedDiscrepancies);
+          
+        } catch (error) {
+          console.error('Error calculating discrepancies:', error);
+          // Если не удалось рассчитать расхождения, показываем пустой массив
+          setDiscrepancies([]);
+        }
         
       } catch (err: any) {
         setError(err.message || 'Ошибка при загрузке ревизии');
@@ -143,89 +167,119 @@ const VerifyRevisionPage: React.FC = () => {
     loadRevision();
   }, [id, user]);
 
+  // Эффект для отслеживания скролла
+  useEffect(() => {
+    const handleScroll = () => {
+      if (!confirmationRef.current) return;
+      
+      const confirmationSection = confirmationRef.current;
+      const scrollPosition = window.scrollY + window.innerHeight;
+      const sectionTop = confirmationSection.offsetTop;
+      const sectionHeight = confirmationSection.offsetHeight;
+      
+      // Если пользователь прокрутил до блока подтверждения
+      if (scrollPosition > sectionTop + sectionHeight / 2) {
+        // Пользователь видит блок подтверждения - скрываем кнопку
+        setShowConfirmButton(false);
+      } else {
+        // Пользователь не видит блок подтверждения - показываем кнопку
+        setShowConfirmButton(true);
+      }
+    };
+    
+    // Добавляем слушатель скролла
+    window.addEventListener('scroll', handleScroll);
+    
+    // Вызываем сразу для определения начального положения
+    handleScroll();
+    
+    // Убираем слушатель при размонтировании
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, []);
+
+  // Расчет общего расхождения
+  const getTotalDiscrepancy = () => {
+    if (discrepancies.length === 0) return { total: 0, positive: 0, negative: 0 };
+    
+    const total = discrepancies.reduce((sum, ud) => sum + (ud.totalDiscrepancy || 0), 0);
+    const positive = discrepancies.reduce((sum, ud) => sum + (ud.positiveTotal || 0), 0);
+    const negative = discrepancies.reduce((sum, ud) => sum + (ud.negativeTotal || 0), 0);
+    
+    return { total, positive, negative };
+  };
+
   // Проверка ревизии
   const handleVerifyRevision = async () => {
     try {
-      if (!revision || !id || !user?.id) return;
+      if (!revision || !id) return;
       
       setVerifying(true);
       setError(null);
+      
+      // Показываем диалог подтверждения
+      setShowConfirmDialog(true);
+      
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при проверке ревизии');
+      console.error('Error verifying revision:', err);
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // Подтверждение проверки
+  const handleConfirmVerification = async () => {
+    try {
+      setVerifying(true);
+      
+      if (!revision || !id) return;
       
       await revisionService.verifyRevision(
         parseInt(id),
         verificationComment || 'Ревизия проверена'
       );
       
-      // После проверки загружаем расхождения
-      const [userDisc, productDisc] = await Promise.all([
-        revisionService.getDiscrepanciesByUser(parseInt(id)),
-        revisionService.getDiscrepanciesByProduct(parseInt(id))
-      ]);
-      
-      setUserDiscrepancies(userDisc);
-      setProductDiscrepancies(productDisc);
-      
-      // Обновляем данные ревизии
-      const updatedRevision = await revisionService.getRevisionById(parseInt(id));
-      setRevision(updatedRevision);
-      
+      setShowConfirmDialog(false);
       setSuccess(true);
       
       setTimeout(() => {
-        setSuccess(false);
-      }, 3000);
+        navigate(`/revisions/${revision.id}`);
+      }, 2000);
       
     } catch (err: any) {
       setError(err.message || 'Ошибка при проверке ревизии');
+      console.error('Error confirming verification:', err);
     } finally {
       setVerifying(false);
     }
   };
 
-  // Получение общего расхождения
-  const getTotalDiscrepancy = () => {
-    if (userDiscrepancies.length === 0) return { total: 0, positive: 0, negative: 0 };
-    
-    const total = userDiscrepancies.reduce((sum, ud) => sum + ud.totalDiscrepancy, 0);
-    const positive = userDiscrepancies.reduce((sum, ud) => sum + ud.positiveTotal, 0);
-    const negative = userDiscrepancies.reduce((sum, ud) => sum + ud.negativeTotal, 0);
-    
-    return { total, positive, negative };
-  };
-
   // Просмотр фото
-  const handleViewPhoto = (index: number) => {
-    setSelectedPhotoIndex(index);
+  const handleViewPhoto = (photos: string[], index: number) => {
+    setSelectedPhoto({ photos, index });
     setShowPhotoDialog(true);
   };
 
-  // Функция для отображения фото
-  const renderPhoto = (photoPath: string, index: number) => {
-    const photoUrl = revisionService.getPhotoUrl(photoPath);
-    
-    return (
-      <Grid size={{ xs: 6, sm: 4 }} key={index}>
-        <Card>
-          <CardContent sx={{ p: 1 }}>
-            <Box
-              sx={{
-                height: 120,
-                backgroundImage: `url(${photoUrl})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                borderRadius: 1,
-                mb: 1,
-                cursor: 'pointer',
-              }}
-              onClick={() => handleViewPhoto(index)}
-            />
-            <Typography variant="caption" align="center" display="block">
-              Фото {index + 1}
-            </Typography>
-          </CardContent>
-        </Card>
-      </Grid>
+  // Обработка раскрытия/закрытия аккордеона
+  const handleAccordionChange = (userId: number) => {
+    setExpandedUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
     );
+  };
+
+  // Форматирование даты
+  const formatDate = (date: Date): string => {
+    return new Date(date).toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   // Функция для получения иконки типа ревизии
@@ -240,26 +294,19 @@ const VerifyRevisionPage: React.FC = () => {
     }
   };
 
-  // Получение выбранного заполнения
-  const getSelectedFilling = () => {
-    if (!revision || !selectedFilling) return null;
-    return revision.fillings.find(f => f.id === selectedFilling);
-  };
-
-  // Форматирование даты
-  const formatDate = (date: Date): string => {
-    return new Date(date).toLocaleDateString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  // Функция для прокрутки к блоку подтверждения
+  const scrollToConfirmation = () => {
+    if (confirmationRef.current) {
+      confirmationRef.current.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }
   };
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
           <CircularProgress />
         </Box>
@@ -269,7 +316,7 @@ const VerifyRevisionPage: React.FC = () => {
 
   if (!revision) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
         <Alert severity="error">
           Ревизия не найдена
         </Alert>
@@ -277,69 +324,51 @@ const VerifyRevisionPage: React.FC = () => {
     );
   }
 
-  const selectedFillingData = getSelectedFilling();
   const totalDiscrepancy = getTotalDiscrepancy();
-  const isVerified = revision.status === RevisionStatus.VERIFIED;
+  const completedFillings = revision.fillings.filter(f => f.isCompleted);
+  const isPositiveTotal = totalDiscrepancy.total > 0;
+  const isNegativeTotal = totalDiscrepancy.total < 0;
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      {/* Шапка */}
-      <Box sx={{ mb: 4 }}>
-        <Button
-          startIcon={<ArrowBack />}
-          onClick={() => navigate(`/revisions/${revision.id}`)}
-          sx={{ mb: 2 }}
-        >
-          Назад к ревизии
-        </Button>
+    <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
+      {/* Кнопка назад */}
+      <Button
+        startIcon={<ArrowBack />}
+        onClick={() => navigate(`/revisions/${revision.id}`)}
+        sx={{ mb: 3 }}
+      >
+        Назад к ревизии
+      </Button>
+
+      {/* Заголовок */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h4" component="h1" gutterBottom color="#2a0f35">
+          Проверка ревизии #{revision.id}
+        </Typography>
         
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography variant="h4" component="h1" gutterBottom color="#2a0f35">
-              {isVerified ? 'Проверка завершена' : 'Проверка ревизии'} #{revision.id}
-            </Typography>
-            
-            <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-              <Chip
-                icon={getRevisionTypeIcon(revision.type)}
-                label={getRevisionTypeText(revision.type)}
-                sx={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}
-              />
-              <Chip
-                label={getRevisionStatusText(revision.status)}
-                sx={{
-                  backgroundColor: `${getRevisionStatusColor(revision.status)}15`,
-                  color: getRevisionStatusColor(revision.status),
-                  fontWeight: 500,
-                }}
-              />
-              
-              {/* Индикатор заполнений для групповых ревизий */}
-              {revision.type !== 'USER' && (
-                <Chip
-                  icon={<People />}
-                  label={`${revision.fillings.filter(f => f.isCompleted).length}/${revision.fillings.length} заполнили`}
-                  sx={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}
-                />
-              )}
-              
-              {/* Общее расхождение если ревизия проверена */}
-              {isVerified && (
-                <Chip
-                  icon={totalDiscrepancy.total >= 0 ? <TrendingUp /> : <TrendingDown />}
-                  label={`${totalDiscrepancy.total >= 0 ? '+' : ''}${totalDiscrepancy.total}`}
-                  sx={{
-                    backgroundColor: totalDiscrepancy.total >= 0 ? '#2196f315' : '#f4433615',
-                    color: totalDiscrepancy.total >= 0 ? '#2196f3' : '#f44336',
-                    fontWeight: 600,
-                  }}
-                />
-              )}
-            </Stack>
-          </Box>
-        </Box>
+        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+          <Chip
+            icon={getRevisionTypeIcon(revision.type)}
+            label={getRevisionTypeText(revision.type)}
+            sx={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}
+          />
+          <Chip
+            label={getRevisionStatusText(revision.status)}
+            sx={{
+              backgroundColor: `${getRevisionStatusColor(revision.status)}15`,
+              color: getRevisionStatusColor(revision.status),
+              fontWeight: 500,
+            }}
+          />
+          <Chip
+            icon={<Group />}
+            label={`${completedFillings.length}/${revision.fillings.length} заполнили`}
+            sx={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}
+          />
+        </Stack>
       </Box>
 
+      {/* Сообщения об ошибках/успехе */}
       {error && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {error}
@@ -348,612 +377,463 @@ const VerifyRevisionPage: React.FC = () => {
 
       {success && (
         <Alert severity="success" sx={{ mb: 3 }}>
-          Ревизия успешно проверена! Расхождения рассчитаны.
+          Ревизия успешно проверена! Вы будете перенаправлены...
         </Alert>
       )}
 
-      {/* Вкладки */}
-      <Paper sx={{ mb: 3 }}>
-        <Tabs
-          value={activeTab}
-          onChange={(_, newValue) => setActiveTab(newValue)}
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
-        >
-          <Tab label="Проверка" />
-          {isVerified && <Tab label="Расхождения по пользователям" />}
-          {isVerified && <Tab label="Расхождения по товарам" />}
-          {revision.type !== 'USER' && <Tab label="Заполнения" />}
-          <Tab label="Фотографии" />
-        </Tabs>
+      {/* Блок 1: Информация о ревизии */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom color="#2a0f35">
+          Информация о ревизии
+        </Typography>
         
-        <Box sx={{ p: 3 }}>
-          {/* Вкладка проверки */}
-          {activeTab === 0 && (
-            <Grid container spacing={3}>
-              {/* Левая колонка: информация */}
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Paper sx={{ p: 3, mb: 3 }}>
-                  <Typography variant="h6" gutterBottom color="#2a0f35">
-                    Информация о ревизии
-                  </Typography>
-                  
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Typography variant="body2" sx={{ color: '#4c5454', minWidth: 120 }}>
-                        Запросил:
-                      </Typography>
-                      <Typography variant="body2">
-                        {revision.requestedByName}
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Typography variant="body2" sx={{ color: '#4c5454', minWidth: 120 }}>
-                        Цель:
-                      </Typography>
-                      <Typography variant="body2">
-                        {getTargetName(revision)}
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ display: 'flex', gap: 2 }}>
-                      <Typography variant="body2" sx={{ color: '#4c5454', minWidth: 120 }}>
-                        Дата запроса:
-                      </Typography>
-                      <Typography variant="body2">
-                        {formatDate(revision.requestedAt)}
-                      </Typography>
-                    </Box>
-                    
-                    {revision.completedAt && (
-                      <Box sx={{ display: 'flex', gap: 2 }}>
-                        <Typography variant="body2" sx={{ color: '#4c5454', minWidth: 120 }}>
-                          Дата заполнения:
-                        </Typography>
-                        <Typography variant="body2">
-                          {formatDate(revision.completedAt)}
-                        </Typography>
-                      </Box>
-                    )}
-                    
-                    {revision.comment && (
-                      <Box sx={{ display: 'flex', gap: 2 }}>
-                        <Typography variant="body2" sx={{ color: '#4c5454', minWidth: 120 }}>
-                          Комментарий:
-                        </Typography>
-                        <Typography variant="body2">
-                          {revision.comment}
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Paper>
-                
-                {/* Статистика заполнений */}
-                {revision.type !== 'USER' && (
-                  <Paper sx={{ p: 3, mb: 3 }}>
-                    <Typography variant="h6" gutterBottom color="#2a0f35">
-                      Статистика заполнений
-                    </Typography>
-                    
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 6 }}>
-                        <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#2196f310' }}>
-                          <Typography variant="h5" color="#2196f3">
-                            {revision.fillings.filter(f => f.isCompleted).length}
-                          </Typography>
-                          <Typography variant="body2" color="#4c5454">
-                            Заполнили
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                      
-                      <Grid size={{ xs: 6 }}>
-                        <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#9c27b010' }}>
-                          <Typography variant="h5" color="#9c27b0">
-                            {revision.fillings.length}
-                          </Typography>
-                          <Typography variant="body2" color="#4c5454">
-                            Всего должны
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                    </Grid>
-                  </Paper>
-                )}
-              </Grid>
-              
-              {/* Правая колонка: проверка */}
-              <Grid size={{ xs: 12, md: 6 }}>
-                <Paper sx={{ p: 3, backgroundColor: isVerified ? '#e8f5e9' : '#f5f5f5' }}>
-                  <Typography variant="h6" gutterBottom color="#2a0f35">
-                    {isVerified ? 'Проверка завершена' : 'Проверка ревизии'}
-                  </Typography>
-                  
-                  {isVerified ? (
-                    <>
-                      <Box sx={{ mb: 3 }}>
-                        <Typography variant="subtitle1" gutterBottom color="#2a0f35">
-                          Результаты проверки:
-                        </Typography>
-                        
-                        <Grid container spacing={1} sx={{ mb: 2 }}>
-                          <Grid size={{ xs: 6 }}>
-                            <Paper sx={{ p: 2, backgroundColor: '#2196f315' }}>
-                              <Typography variant="body2" color="#2196f3" align="center">
-                                <Add fontSize="small" /> Плюс: +{totalDiscrepancy.positive}
-                              </Typography>
-                            </Paper>
-                          </Grid>
-                          
-                          <Grid size={{ xs: 6 }}>
-                            <Paper sx={{ p: 2, backgroundColor: '#f4433615' }}>
-                              <Typography variant="body2" color="#f44336" align="center">
-                                <Remove fontSize="small" /> Минус: -{totalDiscrepancy.negative}
-                              </Typography>
-                            </Paper>
-                          </Grid>
-                          
-                          <Grid size={{ xs: 12 }}>
-                            <Paper sx={{ 
-                              p: 2, 
-                              backgroundColor: totalDiscrepancy.total >= 0 ? '#4caf5010' : '#f4433610',
-                              mt: 1
-                            }}>
-                              <Typography 
-                                variant="h6" 
-                                color={totalDiscrepancy.total >= 0 ? '#4caf50' : '#f44336'} 
-                                align="center"
-                              >
-                                Итого: {totalDiscrepancy.total >= 0 ? '+' : ''}{totalDiscrepancy.total}
-                              </Typography>
-                            </Paper>
-                          </Grid>
-                        </Grid>
-                        
-                        {revision.verificationComment && (
-                          <Alert severity="info" sx={{ mt: 2 }}>
-                            <Typography variant="subtitle2" gutterBottom>
-                              Комментарий проверки:
-                            </Typography>
-                            {revision.verificationComment}
-                          </Alert>
-                        )}
-                      </Box>
-                      
-                      <Button
-                        fullWidth
-                        variant="outlined"
-                        onClick={() => setActiveTab(1)}
-                      >
-                        Посмотреть детальные расхождения
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <TextField
-                        fullWidth
-                        multiline
-                        rows={3}
-                        label="Комментарий проверки"
-                        value={verificationComment}
-                        onChange={(e) => setVerificationComment(e.target.value)}
-                        placeholder="Укажите комментарий к проверке..."
-                        sx={{ mb: 3 }}
-                      />
-                      
-                      <Button
-                        fullWidth
-                        variant="contained"
-                        color="success"
-                        size="large"
-                        startIcon={verifying ? <CircularProgress size={20} /> : <CheckCircle />}
-                        onClick={handleVerifyRevision}
-                        disabled={verifying}
-                        sx={{
-                          backgroundColor: '#4caf50',
-                          '&:hover': { backgroundColor: '#388e3c' },
-                        }}
-                      >
-                        {verifying ? 'Проверка...' : 'Проверить ревизию'}
-                      </Button>
-                      
-                      <Typography variant="caption" color="#4c5454" sx={{ mt: 2, display: 'block' }}>
-                        При проверке система сравнит данные ревизии с остатками продавцов
-                      </Typography>
-                    </>
-                  )}
-                </Paper>
-              </Grid>
-            </Grid>
-          )}
-          
-          {/* Вкладка расхождений по пользователям */}
-          {activeTab === 1 && isVerified && (
-            <>
-              <Typography variant="h6" gutterBottom color="#2a0f35">
-                Расхождения по пользователям
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
+                Запросил:
               </Typography>
-              
-              {userDiscrepancies.length === 0 ? (
-                <Alert severity="success">
-                  Расхождений не обнаружено
-                </Alert>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {/* Общая статистика */}
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 6, md: 3 }}>
-                      <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#2196f310' }}>
-                        <Typography variant="h5" color="#2196f3">
-                          {userDiscrepancies.length}
-                        </Typography>
-                        <Typography variant="body2" color="#4c5454">
-                          Пользователей с расхождениями
-                        </Typography>
-                      </Paper>
-                    </Grid>
-                    
-                    <Grid size={{ xs: 6, md: 3 }}>
-                      <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#4caf5010' }}>
-                        <Typography variant="h5" color="#4caf50">
-                          +{totalDiscrepancy.positive}
-                        </Typography>
-                        <Typography variant="body2" color="#4c5454">
-                          Общий плюс
-                        </Typography>
-                      </Paper>
-                    </Grid>
-                    
-                    <Grid size={{ xs: 6, md: 3 }}>
-                      <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#f4433610' }}>
-                        <Typography variant="h5" color="#f44336">
-                          -{totalDiscrepancy.negative}
-                        </Typography>
-                        <Typography variant="body2" color="#4c5454">
-                          Общий минус
-                        </Typography>
-                      </Paper>
-                    </Grid>
-                    
-                    <Grid size={{ xs: 6, md: 3 }}>
-                      <Paper sx={{ 
-                        p: 2, 
-                        textAlign: 'center', 
-                        backgroundColor: totalDiscrepancy.total >= 0 ? '#4caf5010' : '#f4433610' 
-                      }}>
-                        <Typography variant="h5" color={totalDiscrepancy.total >= 0 ? '#4caf50' : '#f44336'}>
-                          {totalDiscrepancy.total >= 0 ? '+' : ''}{totalDiscrepancy.total}
-                        </Typography>
-                        <Typography variant="body2" color="#4c5454">
-                          Итог
-                        </Typography>
-                      </Paper>
-                    </Grid>
-                  </Grid>
-                  
-                  {/* Детали по пользователям */}
-                  {userDiscrepancies.map((userDisc) => (
-                    <Accordion key={userDisc.userId}>
-                      <AccordionSummary expandIcon={<ExpandMore />}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Avatar sx={{ 
-                              width: 40, 
-                              height: 40, 
-                              bgcolor: userDisc.totalDiscrepancy >= 0 ? '#4caf50' : '#f44336' 
-                            }}>
-                              {userDisc.userName?.charAt(0) || 'П'}
-                            </Avatar>
-                            <Box>
-                              <Typography variant="subtitle1">
-                                {userDisc.userName || `Пользователь ${userDisc.userId}`}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                {userDisc.discrepancies.length} расхождений
-                              </Typography>
-                            </Box>
-                          </Box>
-                          <Stack direction="row" spacing={1}>
-                            <Chip
-                              icon={<Add fontSize="small" />}
-                              label={`+${userDisc.positiveTotal}`}
-                              size="small"
-                              sx={{ backgroundColor: '#2196f315', color: '#2196f3' }}
-                            />
-                            <Chip
-                              icon={<Remove fontSize="small" />}
-                              label={`-${userDisc.negativeTotal}`}
-                              size="small"
-                              sx={{ backgroundColor: '#f4433615', color: '#f44336' }}
-                            />
-                            <Chip
-                              label={`Итого: ${userDisc.totalDiscrepancy >= 0 ? '+' : ''}${userDisc.totalDiscrepancy}`}
-                              size="small"
-                              sx={{
-                                backgroundColor: userDisc.totalDiscrepancy >= 0 ? '#2196f315' : '#f4433615',
-                                color: userDisc.totalDiscrepancy >= 0 ? '#2196f3' : '#f44336',
-                                fontWeight: 600,
-                              }}
-                            />
-                          </Stack>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <TableContainer>
-                          <Table size="small">
-                            <TableHead>
-                              <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Товар</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Ожидаемо</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Фактически</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Разница</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {userDisc.discrepancies.map((disc, idx) => (
-                                <TableRow key={idx}>
-                                  <TableCell>
-                                    <Typography variant="body2">
-                                      {disc.productName || `Товар ${disc.productId}`}
-                                    </Typography>
-                                    {disc.productSku && (
-                                      <Typography variant="caption" color="text.secondary">
-                                        {disc.productSku}
-                                      </Typography>
-                                    )}
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Typography variant="body2">
-                                      {disc.expected} шт.
-                                    </Typography>
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Typography variant="body2">
-                                      {disc.actual} шт.
-                                    </Typography>
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Chip
-                                      size="small"
-                                      icon={disc.isPositive ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />}
-                                      label={`${disc.isPositive ? '+' : ''}${disc.discrepancy}`}
-                                      sx={{
-                                        backgroundColor: disc.isPositive ? '#2196f315' : '#f4433615',
-                                        color: disc.isPositive ? '#2196f3' : '#f44336',
-                                      }}
-                                    />
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      </AccordionDetails>
-                    </Accordion>
-                  ))}
-                </Box>
-              )}
+              <Typography variant="body1">
+                {requestedByName}
+              </Typography>
+            </Box>
+            
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
+                Цель:
+              </Typography>
+              <Typography variant="body1">
+                {getTargetName(revision)}
+              </Typography>
+            </Box>
+          </Grid>
+          
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
+                Дата запроса:
+              </Typography>
+              <Typography variant="body1">
+                {formatDate(revision.requestedAt)}
+              </Typography>
+            </Box>
+            
+            {revision.completedAt && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
+                  Дата заполнения:
+                </Typography>
+                <Typography variant="body1">
+                  {formatDate(revision.completedAt)}
+                </Typography>
+              </Box>
+            )}
+          </Grid>
+        </Grid>
+        
+        {revision.comment && (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
+              Комментарий:
+            </Typography>
+            <Typography variant="body1">
+              {revision.comment}
+            </Typography>
+          </Box>
+        )}
+      </Paper>
+
+      {/* Блок 2: Общий итог ревизии */}
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h6" gutterBottom color="#2a0f35">
+          Общий итог ревизии
+        </Typography>
+        
+        <Box sx={{ 
+          p: 4, 
+          backgroundColor: isPositiveTotal ? '#2196f315' : 
+                         isNegativeTotal ? '#f4433615' : '#f5f5f5',
+          borderRadius: 2,
+          textAlign: 'center'
+        }}>
+          {totalDiscrepancy.total !== 0 ? (
+            <>
+              <Typography variant="body1" color="#4c5454" gutterBottom>
+                {isPositiveTotal ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
+              </Typography>
+              <Typography 
+                variant="h1" 
+                color={isPositiveTotal ? '#2196f3' : '#f44336'}
+                sx={{ fontWeight: 'bold' }}
+              >
+                {isPositiveTotal ? '+' : ''}{totalDiscrepancy.total}
+              </Typography>
+              <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
+                {totalDiscrepancy.positive > 0 && `Плюс: +${totalDiscrepancy.positive} `}
+                {totalDiscrepancy.negative > 0 && `Минус: -${totalDiscrepancy.negative}`}
+              </Typography>
             </>
-          )}
-          
-          {/* Вкладка расхождений по товарам */}
-          {activeTab === 2 && isVerified && (
+          ) : (
             <>
-              <Typography variant="h6" gutterBottom color="#2a0f35">
-                Расхождения по товарам
+              <Typography variant="body1" color="#4c5454" gutterBottom>
+                Ревизия сбалансирована
               </Typography>
-              
-              {productDiscrepancies.length === 0 ? (
-                <Alert severity="success">
-                  Расхождений не обнаружено
-                </Alert>
-              ) : (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {productDiscrepancies.map((productDisc) => (
-                    <Accordion key={productDisc.productId}>
-                      <AccordionSummary expandIcon={<ExpandMore />}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                          <Box>
-                            <Typography variant="subtitle1">
-                              {productDisc.productName || `Товар ${productDisc.productId}`}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {productDisc.productSku || `SKU${productDisc.productId}`} • {productDisc.categoryName}
-                            </Typography>
-                          </Box>
-                          <Stack direction="row" spacing={1}>
-                            <Chip
-                              icon={<Add fontSize="small" />}
-                              label={`+${productDisc.positiveTotal}`}
-                              size="small"
-                              sx={{ backgroundColor: '#2196f315', color: '#2196f3' }}
-                            />
-                            <Chip
-                              icon={<Remove fontSize="small" />}
-                              label={`-${productDisc.negativeTotal}`}
-                              size="small"
-                              sx={{ backgroundColor: '#f4433615', color: '#f44336' }}
-                            />
-                            <Chip
-                              label={`Итого: ${productDisc.totalDiscrepancy >= 0 ? '+' : ''}${productDisc.totalDiscrepancy}`}
-                              size="small"
-                              sx={{
-                                backgroundColor: productDisc.totalDiscrepancy >= 0 ? '#2196f315' : '#f4433615',
-                                color: productDisc.totalDiscrepancy >= 0 ? '#2196f3' : '#f44336',
-                                fontWeight: 600,
-                              }}
-                            />
-                          </Stack>
-                        </Box>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <TableContainer>
-                          <Table size="small">
-                            <TableHead>
-                              <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                                <TableCell sx={{ fontWeight: 'bold' }}>Пользователь</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Ожидаемо</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Фактически</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }} align="right">Разница</TableCell>
-                              </TableRow>
-                            </TableHead>
-                            <TableBody>
-                              {productDisc.userDiscrepancies.map((userDisc, idx) => (
-                                <TableRow key={idx}>
-                                  <TableCell>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                      <Avatar sx={{ width: 24, height: 24, bgcolor: '#2196f3' }}>
-                                        {userDisc.userName?.charAt(0) || 'П'}
-                                      </Avatar>
-                                      <Typography variant="body2">
-                                        {userDisc.userName || `Пользователь ${userDisc.userId}`}
-                                      </Typography>
-                                    </Box>
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Typography variant="body2">
-                                      {userDisc.expected} шт.
-                                    </Typography>
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Typography variant="body2">
-                                      {userDisc.actual} шт.
-                                    </Typography>
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Chip
-                                      size="small"
-                                      icon={userDisc.isPositive ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />}
-                                      label={`${userDisc.isPositive ? '+' : ''}${userDisc.discrepancy}`}
-                                      sx={{
-                                        backgroundColor: userDisc.isPositive ? '#2196f315' : '#f4433615',
-                                        color: userDisc.isPositive ? '#2196f3' : '#f44336',
-                                      }}
-                                    />
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </TableContainer>
-                      </AccordionDetails>
-                    </Accordion>
-                  ))}
-                </Box>
-              )}
-            </>
-          )}
-          
-          {/* Вкладка заполнений */}
-          {activeTab === 3 && revision.type !== 'USER' && (
-            <>
-              <Typography variant="h6" gutterBottom color="#2a0f35">
-                Заполнения пользователей ({revision.fillings.length})
+              <Typography variant="h1" color="#4caf50" sx={{ fontWeight: 'bold' }}>
+                0
               </Typography>
-              
-              {revision.fillings.length === 0 ? (
-                <Alert severity="info">
-                  Нет заполнений
-                </Alert>
-              ) : (
-                <Grid container spacing={2}>
-                  {revision.fillings.map((filling) => (
-                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={filling.id}>
-                      <Card 
-                        sx={{ 
-                          cursor: 'pointer',
-                          border: selectedFilling === filling.id ? '2px solid #2196f3' : '1px solid #e0e0e0',
-                          height: '100%'
-                        }}
-                        onClick={() => setSelectedFilling(filling.id)}
-                      >
-                        <CardContent>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                            <Avatar sx={{ width: 40, height: 40, bgcolor: filling.isCompleted ? '#4caf50' : '#ff9800' }}>
-                              {filling.userName?.charAt(0) || 'П'}
-                            </Avatar>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography variant="subtitle1">
-                                {filling.userName || `Пользователь ${filling.userId}`}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {filling.isCompleted ? 'Заполнено' : 'Не заполнено'}
-                              </Typography>
-                            </Box>
-                            {filling.isCompleted && <CheckCircle sx={{ color: '#4caf50' }} />}
-                          </Box>
-                          
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <Typography variant="body2" color="text.secondary">
-                              {filling.items.length} товаров
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {filling.photos.length} фото
-                            </Typography>
-                          </Box>
-                          
-                          {filling.filledAt && (
-                            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                              {formatDate(filling.filledAt)}
-                            </Typography>
-                          )}
-                        </CardContent>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              )}
-            </>
-          )}
-          
-          {/* Вкладка фотографий */}
-          {activeTab === 4 && (
-            <>
-              <Typography variant="h6" gutterBottom color="#2a0f35">
-                Фотографии
-                {selectedFillingData && (
-                  <Typography variant="body2" color="text.secondary">
-                    {selectedFillingData.userName}
-                  </Typography>
-                )}
+              <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
+                Расхождений не обнаружено
               </Typography>
-              
-              {selectedFillingData && selectedFillingData.photos.length > 0 ? (
-                <Grid container spacing={2}>
-                  {selectedFillingData.photos.map((photo, index) => renderPhoto(photo, index))}
-                </Grid>
-              ) : (
-                <Alert severity="info">
-                  Нет фотографий
-                </Alert>
-              )}
             </>
           )}
         </Box>
       </Paper>
+
+      {/* Блок 3: Детали по участникам */}
+      {completedFillings.length > 0 && (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" gutterBottom color="#2a0f35">
+            Детали по участникам ({completedFillings.length})
+          </Typography>
+          
+          {completedFillings.map((filling) => {
+            const userDiscrepancy = discrepancies.find(d => d.userId === filling.userId);
+            const isExpanded = expandedUsers.includes(filling.userId);
+            const userTotal = userDiscrepancy?.totalDiscrepancy || 0;
+            const userIsPositive = userTotal > 0;
+            const userIsNegative = userTotal < 0;
+            
+            return (
+              <Accordion 
+                key={filling.id} 
+                expanded={isExpanded}
+                onChange={() => handleAccordionChange(filling.userId)}
+                sx={{ mb: 2 }}
+              >
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
+                    <Avatar sx={{ width: 40, height: 40, bgcolor: '#2196f3' }}>
+                      {filling.userName?.charAt(0) || 'П'}
+                    </Avatar>
+                    
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="subtitle1">
+                        {filling.userName || `Пользователь ${filling.userId}`}
+                      </Typography>
+                      <Typography variant="body2" color="#4c5454">
+                        Товары: {filling.items.length} шт. • Фото: {filling.photos.length} шт.
+                      </Typography>
+                    </Box>
+                    
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      {userTotal !== 0 ? (
+                        <Chip
+                          label={`${userIsPositive ? '+' : ''}${userTotal}`}
+                          sx={{
+                            backgroundColor: userIsPositive ? '#2196f315' : '#f4433615',
+                            color: userIsPositive ? '#2196f3' : '#f44336',
+                            fontWeight: 600,
+                            fontSize: '1rem',
+                            minWidth: 80
+                          }}
+                        />
+                      ) : (
+                        <Chip
+                          label="Нет расхождений"
+                          sx={{ backgroundColor: '#4caf5015', color: '#4caf50' }}
+                        />
+                      )}
+                    </Box>
+                  </Box>
+                </AccordionSummary>
+                
+                <AccordionDetails>
+                  {/* Расхождения по товарам */}
+                  {userDiscrepancy && userDiscrepancy.discrepancies.length > 0 && (
+                    <Box sx={{ mb: 3 }}>
+                      <Typography variant="subtitle2" gutterBottom color="#2a0f35">
+                        Расхождения по товарам
+                      </Typography>
+                      
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                              <TableCell>Товар</TableCell>
+                              <TableCell align="right">Ожидаемо</TableCell>
+                              <TableCell align="right">Фактически</TableCell>
+                              <TableCell align="right">Разница</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {userDiscrepancy.discrepancies.map((disc, idx) => (
+                              <TableRow key={idx} hover>
+                                <TableCell>
+                                  <Typography variant="body2">
+                                    {disc.productName || `Товар ${disc.productId}`}
+                                  </Typography>
+                                  <Typography variant="caption" color="#4c5454" display="block">
+                                    {disc.productSku || `SKU${disc.productId}`}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Typography variant="body2">
+                                    {disc.expected} шт.
+                                  </Typography>
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Typography variant="body2">
+                                    {disc.actual} шт.
+                                  </Typography>
+                                </TableCell>
+                                <TableCell align="right">
+                                  <Chip
+                                    size="small"
+                                    icon={disc.isPositive ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />}
+                                    label={`${disc.isPositive ? '+' : ''}${disc.discrepancy}`}
+                                    sx={{
+                                      backgroundColor: disc.isPositive ? '#2196f315' : '#f4433615',
+                                      color: disc.isPositive ? '#2196f3' : '#f44336',
+                                      fontWeight: 500,
+                                    }}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Box>
+                  )}
+                  
+                  {/* Фотографии */}
+                  {filling.photos.length > 0 && (
+                    <Box>
+                      <Typography variant="subtitle2" gutterBottom color="#2a0f35">
+                        Фотографии ({filling.photos.length})
+                      </Typography>
+                      
+                      <Grid container spacing={1}>
+                        {filling.photos.map((photo, index) => (
+                          <Grid size={{ xs: 6, sm: 4, md: 3 }} key={index}>
+                            <Box
+                              sx={{
+                                position: 'relative',
+                                height: 100,
+                                backgroundImage: `url(${revisionService.getPhotoUrl(photo)})`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                                borderRadius: 1,
+                                cursor: 'pointer',
+                                '&:hover': {
+                                  opacity: 0.9,
+                                },
+                              }}
+                              onClick={() => handleViewPhoto(filling.photos, index)}
+                            >
+                              <Box
+                                sx={{
+                                  position: 'absolute',
+                                  top: 4,
+                                  right: 4,
+                                  backgroundColor: 'rgba(0,0,0,0.5)',
+                                  borderRadius: '50%',
+                                  p: 0.5,
+                                }}
+                              >
+                                <PhotoCamera sx={{ color: 'white', fontSize: 12 }} />
+                              </Box>
+                            </Box>
+                            <Typography variant="caption" align="center" display="block" sx={{ mt: 0.5 }}>
+                              Фото {index + 1}
+                            </Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </Box>
+                  )}
+                  
+                  {/* Сообщение если нет расхождений и фотографий */}
+                  {(!userDiscrepancy || userDiscrepancy.discrepancies.length === 0) && filling.photos.length === 0 && (
+                    <Typography variant="body2" color="#4c5454" align="center" sx={{ py: 2 }}>
+                      Нет расхождений и фотографий для отображения
+                    </Typography>
+                  )}
+                </AccordionDetails>
+              </Accordion>
+            );
+          })}
+        </Paper>
+      )}
+
+      {/* Блок 4: Подтверждение проверки */}
+      <Paper sx={{ p: 3, mb: 3 }} ref={confirmationRef}>
+        <Typography variant="h6" gutterBottom color="#2a0f35">
+          Подтверждение проверки
+        </Typography>
+        
+        <TextField
+          fullWidth
+          multiline
+          rows={3}
+          label="Комментарий проверки"
+          value={verificationComment}
+          onChange={(e) => setVerificationComment(e.target.value)}
+          placeholder="Укажите комментарий к проверке..."
+          sx={{ mb: 3 }}
+        />
+        
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<Cancel />}
+            onClick={() => navigate(`/revisions/${revision.id}`)}
+            disabled={verifying}
+            sx={{ flex: 1 }}
+          >
+            Отмена
+          </Button>
+          
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={verifying ? <CircularProgress size={20} /> : <CheckCircle />}
+            onClick={handleVerifyRevision}
+            disabled={verifying || revision.status !== RevisionStatus.COMPLETED}
+            sx={{ flex: 1 }}
+          >
+            {verifying ? 'Проверяю...' : 'Проверить ревизию'}
+          </Button>
+        </Box>
+        
+        {revision.status !== RevisionStatus.COMPLETED && (
+          <Typography variant="caption" color="#f44336" sx={{ mt: 2, display: 'block' }}>
+            Ревизия еще не заполнена всеми участниками
+          </Typography>
+        )}
+      </Paper>
+
+      {/* Кнопка подтверждения в правом нижнем углу */}
+      <Fade in={showConfirmButton} timeout={300}>
+        <Box sx={{ 
+          position: 'fixed', 
+          bottom: 24, 
+          right: 24,
+          zIndex: 1000,
+          opacity: showConfirmButton ? 1 : 0,
+          transition: 'opacity 300ms ease-in-out',
+          pointerEvents: showConfirmButton ? 'auto' : 'none'
+        }}>
+          <Button
+            variant="contained"
+            color="success"
+            size="large"
+            startIcon={<CheckCircle />}
+            onClick={scrollToConfirmation}
+            disabled={verifying || revision.status !== RevisionStatus.COMPLETED}
+            sx={{
+              boxShadow: 3,
+              borderRadius: 2,
+              px: 3,
+              py: 1.5,
+              fontSize: '1rem',
+              '&:hover': {
+                boxShadow: 6,
+              }
+            }}
+          >
+            К проверке
+          </Button>
+        </Box>
+      </Fade>
+
+      {/* Диалог подтверждения проверки */}
+      <Dialog
+        open={showConfirmDialog}
+        onClose={() => setShowConfirmDialog(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Подтверждение проверки ревизии
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body1" sx={{ mb: 2 }}>
+            Вы уверены, что хотите завершить проверку ревизии #{revision.id}?
+          </Typography>
+          
+          {totalDiscrepancy.total !== 0 && (
+            <Alert 
+              severity={isPositiveTotal ? "info" : "warning"} 
+              sx={{ mb: 2 }}
+            >
+              {isPositiveTotal 
+                ? `Ревизия в плюсе на +${totalDiscrepancy.total}. Данные будут зафиксированы.`
+                : `Ревизия в минусе на ${totalDiscrepancy.total}. Данные будут зафиксированы.`
+              }
+            </Alert>
+          )}
+          
+          <TextField
+            fullWidth
+            multiline
+            rows={2}
+            label="Комментарий проверки"
+            value={verificationComment}
+            onChange={(e) => setVerificationComment(e.target.value)}
+            placeholder="Укажите комментарий..."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setShowConfirmDialog(false)}
+            disabled={verifying}
+          >
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleConfirmVerification}
+            disabled={verifying}
+            startIcon={verifying ? <CircularProgress size={20} /> : <CheckCircle />}
+          >
+            {verifying ? 'Сохраняю...' : 'Подтвердить проверку'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Диалог фото */}
       <Dialog
         open={showPhotoDialog}
         onClose={() => setShowPhotoDialog(false)}
         maxWidth="lg"
+        fullWidth
       >
         <DialogTitle>
-          Фотография {selectedPhotoIndex + 1} из {selectedFillingData?.photos.length || 0}
-          {selectedFillingData && (
-            <Typography variant="body2" color="text.secondary">
-              {selectedFillingData.userName}
-            </Typography>
-          )}
+          Просмотр фотографии
         </DialogTitle>
         <DialogContent>
-          {selectedFillingData && selectedFillingData.photos[selectedPhotoIndex] && (
-            <img
-              src={revisionService.getPhotoUrl(selectedFillingData.photos[selectedPhotoIndex])}
-              alt={`Фото ${selectedPhotoIndex + 1}`}
-              style={{ width: '100%', height: 'auto', borderRadius: 8 }}
-            />
+          {selectedPhoto && selectedPhoto.photos[selectedPhoto.index] && (
+            <Box
+              sx={{
+                width: '100%',
+                maxHeight: '70vh',
+                display: 'flex',
+                justifyContent: 'center',
+              }}
+            >
+              <img
+                src={revisionService.getPhotoUrl(selectedPhoto.photos[selectedPhoto.index])}
+                alt={`Фото ${selectedPhoto.index + 1}`}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '70vh',
+                  objectFit: 'contain',
+                }}
+              />
+            </Box>
           )}
         </DialogContent>
         <DialogActions>

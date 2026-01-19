@@ -13,6 +13,7 @@ import {
   UserDiscrepancySummary,
   ProductDiscrepancySummary
 } from '../types';
+import { userService } from './userService';
 
 // Функция для трансформации snake_case в camelCase
 const transformRevisionFromApi = (revision: any): Revision => {
@@ -112,6 +113,25 @@ const transformFillingToApi = (filling: RevisionFillingCreateDto): any => {
   };
 };
 
+const transformDiscrepancyFromApi = (discrepancy: any): any => {
+  return {
+    userId: discrepancy.user_id || discrepancy.userId,
+    userName: discrepancy.user_name || discrepancy.userName,
+    totalDiscrepancy: discrepancy.total_discrepancy || discrepancy.totalDiscrepancy || 0,
+    positiveTotal: discrepancy.positive_total || discrepancy.positiveTotal || 0,
+    negativeTotal: discrepancy.negative_total || discrepancy.negativeTotal || 0,
+    discrepancies: (discrepancy.discrepancies || []).map((disc: any) => ({
+      productId: disc.product_id || disc.productId,
+      productName: disc.product_name || disc.productName,
+      productSku: disc.product_sku || disc.productSku,
+      expected: disc.expected_quantity || disc.expected || 0,
+      actual: disc.actual_quantity || disc.actual || 0,
+      discrepancy: disc.discrepancy || 0,
+      isPositive: disc.is_positive || disc.isPositive || false
+    }))
+  };
+};
+
 // Функция для обогащения данных товаров
 const enrichProductsData = async (revision: any): Promise<any> => {
   try {
@@ -151,6 +171,98 @@ const enrichProductsData = async (revision: any): Promise<any> => {
   }
 };
 
+// Функция для обогащения имен пользователей
+const enrichUserNames = async (revision: any): Promise<any> => {
+  try {
+    const enriched = { ...revision };
+    
+    // Собираем все уникальные ID пользователей
+    const userIds = new Set<number>();
+    
+    // Добавляем ID пользователя, запросившего ревизию
+    if (revision.requested_by_id && !revision.requested_by_name) {
+      userIds.add(revision.requested_by_id);
+    }
+    
+    // Добавляем ID пользователя, проверившего ревизию
+    if (revision.verified_by_id && !revision.verified_by_name) {
+      userIds.add(revision.verified_by_id);
+    }
+    
+    // Добавляем ID пользователей в заполнениях
+    if (revision.fillings && revision.fillings.length > 0) {
+      revision.fillings.forEach((filling: any) => {
+        if (filling.user_id && !filling.user_name) {
+          userIds.add(filling.user_id);
+        }
+      });
+    }
+    
+    // Добавляем ID пользователей в расхождениях
+    if (revision.discrepancies && revision.discrepancies.length > 0) {
+      revision.discrepancies.forEach((discrepancy: any) => {
+        if (discrepancy.user_id && !discrepancy.user_name) {
+          userIds.add(discrepancy.user_id);
+        }
+      });
+    }
+    
+    // Получаем ФИО всех пользователей
+    if (userIds.size > 0) {
+      const userNames = await userService.getUsersNames(Array.from(userIds));
+      
+      // Обогащаем данные
+      if (revision.requested_by_id && userNames[revision.requested_by_id]) {
+        enriched.requested_by_name = userNames[revision.requested_by_id];
+      }
+      
+      if (revision.verified_by_id && userNames[revision.verified_by_id]) {
+        enriched.verified_by_name = userNames[revision.verified_by_id];
+      }
+      
+      if (revision.fillings && revision.fillings.length > 0) {
+        enriched.fillings = revision.fillings.map((filling: any) => ({
+          ...filling,
+          user_name: filling.user_id && userNames[filling.user_id] 
+            ? userNames[filling.user_id] 
+            : filling.user_name
+        }));
+      }
+      
+      if (revision.discrepancies && revision.discrepancies.length > 0) {
+        enriched.discrepancies = revision.discrepancies.map((discrepancy: any) => ({
+          ...discrepancy,
+          user_name: discrepancy.user_id && userNames[discrepancy.user_id]
+            ? userNames[discrepancy.user_id]
+            : discrepancy.user_name
+        }));
+      }
+    }
+    
+    return enriched;
+  } catch (error) {
+    console.error('Error enriching revision with user names:', error);
+    return revision;
+  }
+};
+
+// Функция для обогащения заполнения именем пользователя
+const enrichFillingWithUserName = async (filling: any): Promise<any> => {
+  try {
+    if (filling.user_id && !filling.user_name) {
+      const userName = await userService.getUserName(filling.user_id);
+      return {
+        ...filling,
+        user_name: userName
+      };
+    }
+    return filling;
+  } catch (error) {
+    console.error('Error enriching filling with user name:', error);
+    return filling;
+  }
+};
+
 export const revisionService = {
   // Получить все ревизии
   getRevisions: async (
@@ -182,7 +294,13 @@ export const revisionService = {
       const enrichedRevisions = await Promise.all(
         response.data.map(async (revision) => {
           try {
-            return await enrichProductsData(revision);
+            // Обогащаем товары
+            const withProducts = await enrichProductsData(revision);
+            
+            // Обогащаем имена пользователей
+            const withUserNames = await enrichUserNames(withProducts);
+            
+            return withUserNames;
           } catch (error) {
             console.error('Error enriching revision:', error);
             return revision;
@@ -207,7 +325,13 @@ export const revisionService = {
       const enrichedRevisions = await Promise.all(
         response.data.map(async (revision) => {
           try {
-            return await enrichProductsData(revision);
+            // Обогащаем товары
+            const withProducts = await enrichProductsData(revision);
+            
+            // Обогащаем имена пользователей
+            const withUserNames = await enrichUserNames(withProducts);
+            
+            return withUserNames;
           } catch (error) {
             console.error('Error enriching revision:', error);
             return revision;
@@ -226,8 +350,14 @@ export const revisionService = {
   getRevisionById: async (id: number): Promise<Revision> => {
     try {
       const response = await axiosInstance.get<any>(`/api/revisions/${id}`);
-      const enrichedRevision = await enrichProductsData(response.data);
-      return transformRevisionFromApi(enrichedRevision);
+      
+      // Обогащаем данные о товарах
+      const enrichedWithProducts = await enrichProductsData(response.data);
+      
+      // Обогащаем данные о пользователях
+      const enrichedWithUserNames = await enrichUserNames(enrichedWithProducts);
+      
+      return transformRevisionFromApi(enrichedWithUserNames);
     } catch (error) {
       console.error('Error fetching revision by ID:', error);
       throw error;
@@ -254,7 +384,7 @@ export const revisionService = {
     }
   },
 
-  // Заполнить ревизию (НОВАЯ версия)
+  // Заполнить ревизию
   fillRevision: async (
     revisionId: number,
     items: Array<{ productId: number; categoryId: number; quantity: number }>,
@@ -310,7 +440,10 @@ export const revisionService = {
         }
       })();
       
-      return transformFillingFromApi(enrichedFilling);
+      // Обогащаем имя пользователя
+      const enrichedWithUserName = await enrichFillingWithUserName(enrichedFilling);
+      
+      return transformFillingFromApi(enrichedWithUserName);
     } catch (error) {
       console.error('Error filling revision:', error);
       throw error;
@@ -323,7 +456,7 @@ export const revisionService = {
       const response = await axiosInstance.get<any>(`/api/revisions/${revisionId}/my-filling`);
       
       // Обогащаем данные о товарах
-      const enrichedFilling = await (async () => {
+      const enrichedWithProducts = await (async () => {
         try {
           const { productService } = await import('./productService');
           const allProducts = await productService.getAllProducts();
@@ -349,7 +482,10 @@ export const revisionService = {
         }
       })();
       
-      return transformFillingFromApi(enrichedFilling);
+      // Обогащаем имя пользователя
+      const enrichedWithUserName = await enrichFillingWithUserName(enrichedWithProducts);
+      
+      return transformFillingFromApi(enrichedWithUserName);
     } catch (error: any) {
       if (error.response?.status === 404) {
         return null; // Заполнение не найдено
@@ -495,25 +631,43 @@ export const revisionService = {
           const allCategories = await productService.getAllCategories();
           
           if (byUser) {
-            return response.data.map((ud: any) => ({
-              userId: ud.user_id,
-              userName: ud.user_name,
-              totalDiscrepancy: ud.total_discrepancy,
-              positiveTotal: ud.positive_total,
-              negativeTotal: ud.negative_total,
-              discrepancies: ud.discrepancies.map((d: any) => {
-                const product = allProducts.find(p => p.id === d.product_id);
-                
-                return {
-                  productId: d.product_id,
-                  productName: product?.name || d.product_name,
-                  expected: d.expected,
-                  actual: d.actual,
-                  discrepancy: d.discrepancy,
-                  isPositive: d.is_positive
+            // Для расхождений по пользователям обогащаем имена
+            const enrichedUserDiscrepancies = await Promise.all(
+              response.data.map(async (ud: any) => {
+                const baseData = {
+                  userId: ud.user_id,
+                  userName: ud.user_name,
+                  totalDiscrepancy: ud.total_discrepancy,
+                  positiveTotal: ud.positive_total,
+                  negativeTotal: ud.negative_total,
+                  discrepancies: ud.discrepancies.map((d: any) => {
+                    const product = allProducts.find(p => p.id === d.product_id);
+                    
+                    return {
+                      productId: d.product_id,
+                      productName: product?.name || d.product_name,
+                      expected: d.expected,
+                      actual: d.actual,
+                      discrepancy: d.discrepancy,
+                      isPositive: d.is_positive
+                    };
+                  })
                 };
+                
+                // Если нет имени пользователя, получаем его
+                if (!baseData.userName && baseData.userId) {
+                  try {
+                    baseData.userName = await userService.getUserName(baseData.userId);
+                  } catch (error) {
+                    console.error('Error getting user name:', error);
+                  }
+                }
+                
+                return baseData;
               })
-            }));
+            );
+            
+            return enrichedUserDiscrepancies;
           } else {
             return response.data.map((pd: any) => {
               const product = allProducts.find(p => p.id === pd.product_id);
@@ -601,11 +755,31 @@ export const revisionService = {
       throw error;
     }
   },
+
   // Получить расхождения по пользователям
   getDiscrepanciesByUser: async (revisionId: number): Promise<UserDiscrepancySummary[]> => {
     try {
       const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/discrepancies-by-user`);
-      return response.data;
+      
+      // Обогащаем имена пользователей
+      const enrichedDiscrepancies = await Promise.all(
+        response.data.map(async (discrepancy) => {
+          const baseData = transformDiscrepancyFromApi(discrepancy);
+          
+          // Если нет имени пользователя, получаем его
+          if (!baseData.userName && baseData.userId) {
+            try {
+              baseData.userName = await userService.getUserName(baseData.userId);
+            } catch (error) {
+              console.error('Error getting user name:', error);
+            }
+          }
+          
+          return baseData;
+        })
+      );
+      
+      return enrichedDiscrepancies;
     } catch (error) {
       console.error('Error fetching discrepancies by user:', error);
       throw error;
@@ -619,6 +793,37 @@ export const revisionService = {
       return response.data;
     } catch (error) {
       console.error('Error fetching discrepancies by product:', error);
+      throw error;
+    }
+  },
+
+  // Рассчитать расхождения
+  calculateDiscrepancies: async (revisionId: number): Promise<UserDiscrepancySummary[]> => {
+    try {
+      const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/calculate-discrepancies`);
+      
+      // Обогащаем имена пользователей в расхождениях
+      const enrichedDiscrepancies = await Promise.all(
+        response.data.map(async (discrepancy) => {
+          // Трансформируем базовые данные
+          const transformed = transformDiscrepancyFromApi(discrepancy);
+          
+          // Если есть userId и нет userName, получаем ФИО
+          if (transformed.userId && !transformed.userName) {
+            try {
+              transformed.userName = await userService.getUserName(transformed.userId);
+            } catch (error) {
+              console.error('Error getting user name for discrepancy:', error);
+            }
+          }
+          
+          return transformed;
+        })
+      );
+      
+      return enrichedDiscrepancies;
+    } catch (error) {
+      console.error('Error calculating discrepancies:', error);
       throw error;
     }
   },

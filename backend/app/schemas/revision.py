@@ -308,3 +308,9 @@ class RevisionSummaryResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class RevisionDeleteResponse(BaseModel):
+    success: bool
+    message: str
+    revision_id: int

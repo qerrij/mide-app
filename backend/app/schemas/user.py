@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, validator, field_validator, ConfigDict
-from typing import Optional, List, Any
+from typing import Dict, Optional, List, Any
 from datetime import datetime
 import enum
 import json
@@ -131,3 +131,10 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+class UserNameResponse(BaseModel):
+    id: int
+    full_name: str
+
+class UsersNamesResponse(BaseModel):
+    user_names: Dict[str, str]
