@@ -70,7 +70,7 @@ def init_database():
                     username="owner",
                     password_hash=get_password_hash("owner123"),
                     full_name="Владелец системы",
-                    role="owner",  # Используем строковое значение
+                    role="OWNER",  # Используем строковое значение
                     is_active=True,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
