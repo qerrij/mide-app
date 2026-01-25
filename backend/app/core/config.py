@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
-from pathlib import Path  # Добавьте этот импорт
+from pathlib import Path
+import os
 
 class Settings(BaseSettings):
     # Database
@@ -21,14 +22,18 @@ class Settings(BaseSettings):
     ALLOWED_IMAGE_TYPES: list = ["image/jpeg", "image/png", "image/gif"]
     MAX_PHOTOS_PER_REPORT: int = 5
     
-    @property
-    def upload_dir(self) -> Path:
-        """Абсолютный путь к папке загрузок"""
-        return Path(self.UPLOAD_DIR).absolute()
+    # Render specific
+    RENDER: bool = False
     
     class Config:
         env_file = ".env"
         case_sensitive = True
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Проверяем, работаем ли мы на Render
+        if os.getenv('RENDER') or 'render.com' in self.DATABASE_URL:
+            self.RENDER = True
 
 
 settings = Settings()
