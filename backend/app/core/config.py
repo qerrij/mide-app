@@ -22,18 +22,11 @@ class Settings(BaseSettings):
     ALLOWED_IMAGE_TYPES: list = ["image/jpeg", "image/png", "image/gif"]
     MAX_PHOTOS_PER_REPORT: int = 5
     
-    # Render specific
-    RENDER: bool = False
-    
     class Config:
+        # ВАЖНО: удаляем кастомный __init__ и используем только env_file
         env_file = ".env"
         case_sensitive = True
-    
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        # Проверяем, работаем ли мы на Render
-        if os.getenv('RENDER') or 'render.com' in self.DATABASE_URL:
-            self.RENDER = True
 
 
+# Простая инициализация без кастомного __init__
 settings = Settings()
