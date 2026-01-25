@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import enum
@@ -91,6 +91,7 @@ class TransferResponse(TransferBase):
     created_by_id: int
     status: TransferStatus
     files: List[str] = []
+    arrival_files: List[str] = []  # 🔴 НОВОЕ: Файлы при приемке товара
     discrepancy_files: List[str] = []  
     
     # 🔴 ДОБАВЛЕНО: Информация о расхождениях
@@ -133,6 +134,7 @@ class TransferResponse(TransferBase):
     # Флаги
     can_approve: bool = False
     can_execute: bool = False
+    can_approve_discrepancy: bool = False  # 🔴 НОВОЕ: может ли подтверждать расхождения
     
     @field_validator('total_items', 'total_quantity', mode='before')
     @classmethod
@@ -156,10 +158,10 @@ class TransferResponse(TransferBase):
                     pass
         return v
     
-    @field_validator('discrepancy_files', mode='before')
+    @field_validator('arrival_files', 'discrepancy_files', mode='before')
     @classmethod
-    def ensure_discrepancy_files_list(cls, v):
-        """Обеспечить что discrepancy_files всегда список"""
+    def ensure_files_list(cls, v):
+        """Обеспечить что arrival_files и discrepancy_files всегда список"""
         if v is None:
             return []
         return v
@@ -251,15 +253,33 @@ class TransferDetailResponse(TransferResponse):
     class Config:
         from_attributes = True
 
+
 class TransferApprovalRequest(BaseModel):
     approved: bool
     notes: Optional[str] = None
 
 
+# 🔴 ОБНОВЛЕНО: Новая схема для прибытия
+class TransferArrivalItemRequest(BaseModel):
+    """Данные товара при прибытии"""
+    product_id: int = Field(..., gt=0, description="ID товара")
+    actual_quantity: int = Field(..., ge=0, description="Фактически полученное количество")
+    notes: Optional[str] = Field(None, description="Примечания по товару")
+
+
+class TransferArrivalRequest(BaseModel):
+    """Запрос на отметку прибытия товара"""
+    action: str = Field(..., pattern="^(accept|reject|discrepancy)$", description="Действие: accept, reject, discrepancy")
+    items: List[TransferArrivalItemRequest] = Field(..., min_items=1, description="Список полученных товаров")
+    notes: Optional[str] = Field(None, description="Общие примечания")
+    # Файлы теперь не в схеме, а передаются отдельно через FormData
+
+
 class TransferArrivalResponse(BaseModel):
-    action: str  # accept, reject, discrepancy
-    items: Optional[List[Dict[str, Any]]] = None  # Для discrepancy
-    notes: Optional[str] = None
+    """Ответ на отметку прибытия"""
+    message: str
+    transfer_id: int
+    status: TransferStatus
 
 
 class TransferExecuteRequest(BaseModel):
@@ -280,3 +300,14 @@ class TransferUpdate(BaseModel):
 class TransferRejectManagerRequest(BaseModel):
     """Запрос на отклонение запроса от руководителя"""
     reason: Optional[str] = None
+
+
+# 🔴 НОВАЯ: Схема для отображения возможности подтверждения расхождений
+class TransferDiscrepancyApprovalInfo(BaseModel):
+    """Информация о возможности подтверждения расхождений"""
+    can_approve_discrepancy: bool = False
+    allowed_roles: List[UserRole] = [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]
+    reason: Optional[str] = None
+    
+    class Config:
+        from_attributes = True

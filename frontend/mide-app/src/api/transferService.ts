@@ -24,6 +24,7 @@ const transformTransferFromApi = (transfer: any): Transfer => {
     createdById: transfer.created_by_id,
     status: transfer.status,
     files: transfer.files || [],
+    arrivalFiles: transfer.arrival_files || [], // 🔴 НОВОЕ ПОЛЕ
     discrepancyFiles: transfer.discrepancy_files || [],
     
     // 🔴 ДОБАВЛЯЕМ НОВЫЕ ПОЛЯ ДЛЯ РАСХОЖДЕНИЙ
@@ -57,6 +58,7 @@ const transformTransferFromApi = (transfer: any): Transfer => {
     pendingApprovals: transfer.pending_approvals || [],
     canApprove: transfer.can_approve || false,
     canExecute: transfer.can_execute || false,
+    canApproveDiscrepancy: transfer.can_approve_discrepancy || false,
     rejectionReason: transfer.rejection_reason,
   };
 };
@@ -261,30 +263,38 @@ export const transferService = {
   markArrived: async (
     transferId: number, 
     data: TransferArrivalDto, 
-    files?: File[]
+    files: File[]
   ): Promise<{ message: string }> => {
     const formData = new FormData();
     
     formData.append('action', data.action);
     
-    if (data.items && data.items.length > 0) {
+    // 🔴 ИЗМЕНЕНИЕ: Для reject НЕ отправляем items
+    if (data.action !== 'reject') {
+      if (!data.items || data.items.length === 0) {
+        throw new Error('Необходимо указать полученное количество для каждого товара');
+      }
+      
       formData.append('items_json', JSON.stringify(data.items.map(item => ({
         product_id: item.productId,
         actual_quantity: item.actualQuantity,
         notes: item.notes
       }))));
+    } else {
+      // 🔴 Для reject отправляем пустой массив
+      formData.append('items_json', JSON.stringify([]));
     }
     
     if (data.notes) {
       formData.append('notes', data.notes);
     }
     
-    // Для расхождений файлы обязательны
-    if (data.action === 'discrepancy' && (!files || files.length === 0)) {
-      throw new Error('При обнаружении расхождений необходимо прикрепить фотографии');
+    // 🔴 ИЗМЕНЕНИЕ: Файлы обязательны только для accept и discrepancy
+    if (data.action !== 'reject' && (!files || files.length === 0)) {
+      throw new Error('Для приема товара необходимо прикрепить фотографии');
     }
     
-    // Добавляем файлы если есть
+    // Добавляем файлы только если они есть
     if (files && files.length > 0) {
       files.forEach(file => {
         formData.append('files', file);
@@ -313,7 +323,8 @@ export const transferService = {
   // Обновить перемещение
   updateTransfer: async (transferId: number, data: Partial<Transfer>): Promise<Transfer> => {
     // Убираем поля, которые не должны обновляться
-    const { id, createdAt, approvedAt, startedAt, arrivedAt, completedAt, cancelledAt, discrepancyFiles, ...updateData } = data;
+    const { id, createdAt, approvedAt, startedAt, arrivedAt, completedAt, cancelledAt, 
+           arrivalFiles, discrepancyFiles, ...updateData } = data;
     const snakeCaseData = transformToSnakeCase(updateData);
     
     const response = await axiosInstance.put<any>(`/transfers/${transferId}`, snakeCaseData);

@@ -45,21 +45,13 @@ import {
   getRevisionStatusText,
   getRevisionTypeText,
   getRevisionStatusColor,
+  getTargetName as getTargetNameHelper,
 } from '../types';
-import { userService } from '../api/userService';
-import { groupService } from '../api/groupService';
-import { clusterService } from '../api/clusterService';
-
-// Интерфейс для обогащенной ревизии
-interface EnrichedRevision extends Revision {
-  targetName?: string;
-  requestedName?: string;
-}
 
 const RevisionsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [revisions, setRevisions] = useState<EnrichedRevision[]>([]);
+  const [revisions, setRevisions] = useState<Revision[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -68,59 +60,9 @@ const RevisionsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<RevisionStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<RevisionType | 'all'>('all');
   
-  // Функция для получения имени цели ревизии
-  const getTargetName = async (revision: Revision): Promise<string> => {
-    try {
-      if (revision.type === RevisionType.USER && revision.targetUserId) {
-        // Для пользователя
-        return await userService.getUserName(revision.targetUserId);
-      } else if (revision.type === RevisionType.GROUP && revision.targetGroupId) {
-        // Для группы
-        const group = await groupService.getGroupById(revision.targetGroupId);
-        return group.name;
-      } else if (revision.type === RevisionType.CLUSTER && revision.targetClusterId) {
-        // Для куста
-        const cluster = await clusterService.getClusterById(revision.targetClusterId);
-        return cluster.name;
-      } else if (revision.type === RevisionType.CITY && revision.targetCity) {
-        // Для города
-        return revision.targetCity;
-      } else if (revision.type === RevisionType.GENERAL) {
-        // Общая ревизия
-        return 'Все пользователи';
-      }
-    } catch (error) {
-      console.error(`Error getting target name for revision ${revision.id}:`, error);
-    }
-    
-    // Fallback
-    if (revision.type === RevisionType.USER && revision.targetUserId) {
-      return `Пользователь ${revision.targetUserId}`;
-    } else if (revision.type === RevisionType.GROUP && revision.targetGroupId) {
-      return `Группа ${revision.targetGroupId}`;
-    } else if (revision.type === RevisionType.CLUSTER && revision.targetClusterId) {
-      return `Куст ${revision.targetClusterId}`;
-    }
-    
-    return 'Не указано';
-  };
-  
-  // Обогащение ревизии данными
-  const enrichRevision = async (revision: Revision): Promise<EnrichedRevision> => {
-    const enriched: EnrichedRevision = { ...revision };
-    
-    try {
-      // Имя запросившего
-      enriched.requestedName = await userService.getUserName(revision.requestedById);
-    } catch (error) {
-      console.error(`Error getting requester name for revision ${revision.id}:`, error);
-      enriched.requestedName = `Пользователь ${revision.requestedById}`;
-    }
-    
-    // Имя цели
-    enriched.targetName = await getTargetName(revision);
-    
-    return enriched;
+  // Функция для получения имени цели ревизии (теперь использует данные из самой ревизии)
+  const getTargetName = (revision: Revision): string => {
+    return getTargetNameHelper(revision);
   };
   
   // Загрузка ревизий
@@ -136,12 +78,7 @@ const RevisionsPage: React.FC = () => {
         revisionsData = await revisionService.getMyRevisions(0, 100);
       }
       
-      // Обогащаем все ревизии
-      const enrichedRevisions = await Promise.all(
-        revisionsData.map(revision => enrichRevision(revision))
-      );
-      
-      setRevisions(enrichedRevisions);
+      setRevisions(revisionsData);
     } catch (err: any) {
       setError(err.message || 'Ошибка при загрузке ревизий');
       console.error('Error loading revisions:', err);
@@ -159,8 +96,9 @@ const RevisionsPage: React.FC = () => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = 
       revision.id.toString().includes(searchTerm) ||
-      revision.requestedName?.toLowerCase().includes(searchLower) ||
-      revision.targetName?.toLowerCase().includes(searchLower);
+      revision.requestedByName?.toLowerCase().includes(searchLower) ||
+      getTargetName(revision).toLowerCase().includes(searchLower) ||
+      (revision.comment && revision.comment.toLowerCase().includes(searchLower));
     
     const matchesStatus = statusFilter === 'all' || revision.status === statusFilter;
     const matchesType = typeFilter === 'all' || revision.type === typeFilter;
@@ -194,7 +132,7 @@ const RevisionsPage: React.FC = () => {
       return false;
     }
     
-    // Проверяем, заполнил ли уже пользователь
+    // Проверяем, заполнил ли уже пользователь эту ревизию
     const hasUserFilling = revision.fillings?.some(
       f => f.userId === user.id && f.isCompleted
     );
@@ -218,6 +156,12 @@ const RevisionsPage: React.FC = () => {
     }
     
     return false;
+  };
+
+  // Проверяет, заполнил ли пользователь ревизию
+  const hasUserFilledRevision = (revision: Revision): boolean => {
+    if (!user) return false;
+    return revision.fillings?.some(f => f.userId === user.id && f.isCompleted) || false;
   };
 
   // Обработчик создания новой ревизии
@@ -319,7 +263,7 @@ const RevisionsPage: React.FC = () => {
           <Grid size={{ xs: 12, md: 4 }}>
             <TextField
               fullWidth
-              placeholder="Поиск по ID или имени..."
+              placeholder="Поиск по ID, имени или комментарию..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -416,13 +360,20 @@ const RevisionsPage: React.FC = () => {
                     />
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2">
-                      {revision.requestedName}
-                    </Typography>
+                    <Box>
+                      <Typography variant="body2">
+                        {revision.requestedByName}
+                      </Typography>
+                      {revision.comment && (
+                        <Typography variant="caption" color="text.secondary">
+                          {revision.comment}
+                        </Typography>
+                      )}
+                    </Box>
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      {revision.targetName}
+                      {getTargetName(revision)}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -439,6 +390,18 @@ const RevisionsPage: React.FC = () => {
                       <Typography variant="caption" display="block" color="text.secondary">
                         {revision.totalFilled || 0}/{revision.totalUsers || 0}
                       </Typography>
+                    )}
+                    {hasUserFilledRevision(revision) && (
+                      <Chip
+                        label="Заполнено вами"
+                        size="small"
+                        sx={{
+                          mt: 0.5,
+                          backgroundColor: '#4caf5015',
+                          color: '#4caf50',
+                          fontSize: '0.7rem'
+                        }}
+                      />
                     )}
                   </TableCell>
                   <TableCell>{formatDate(revision.requestedAt)}</TableCell>

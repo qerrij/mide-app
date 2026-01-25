@@ -51,6 +51,7 @@ class Transfer(Base):
     
     # Файлы
     files = Column(JSON, nullable=False, default=[])  # Файлы при создании
+    arrival_files = Column(JSON, nullable=False, default=[])  # 🔴 НОВОЕ: Файлы при приемке товара
     discrepancy_files = Column(JSON, nullable=False, default=[])  # Файлы при расхождениях 
     
     # Причина отклонения
@@ -83,7 +84,6 @@ class Transfer(Base):
     
     def __repr__(self):
         return f"<Transfer {self.id}: {self.title}>"
-
 
 class TransferItem(Base):
     __tablename__ = "transfer_items"

@@ -757,7 +757,16 @@ export interface Transfer extends TransferBase {
   createdById: number;
   status: TransferStatus;
   files: string[];
+  arrivalFiles: string[]; // 🔴 НОВОЕ: Файлы при приемке товара
   discrepancyFiles: string[];
+  
+  // 🔴 ДОБАВЛЕНО: Информация о расхождениях
+  discrepancyAcceptedById?: number;
+  discrepancyAcceptedAt?: Date;
+  discrepancyApprovedById?: number;
+  discrepancyApprovedAt?: Date;
+  discrepancyAcceptedByName?: string;
+  discrepancyApprovedByName?: string;
   
   // Даты
   createdAt: Date;
@@ -788,16 +797,10 @@ export interface Transfer extends TransferBase {
   
   // Флаги
   canApprove: boolean;
-  canExecute: boolean;  // Добавляем этот флаг
-
+  canExecute: boolean;
+  canApproveDiscrepancy: boolean;
+  
   rejectionReason?: string;
-
-  discrepancyAcceptedById?: number;
-  discrepancyAcceptedAt?: Date;
-  discrepancyAcceptedByName?: string;
-  discrepancyApprovedById?: number;
-  discrepancyApprovedAt?: Date;
-  discrepancyApprovedByName?: string;
 }
 
 export interface TransferDetail extends Transfer {
@@ -833,7 +836,7 @@ export interface TransferApprovalDto {
 
 export interface TransferArrivalDto {
   action: 'accept' | 'reject' | 'discrepancy';
-  items?: Array<{
+  items: Array<{
     productId: number;
     actualQuantity: number;
     notes?: string;

@@ -86,6 +86,7 @@ def create_new_transfer_tables():
                     request_type VARCHAR(50) NOT NULL DEFAULT 'user_request',
                     status transferstatus NOT NULL DEFAULT 'REQUESTED',
                     files JSON NOT NULL DEFAULT '[]',
+                    arrival_files JSON NOT NULL DEFAULT '[]',
                     discrepancy_files JSON NOT NULL DEFAULT '[]',
                     rejection_reason TEXT,
                     discrepancy_accepted_by_id INTEGER REFERENCES users(id),

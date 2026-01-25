@@ -243,7 +243,7 @@ def start_transfer(
 async def mark_arrived(
     transfer_id: int,
     action: str = Form(...),
-    items_json: Optional[str] = Form(None),
+    items_json: Optional[str] = Form(None),  # Делаем необязательным
     notes: Optional[str] = Form(None),
     files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
@@ -251,40 +251,127 @@ async def mark_arrived(
 ):
     """Отметить прибытие товара"""
     try:
-        items = []
-        if items_json and action == "discrepancy":
-            items_data = json.loads(items_json)
-            if not isinstance(items_data, list):
-                raise HTTPException(status_code=400, detail="items_json должен быть JSON массивом")
-            items = items_data
+        # 🔴 Валидация действия
+        if action not in ["accept", "reject", "discrepancy"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Действие должно быть accept, reject или discrepancy"
+            )
         
-        # Проверяем обязательные файлы для расхождений
-        if action == "discrepancy" and (not files or len(files) == 0):
-            raise HTTPException(status_code=400, detail="При обнаружении расхождений необходимо прикрепить фотографии")
+        # 🔴 Валидация в зависимости от действия
+        if action in ["accept", "discrepancy"]:
+            # Для accept и discrepancy файлы обязательны
+            if not files or len(files) == 0:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Для приема товара необходимо прикрепить фотографии"
+                )
+            
+            # Для accept и discrepancy items_json обязателен
+            if not items_json or items_json.strip() == "":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Необходимо указать полученное количество для каждого товара"
+                )
+        else:
+            # Для reject файлы не нужны
+            # Для reject items_json может быть пустым или None
+            
+            # Если пришли файлы при reject - игнорируем их
+            if files:
+                files = None
+        
+        items = []
+        
+        if action in ["accept", "discrepancy"]:
+            # Парсим товары для accept и discrepancy
+            try:
+                items_data = json.loads(items_json)
+            except json.JSONDecodeError:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Неверный формат JSON в items_json"
+                )
+            
+            if not isinstance(items_data, list):
+                raise HTTPException(
+                    status_code=400, 
+                    detail="items_json должен быть JSON массивом"
+                )
+            
+            if len(items_data) == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Необходимо указать полученное количество хотя бы для одного товара"
+                )
+            
+            # Проверяем структуру каждого товара
+            for i, item in enumerate(items_data):
+                if not isinstance(item, dict):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Элемент {i} в items должен быть объектом"
+                    )
+                
+                if 'product_id' not in item or 'actual_quantity' not in item:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Товар {i} должен содержать product_id и actual_quantity"
+                    )
+                
+                product_id = item.get('product_id')
+                actual_quantity = item.get('actual_quantity')
+                
+                if not isinstance(product_id, int) or product_id <= 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"product_id товара {i} должен быть положительным числом"
+                    )
+                
+                if not isinstance(actual_quantity, int) or actual_quantity < 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"actual_quantity товара {i} должен быть неотрицательным числом"
+                    )
+                
+                items.append({
+                    'product_id': product_id,
+                    'actual_quantity': actual_quantity,
+                    'notes': item.get('notes')
+                })
+        
+        # 🔴 Для reject передаем None для files и пустой список для items
+        files_to_pass = files if action in ["accept", "discrepancy"] else None
+        items_to_pass = items if action in ["accept", "discrepancy"] else []
         
         success = crud_transfer.mark_arrived(
             db,
             transfer_id=transfer_id,
             to_user_id=current_user.id,
             action=action,
-            items=items,
+            items=items_to_pass,
             notes=notes,
-            files=files
+            files=files_to_pass
         )
         
         if not success:
-            raise HTTPException(status_code=400, detail="Не удалось обработать прибытие")
+            raise HTTPException(
+                status_code=400, 
+                detail="Не удалось обработать прибытие"
+            )
         
         return {"message": "Статус обновлен"}
         
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Неверный формат JSON")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"Ошибка обработки прибытия: {e}")
-        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка: {str(e)}")
-
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Внутренняя ошибка: {str(e)}"
+        )
 
 @router.post("/{transfer_id}/approve-discrepancy")
 def approve_discrepancy(

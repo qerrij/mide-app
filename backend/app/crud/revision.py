@@ -3,6 +3,7 @@ from typing import List, Optional, Dict
 from sqlalchemy import and_, or_, func, case
 import json
 from datetime import datetime
+from app.models.product import Product
 from app.models.revision import (
     Revision, RevisionDiscrepancy, RevisionFilling, RevisionFillingItem,
     RevisionStatus, RevisionType
@@ -21,7 +22,7 @@ from app.schemas.notification import NotificationType
 
 class CRUDRevision:
     def get(self, db: Session, revision_id: int) -> Optional[Revision]:
-        return db.query(Revision)\
+        revision = db.query(Revision)\
             .options(
                 joinedload(Revision.requested_by),
                 joinedload(Revision.target_user),
@@ -30,12 +31,19 @@ class CRUDRevision:
                 joinedload(Revision.verified_by),
                 joinedload(Revision.fillings).joinedload(RevisionFilling.user),
                 joinedload(Revision.fillings).joinedload(RevisionFilling.items)
-                .joinedload(RevisionFillingItem.product),
-                joinedload(Revision.discrepancies).joinedload(RevisionDiscrepancy.product),
-                joinedload(Revision.discrepancies).joinedload(RevisionDiscrepancy.user)
+                .joinedload(RevisionFillingItem.product)
+                .joinedload(Product.category),
+                joinedload(Revision.discrepancies).joinedload(RevisionDiscrepancy.user),
+                joinedload(Revision.discrepancies).joinedload(RevisionDiscrepancy.product)
+                .joinedload(Product.category)
             )\
             .filter(Revision.id == revision_id)\
             .first()
+        
+        if revision:
+            revision = self.enrich_revision(db, revision)
+        
+        return revision
     
     def get_all(
         self, 
@@ -50,7 +58,8 @@ class CRUDRevision:
                 joinedload(Revision.requested_by),
                 joinedload(Revision.target_user),
                 joinedload(Revision.target_group),
-                joinedload(Revision.target_cluster)
+                joinedload(Revision.target_cluster),
+                joinedload(Revision.verified_by),
             )
         
         if filters:
@@ -71,10 +80,18 @@ class CRUDRevision:
             if filters.get('date_to'):
                 query = query.filter(Revision.requested_at <= filters['date_to'])
         
-        return query.order_by(Revision.requested_at.desc())\
-                   .offset(skip)\
-                   .limit(limit)\
-                   .all()
+        
+        revisions = query.order_by(Revision.requested_at.desc())\
+                    .offset(skip)\
+                    .limit(limit)\
+                    .all()
+        
+        # Обогащаем каждую ревизию
+        enriched_revisions = []
+        for revision in revisions:
+            enriched_revisions.append(self.enrich_revision(db, revision))
+        
+        return enriched_revisions
     
     
     
@@ -496,6 +513,7 @@ class CRUDRevision:
                 notifications_data=notification_data,
                 sender_id=requester.id
             )
+            
     
     def _get_revision_message(self, revision: Revision, requester: User) -> str:
         """Получить сообщение для уведомления в зависимости от типа ревизии"""
@@ -611,6 +629,146 @@ class CRUDRevision:
             )
         
         return filling
+    
+    def enrich_revision(self, db: Session, revision: Revision) -> Revision:
+        """Обогащает объект ревизии дополнительными данными"""
+        if not revision:
+            return revision
+        
+        # Принудительно загружаем связанные данные, если они не загружены
+        # Это нужно для случаев, когда объект получен без joinedload
+        
+        # Загружаем requested_by
+        if revision.requested_by_id and not hasattr(revision, 'requested_by'):
+            from app.models.user import User
+            revision.requested_by = db.query(User).filter(
+                User.id == revision.requested_by_id
+            ).first()
+        
+        # Загружаем target_user
+        if revision.target_user_id and not hasattr(revision, 'target_user'):
+            from app.models.user import User
+            revision.target_user = db.query(User).filter(
+                User.id == revision.target_user_id
+            ).first()
+        
+        # Загружаем target_group
+        if revision.target_group_id and not hasattr(revision, 'target_group'):
+            from app.models.group import Group
+            revision.target_group = db.query(Group).filter(
+                Group.id == revision.target_group_id
+            ).first()
+        
+        # Загружаем target_cluster
+        if revision.target_cluster_id and not hasattr(revision, 'target_cluster'):
+            from app.models.cluster import Cluster
+            revision.target_cluster = db.query(Cluster).filter(
+                Cluster.id == revision.target_cluster_id
+            ).first()
+        
+        # Загружаем verified_by
+        if revision.verified_by_id and not hasattr(revision, 'verified_by'):
+            from app.models.user import User
+            revision.verified_by = db.query(User).filter(
+                User.id == revision.verified_by_id
+            ).first()
+        
+        # Загружаем fillings с пользователями и товарами
+        if not hasattr(revision, 'fillings') or not revision.fillings:
+            fillings = db.query(RevisionFilling)\
+                .options(
+                    joinedload(RevisionFilling.user),
+                    joinedload(RevisionFilling.items)
+                    .joinedload(RevisionFillingItem.product)
+                    .joinedload(Product.category)
+                )\
+                .filter(RevisionFilling.revision_id == revision.id)\
+                .all()
+            revision.fillings = fillings
+        else:
+            # Если fillings уже загружены, обогащаем их
+            for filling in revision.fillings:
+                self._enrich_filling(db, filling)
+        
+        # Загружаем discrepancies
+        if not hasattr(revision, 'discrepancies') or not revision.discrepancies:
+            discrepancies = db.query(RevisionDiscrepancy)\
+                .options(
+                    joinedload(RevisionDiscrepancy.user),
+                    joinedload(RevisionDiscrepancy.product)
+                    .joinedload(Product.category)
+                )\
+                .filter(RevisionDiscrepancy.revision_id == revision.id)\
+                .all()
+            revision.discrepancies = discrepancies
+        else:
+            # Если discrepancies уже загружены, обогащаем их
+            for disc in revision.discrepancies:
+                self._enrich_discrepancy(db, disc)
+        
+        return revision
+
+    def _enrich_filling(self, db: Session, filling: RevisionFilling) -> RevisionFilling:
+        """Обогащает объект заполнения"""
+        if not filling:
+            return filling
+        
+        # Загружаем пользователя
+        if filling.user_id and not hasattr(filling, 'user'):
+            from app.models.user import User
+            filling.user = db.query(User).filter(User.id == filling.user_id).first()
+        
+        # Загружаем items с продуктами
+        if not hasattr(filling, 'items') or not filling.items:
+            items = db.query(RevisionFillingItem)\
+                .options(
+                    joinedload(RevisionFillingItem.product)
+                    .joinedload(Product.category)
+                )\
+                .filter(RevisionFillingItem.filling_id == filling.id)\
+                .all()
+            filling.items = items
+        else:
+            # Обогащаем уже загруженные items
+            for item in filling.items:
+                self._enrich_filling_item(db, item)
+        
+        return filling
+
+    def _enrich_filling_item(self, db: Session, item: RevisionFillingItem) -> RevisionFillingItem:
+        """Обогащает объект товара в заполнении"""
+        if not item:
+            return item
+        
+        # Загружаем продукт
+        if item.product_id and not hasattr(item, 'product'):
+            from app.models.product import Product
+            item.product = db.query(Product)\
+                .options(joinedload(Product.category))\
+                .filter(Product.id == item.product_id)\
+                .first()
+        
+        return item
+
+    def _enrich_discrepancy(self, db: Session, disc: RevisionDiscrepancy) -> RevisionDiscrepancy:
+        """Обогащает объект расхождения"""
+        if not disc:
+            return disc
+        
+        # Загружаем пользователя
+        if disc.user_id and not hasattr(disc, 'user'):
+            from app.models.user import User
+            disc.user = db.query(User).filter(User.id == disc.user_id).first()
+        
+        # Загружаем продукт
+        if disc.product_id and not hasattr(disc, 'product'):
+            from app.models.product import Product
+            disc.product = db.query(Product)\
+                .options(joinedload(Product.category))\
+                .filter(Product.id == disc.product_id)\
+                .first()
+        
+        return disc
     
     def _check_if_all_filled(self, db: Session, revision: Revision):
         """Проверить, все ли заполнили ревизию и обновить статус"""
@@ -1111,6 +1269,8 @@ class CRUDRevision:
         db.refresh(revision)
         
         return revision
+    
+
 
 
 crud_revision = CRUDRevision()

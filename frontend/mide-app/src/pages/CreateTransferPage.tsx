@@ -487,10 +487,10 @@ const loadUserInventory = async () => {
                     
                     <Grid size={{ xs: 12, md: 6 }}>
                       <FormControl fullWidth>
-                        <InputLabel>Исполнитель</InputLabel>
+                        <InputLabel>Курьер</InputLabel>
                         <Select
                           value={formData.executorId || ''}
-                          label="Исполнитель"
+                          label="Курьер"
                           onChange={(e) => setFormData({ 
                             ...formData, 
                             executorId: e.target.value ? Number(e.target.value) : undefined 
@@ -823,7 +823,7 @@ const loadUserInventory = async () => {
                     <Card variant="outlined" sx={{ mb: 3 }}>
                       <CardContent>
                         <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-                          Исполнитель
+                          Курьер
                         </Typography>
                         <Typography variant="body1">
                           {users.find(u => u.id === formData.executorId)?.fullName}

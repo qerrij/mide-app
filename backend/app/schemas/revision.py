@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator, computed_field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import enum
@@ -38,6 +38,26 @@ class RevisionItemResponse(RevisionItemBase):
     category_name: Optional[str] = None
     actual_quantity: Optional[int] = None
     
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_item_data(cls, data):
+        """Обогащаем данные товара перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'product') and data.product:
+            data.product_name = data.product.name
+            data.product_sku = data.product.sku
+            
+            # Получаем категорию
+            if hasattr(data.product, 'category') and data.product.category:
+                data.category_name = data.product.category.name
+            elif hasattr(data, 'category') and data.category:
+                data.category_name = data.category.name
+        
+        return data
+    
     class Config:
         from_attributes = True
 
@@ -58,6 +78,26 @@ class RevisionFillingItemResponse(RevisionFillingItemBase):
     product_name: Optional[str] = None
     product_sku: Optional[str] = None
     category_name: Optional[str] = None
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_item_data(cls, data):
+        """Обогащаем данные товара перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'product') and data.product:
+            data.product_name = data.product.name
+            data.product_sku = data.product.sku
+            
+            # Получаем категорию
+            if hasattr(data.product, 'category') and data.product.category:
+                data.category_name = data.product.category.name
+            elif hasattr(data, 'category') and data.category:
+                data.category_name = data.category.name
+        
+        return data
     
     class Config:
         from_attributes = True
@@ -80,6 +120,28 @@ class RevisionFillingResponse(RevisionFillingBase):
     filled_at: Optional[datetime] = None
     is_completed: bool
     items: List[RevisionFillingItemResponse] = []
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_filling_data(cls, data):
+        """Обогащаем данные заполнения перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'user') and data.user:
+            data.user_name = data.user.full_name
+        
+        # Обрабатываем photos если это строка
+        if hasattr(data, 'photos'):
+            if isinstance(data.photos, str):
+                import json
+                try:
+                    data.photos = json.loads(data.photos)
+                except:
+                    data.photos = []
+        
+        return data
     
     @field_validator('photos', mode='before')
     @classmethod
@@ -126,6 +188,27 @@ class RevisionDiscrepancyResponse(RevisionDiscrepancyBase):
     product_sku: Optional[str] = None
     user_name: Optional[str] = None
     category_name: Optional[str] = None
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_discrepancy_data(cls, data):
+        """Обогащаем данные расхождения перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'product') and data.product:
+            data.product_name = data.product.name
+            data.product_sku = data.product.sku
+            
+            # Получаем категорию
+            if hasattr(data.product, 'category') and data.product.category:
+                data.category_name = data.product.category.name
+        
+        if hasattr(data, 'user') and data.user:
+            data.user_name = data.user.full_name
+        
+        return data
     
     class Config:
         from_attributes = True
@@ -177,6 +260,46 @@ class RevisionResponse(RevisionBase):
     total_filled: int = 0  # Сколько пользователей заполнило
     total_users: int = 0   # Сколько пользователей должно заполнить
     is_group_revision: bool = False
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_revision_data(cls, data):
+        """Обогащаем данные ревизии перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные из связанных объектов
+        # Для requested_by
+        if hasattr(data, 'requested_by') and data.requested_by:
+            data.requested_by_name = data.requested_by.full_name
+        
+        # Для verified_by
+        if hasattr(data, 'verified_by') and data.verified_by:
+            data.verified_by_name = data.verified_by.full_name
+        
+        # Для target_user
+        if hasattr(data, 'target_user') and data.target_user:
+            data.target_user_name = data.target_user.full_name
+        
+        # Для target_group
+        if hasattr(data, 'target_group') and data.target_group:
+            data.target_group_name = data.target_group.name
+        
+        # Для target_cluster
+        if hasattr(data, 'target_cluster') and data.target_cluster:
+            data.target_cluster_name = data.target_cluster.name
+        
+        # Обогащаем fillings
+        if hasattr(data, 'fillings') and data.fillings:
+            # Каждое заполнение уже будет обогащено своим model_validator
+            pass
+        
+        # Обогащаем discrepancies
+        if hasattr(data, 'discrepancies') and data.discrepancies:
+            # Каждое расхождение уже будет обогащено своим model_validator
+            pass
+        
+        return data
     
     @field_validator('requested_at', 'completed_at', 'verified_at', mode='before')
     @classmethod
@@ -242,6 +365,22 @@ class UserQuantitySummary(BaseModel):
     user_id: int
     user_name: Optional[str] = None
     quantity: int
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_user_data(cls, data):
+        """Обогащаем данные пользователя перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'user') and data.user:
+            data.user_name = data.user.full_name
+        
+        return data
+    
+    class Config:
+        from_attributes = True
 
 
 class ProductSummaryResponse(BaseModel):
@@ -251,6 +390,24 @@ class ProductSummaryResponse(BaseModel):
     category_name: Optional[str] = None
     total_quantity: int
     user_quantities: List[UserQuantitySummary] = []
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_product_data(cls, data):
+        """Обогащаем данные продукта перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'product') and data.product:
+            data.product_name = data.product.name
+            data.product_sku = data.product.sku
+            
+            # Получаем категорию
+            if hasattr(data.product, 'category') and data.product.category:
+                data.category_name = data.product.category.name
+        
+        return data
     
     class Config:
         from_attributes = True
@@ -263,6 +420,22 @@ class UserDiscrepancyDetail(BaseModel):
     actual: int
     discrepancy: int
     is_positive: bool
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_product_data(cls, data):
+        """Обогащаем данные продукта перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'product') and data.product:
+            data.product_name = data.product.name
+        
+        return data
+    
+    class Config:
+        from_attributes = True
 
 
 class UserDiscrepancySummary(BaseModel):
@@ -272,6 +445,19 @@ class UserDiscrepancySummary(BaseModel):
     positive_total: int
     negative_total: int
     discrepancies: List[UserDiscrepancyDetail] = []
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_user_data(cls, data):
+        """Обогащаем данные пользователя перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'user') and data.user:
+            data.user_name = data.user.full_name
+        
+        return data
     
     class Config:
         from_attributes = True
@@ -284,6 +470,22 @@ class ProductDiscrepancyDetail(BaseModel):
     actual: int
     discrepancy: int
     is_positive: bool
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_user_data(cls, data):
+        """Обогащаем данные пользователя перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'user') and data.user:
+            data.user_name = data.user.full_name
+        
+        return data
+    
+    class Config:
+        from_attributes = True
 
 
 class ProductDiscrepancySummary(BaseModel):
@@ -293,6 +495,19 @@ class ProductDiscrepancySummary(BaseModel):
     positive_total: int
     negative_total: int
     user_discrepancies: List[ProductDiscrepancyDetail] = []
+    
+    @model_validator(mode='before')
+    @classmethod
+    def enrich_product_data(cls, data):
+        """Обогащаем данные продукта перед валидацией"""
+        if isinstance(data, dict):
+            return data
+        
+        # Если это объект модели, извлекаем данные
+        if hasattr(data, 'product') and data.product:
+            data.product_name = data.product.name
+        
+        return data
     
     class Config:
         from_attributes = True

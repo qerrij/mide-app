@@ -13,44 +13,45 @@ import {
   UserDiscrepancySummary,
   ProductDiscrepancySummary
 } from '../types';
-import { userService } from './userService';
 
 // Функция для трансформации snake_case в camelCase
 const transformRevisionFromApi = (revision: any): Revision => {
-  // Базовые поля ревизии
-  const baseRevision = {
+  return {
     id: revision.id,
     requestedById: revision.requested_by_id,
-    requestedByName: revision.requested_by_name || revision.requested_by?.full_name,
+    requestedByName: revision.requested_by_name,
     type: revision.type,
     status: revision.status,
     targetUserId: revision.target_user_id,
     targetGroupId: revision.target_group_id,
     targetClusterId: revision.target_cluster_id,
     targetCity: revision.target_city,
-    targetUserName: revision.target_user_name || revision.target_user?.full_name,
-    targetGroupName: revision.target_group_name || revision.target_group?.name,
-    targetClusterName: revision.target_cluster_name || revision.target_cluster?.name,
+    targetUserName: revision.target_user_name,
+    targetGroupName: revision.target_group_name,
+    targetClusterName: revision.target_cluster_name,
     comment: revision.comment,
     verificationComment: revision.verification_comment,
     verifiedById: revision.verified_by_id,
-    verifiedByName: revision.verified_by_name || revision.verified_by?.full_name,
+    verifiedByName: revision.verified_by_name,
     requestedAt: new Date(revision.requested_at),
     completedAt: revision.completed_at ? new Date(revision.completed_at) : undefined,
     verifiedAt: revision.verified_at ? new Date(revision.verified_at) : undefined,
     
-    // Для обратной совместимости
+    // Фото теперь хранятся в заполнениях, но для обратной совместимости
     photos: revision.photos || [],
+    
+    // Старые поля для обратной совместимости
     items: (revision.items || []).map((item: any) => ({
       id: item.id,
       productId: item.product_id,
       categoryId: item.category_id,
       quantity: item.quantity,
       actualQuantity: item.actual_quantity,
-      productName: item.product_name || item.product?.name,
-      productSku: item.product_sku || item.product?.sku,
-      categoryName: item.category_name || item.product?.category?.name,
+      productName: item.product_name,
+      productSku: item.product_sku,
+      categoryName: item.category_name,
     })),
+    
     discrepancies: (revision.discrepancies || []).map((disc: any) => ({
       id: disc.id,
       productId: disc.product_id,
@@ -59,24 +60,19 @@ const transformRevisionFromApi = (revision: any): Revision => {
       actualQuantity: disc.actual_quantity,
       discrepancy: disc.discrepancy,
       isPositive: disc.is_positive,
-      productName: disc.product_name || disc.product?.name,
-      productSku: disc.product_sku || disc.product?.sku,
-      userName: disc.user_name || disc.user?.full_name,
-      categoryName: disc.category_name || disc.product?.category?.name,
+      productName: disc.product_name,
+      productSku: disc.product_sku,
+      userName: disc.user_name,
+      categoryName: disc.category_name,
     })),
-  };
-  
-  // Добавляем новые поля для групповых ревизий
-  const enhancedRevision: Revision = {
-    ...baseRevision,
-    fillings: (revision.fillings || []).map((filling: any) => transformFillingFromApi(filling)),
-    totalFilled: revision.total_filled,
-    totalUsers: revision.total_users,
+    
+    // Новые поля для групповых ревизий
+    fillings: (revision.fillings || []).map(transformFillingFromApi),
+    totalFilled: revision.total_filled || 0,
+    totalUsers: revision.total_users || 0,
     isGroupRevision: revision.is_group_revision || 
                      (revision.type && revision.type !== RevisionType.USER)
   };
-  
-  return enhancedRevision;
 };
 
 const transformFillingFromApi = (filling: any): RevisionFilling => {
@@ -84,7 +80,7 @@ const transformFillingFromApi = (filling: any): RevisionFilling => {
     id: filling.id,
     revisionId: filling.revision_id,
     userId: filling.user_id,
-    userName: filling.user_name || filling.user?.full_name,
+    userName: filling.user_name,
     status: filling.status,
     photos: filling.photos || [],
     filledAt: filling.filled_at ? new Date(filling.filled_at) : undefined,
@@ -94,173 +90,50 @@ const transformFillingFromApi = (filling: any): RevisionFilling => {
       productId: item.product_id,
       categoryId: item.category_id,
       quantity: item.quantity,
-      productName: item.product_name || item.product?.name,
-      productSku: item.product_sku || item.product?.sku,
-      categoryName: item.category_name || item.product?.category?.name,
-    }))
-  };
-};
-
-const transformFillingToApi = (filling: RevisionFillingCreateDto): any => {
-  return {
-    user_id: filling.userId,
-    photos: filling.photos,
-    items: filling.items.map(item => ({
-      product_id: item.productId,
-      category_id: item.categoryId,
-      quantity: item.quantity
+      productName: item.product_name,
+      productSku: item.product_sku,
+      categoryName: item.category_name,
     }))
   };
 };
 
 const transformDiscrepancyFromApi = (discrepancy: any): any => {
   return {
-    userId: discrepancy.user_id || discrepancy.userId,
-    userName: discrepancy.user_name || discrepancy.userName,
-    totalDiscrepancy: discrepancy.total_discrepancy || discrepancy.totalDiscrepancy || 0,
-    positiveTotal: discrepancy.positive_total || discrepancy.positiveTotal || 0,
-    negativeTotal: discrepancy.negative_total || discrepancy.negativeTotal || 0,
+    userId: discrepancy.user_id,
+    userName: discrepancy.user_name,
+    totalDiscrepancy: discrepancy.total_discrepancy || 0,
+    positiveTotal: discrepancy.positive_total || 0,
+    negativeTotal: discrepancy.negative_total || 0,
     discrepancies: (discrepancy.discrepancies || []).map((disc: any) => ({
-      productId: disc.product_id || disc.productId,
-      productName: disc.product_name || disc.productName,
-      productSku: disc.product_sku || disc.productSku,
-      expected: disc.expected_quantity || disc.expected || 0,
-      actual: disc.actual_quantity || disc.actual || 0,
+      productId: disc.product_id,
+      productName: disc.product_name,
+      productSku: disc.product_sku,
+      expected: disc.expected,
+      actual: disc.actual,
       discrepancy: disc.discrepancy || 0,
-      isPositive: disc.is_positive || disc.isPositive || false
+      isPositive: disc.is_positive || false
     }))
   };
 };
 
-// Функция для обогащения данных товаров
-const enrichProductsData = async (revision: any): Promise<any> => {
-  try {
-    const { productService } = await import('./productService');
-    
-    const enriched = { ...revision };
-
-    // Обогащаем данные о товарах в заполнениях
-    if (revision.fillings && revision.fillings.length > 0) {
-      try {
-        const allProducts = await productService.getAllProducts();
-        const allCategories = await productService.getAllCategories();
-        
-        enriched.fillings = revision.fillings.map((filling: any) => ({
-          ...filling,
-          items: filling.items.map((item: any) => {
-            const product = allProducts.find(p => p.id === item.product_id);
-            const category = allCategories.find(c => c.id === item.category_id);
-            
-            return {
-              ...item,
-              product_name: product?.name || item.product_name,
-              product_sku: product?.sku || item.product_sku,
-              category_name: category?.name || item.category_name,
-            };
-          })
-        }));
-      } catch (error) {
-        console.error('Error enriching filling products:', error);
-      }
-    }
-
-    return enriched;
-  } catch (error) {
-    console.error('Error in enrichProductsData:', error);
-    return revision;
-  }
-};
-
-// Функция для обогащения имен пользователей
-const enrichUserNames = async (revision: any): Promise<any> => {
-  try {
-    const enriched = { ...revision };
-    
-    // Собираем все уникальные ID пользователей
-    const userIds = new Set<number>();
-    
-    // Добавляем ID пользователя, запросившего ревизию
-    if (revision.requested_by_id && !revision.requested_by_name) {
-      userIds.add(revision.requested_by_id);
-    }
-    
-    // Добавляем ID пользователя, проверившего ревизию
-    if (revision.verified_by_id && !revision.verified_by_name) {
-      userIds.add(revision.verified_by_id);
-    }
-    
-    // Добавляем ID пользователей в заполнениях
-    if (revision.fillings && revision.fillings.length > 0) {
-      revision.fillings.forEach((filling: any) => {
-        if (filling.user_id && !filling.user_name) {
-          userIds.add(filling.user_id);
-        }
-      });
-    }
-    
-    // Добавляем ID пользователей в расхождениях
-    if (revision.discrepancies && revision.discrepancies.length > 0) {
-      revision.discrepancies.forEach((discrepancy: any) => {
-        if (discrepancy.user_id && !discrepancy.user_name) {
-          userIds.add(discrepancy.user_id);
-        }
-      });
-    }
-    
-    // Получаем ФИО всех пользователей
-    if (userIds.size > 0) {
-      const userNames = await userService.getUsersNames(Array.from(userIds));
-      
-      // Обогащаем данные
-      if (revision.requested_by_id && userNames[revision.requested_by_id]) {
-        enriched.requested_by_name = userNames[revision.requested_by_id];
-      }
-      
-      if (revision.verified_by_id && userNames[revision.verified_by_id]) {
-        enriched.verified_by_name = userNames[revision.verified_by_id];
-      }
-      
-      if (revision.fillings && revision.fillings.length > 0) {
-        enriched.fillings = revision.fillings.map((filling: any) => ({
-          ...filling,
-          user_name: filling.user_id && userNames[filling.user_id] 
-            ? userNames[filling.user_id] 
-            : filling.user_name
-        }));
-      }
-      
-      if (revision.discrepancies && revision.discrepancies.length > 0) {
-        enriched.discrepancies = revision.discrepancies.map((discrepancy: any) => ({
-          ...discrepancy,
-          user_name: discrepancy.user_id && userNames[discrepancy.user_id]
-            ? userNames[discrepancy.user_id]
-            : discrepancy.user_name
-        }));
-      }
-    }
-    
-    return enriched;
-  } catch (error) {
-    console.error('Error enriching revision with user names:', error);
-    return revision;
-  }
-};
-
-// Функция для обогащения заполнения именем пользователя
-const enrichFillingWithUserName = async (filling: any): Promise<any> => {
-  try {
-    if (filling.user_id && !filling.user_name) {
-      const userName = await userService.getUserName(filling.user_id);
-      return {
-        ...filling,
-        user_name: userName
-      };
-    }
-    return filling;
-  } catch (error) {
-    console.error('Error enriching filling with user name:', error);
-    return filling;
-  }
+const transformProductDiscrepancyFromApi = (discrepancy: any): ProductDiscrepancySummary => {
+  return {
+    productId: discrepancy.product_id,
+    productName: discrepancy.product_name,
+    productSku: discrepancy.product_sku,
+    categoryName: discrepancy.category_name,
+    totalDiscrepancy: discrepancy.total_discrepancy || 0,
+    positiveTotal: discrepancy.positive_total || 0,
+    negativeTotal: discrepancy.negative_total || 0,
+    userDiscrepancies: (discrepancy.user_discrepancies || []).map((ud: any) => ({
+      userId: ud.user_id,
+      userName: ud.user_name,
+      expected: ud.expected,
+      actual: ud.actual,
+      discrepancy: ud.discrepancy || 0,
+      isPositive: ud.is_positive || false
+    }))
+  };
 };
 
 export const revisionService = {
@@ -289,26 +162,7 @@ export const revisionService = {
     
     try {
       const response = await axiosInstance.get<any[]>('/api/revisions', { params });
-      
-      // Обогащаем данные
-      const enrichedRevisions = await Promise.all(
-        response.data.map(async (revision) => {
-          try {
-            // Обогащаем товары
-            const withProducts = await enrichProductsData(revision);
-            
-            // Обогащаем имена пользователей
-            const withUserNames = await enrichUserNames(withProducts);
-            
-            return withUserNames;
-          } catch (error) {
-            console.error('Error enriching revision:', error);
-            return revision;
-          }
-        })
-      );
-      
-      return enrichedRevisions.map(transformRevisionFromApi);
+      return response.data.map(transformRevisionFromApi);
     } catch (error) {
       console.error('Error fetching revisions:', error);
       throw error;
@@ -321,25 +175,7 @@ export const revisionService = {
       const response = await axiosInstance.get<any[]>('/api/revisions/my', {
         params: { skip, limit }
       });
-      
-      const enrichedRevisions = await Promise.all(
-        response.data.map(async (revision) => {
-          try {
-            // Обогащаем товары
-            const withProducts = await enrichProductsData(revision);
-            
-            // Обогащаем имена пользователей
-            const withUserNames = await enrichUserNames(withProducts);
-            
-            return withUserNames;
-          } catch (error) {
-            console.error('Error enriching revision:', error);
-            return revision;
-          }
-        })
-      );
-      
-      return enrichedRevisions.map(transformRevisionFromApi);
+      return response.data.map(transformRevisionFromApi);
     } catch (error) {
       console.error('Error fetching my revisions:', error);
       throw error;
@@ -350,14 +186,7 @@ export const revisionService = {
   getRevisionById: async (id: number): Promise<Revision> => {
     try {
       const response = await axiosInstance.get<any>(`/api/revisions/${id}`);
-      
-      // Обогащаем данные о товарах
-      const enrichedWithProducts = await enrichProductsData(response.data);
-      
-      // Обогащаем данные о пользователях
-      const enrichedWithUserNames = await enrichUserNames(enrichedWithProducts);
-      
-      return transformRevisionFromApi(enrichedWithUserNames);
+      return transformRevisionFromApi(response.data);
     } catch (error) {
       console.error('Error fetching revision by ID:', error);
       throw error;
@@ -375,9 +204,7 @@ export const revisionService = {
         target_city: revisionData.targetCity,
         comment: revisionData.comment,
       });
-      
-      const enrichedRevision = await enrichProductsData(response.data);
-      return transformRevisionFromApi(enrichedRevision);
+      return transformRevisionFromApi(response.data);
     } catch (error) {
       console.error('Error requesting revision:', error);
       throw error;
@@ -413,37 +240,7 @@ export const revisionService = {
         formData
       );
       
-      // Обогащаем данные о товарах
-      const enrichedFilling = await (async () => {
-        try {
-          const { productService } = await import('./productService');
-          const allProducts = await productService.getAllProducts();
-          const allCategories = await productService.getAllCategories();
-          
-          return {
-            ...response.data,
-            items: response.data.items.map((item: any) => {
-              const product = allProducts.find(p => p.id === item.product_id);
-              const category = allCategories.find(c => c.id === item.category_id);
-              
-              return {
-                ...item,
-                product_name: product?.name || item.product_name,
-                product_sku: product?.sku || item.product_sku,
-                category_name: category?.name || item.category_name,
-              };
-            })
-          };
-        } catch (error) {
-          console.error('Error enriching filling:', error);
-          return response.data;
-        }
-      })();
-      
-      // Обогащаем имя пользователя
-      const enrichedWithUserName = await enrichFillingWithUserName(enrichedFilling);
-      
-      return transformFillingFromApi(enrichedWithUserName);
+      return transformFillingFromApi(response.data);
     } catch (error) {
       console.error('Error filling revision:', error);
       throw error;
@@ -454,38 +251,7 @@ export const revisionService = {
   getMyFilling: async (revisionId: number): Promise<RevisionFilling | null> => {
     try {
       const response = await axiosInstance.get<any>(`/api/revisions/${revisionId}/my-filling`);
-      
-      // Обогащаем данные о товарах
-      const enrichedWithProducts = await (async () => {
-        try {
-          const { productService } = await import('./productService');
-          const allProducts = await productService.getAllProducts();
-          const allCategories = await productService.getAllCategories();
-          
-          return {
-            ...response.data,
-            items: response.data.items.map((item: any) => {
-              const product = allProducts.find(p => p.id === item.product_id);
-              const category = allCategories.find(c => c.id === item.category_id);
-              
-              return {
-                ...item,
-                product_name: product?.name || item.product_name,
-                product_sku: product?.sku || item.product_sku,
-                category_name: category?.name || item.category_name,
-              };
-            })
-          };
-        } catch (error) {
-          console.error('Error enriching filling:', error);
-          return response.data;
-        }
-      })();
-      
-      // Обогащаем имя пользователя
-      const enrichedWithUserName = await enrichFillingWithUserName(enrichedWithProducts);
-      
-      return transformFillingFromApi(enrichedWithUserName);
+      return transformFillingFromApi(response.data);
     } catch (error: any) {
       if (error.response?.status === 404) {
         return null; // Заполнение не найдено
@@ -508,8 +274,7 @@ export const revisionService = {
         verifyData
       );
       
-      const enrichedRevision = await enrichProductsData(response.data);
-      return transformRevisionFromApi(enrichedRevision);
+      return transformRevisionFromApi(response.data);
     } catch (error) {
       console.error('Error verifying revision:', error);
       throw error;
@@ -521,92 +286,25 @@ export const revisionService = {
     try {
       const response = await axiosInstance.get<any>(`/api/revisions/${revisionId}/summary`);
       
-      // Обогащаем данные о товарах
-      const enrichedData = await (async () => {
-        try {
-          const { productService } = await import('./productService');
-          const allProducts = await productService.getAllProducts();
-          const allCategories = await productService.getAllCategories();
-          
-          const enrichedRevision = transformRevisionFromApi(response.data.revision);
-          
-          const enrichedProductSummary = response.data.product_summary.map((summary: any) => {
-            const product = allProducts.find(p => p.id === summary.product_id);
-            const category = allCategories.find(c => c.id === product?.categoryId);
-            
-            return {
-              productId: summary.product_id,
-              productName: product?.name || summary.product_name,
-              productSku: product?.sku || summary.product_sku,
-              categoryName: category?.name || summary.category_name,
-              totalQuantity: summary.total_quantity,
-              userQuantities: summary.user_quantities.map((uq: any) => ({
-                userId: uq.user_id,
-                userName: uq.user_name,
-                quantity: uq.quantity
-              }))
-            };
-          });
-          
-          const enrichedUserDiscrepancies = response.data.user_discrepancies.map((ud: any) => {
-            return {
-              userId: ud.user_id,
-              userName: ud.user_name,
-              totalDiscrepancy: ud.total_discrepancy,
-              positiveTotal: ud.positive_total,
-              negativeTotal: ud.negative_total,
-              discrepancies: ud.discrepancies.map((d: any) => {
-                const product = allProducts.find(p => p.id === d.product_id);
-                
-                return {
-                  productId: d.product_id,
-                  productName: product?.name || d.product_name,
-                  expected: d.expected,
-                  actual: d.actual,
-                  discrepancy: d.discrepancy,
-                  isPositive: d.is_positive
-                };
-              })
-            };
-          });
-          
-          const enrichedProductDiscrepancies = response.data.product_discrepancies.map((pd: any) => {
-            const product = allProducts.find(p => p.id === pd.product_id);
-            const category = allCategories.find(c => c.id === product?.categoryId);
-            
-            return {
-              productId: pd.product_id,
-              productName: product?.name || pd.product_name,
-              totalDiscrepancy: pd.total_discrepancy,
-              positiveTotal: pd.positive_total,
-              negativeTotal: pd.negative_total,
-              userDiscrepancies: pd.user_discrepancies.map((ud: any) => ({
-                userId: ud.user_id,
-                userName: ud.user_name,
-                expected: ud.expected,
-                actual: ud.actual,
-                discrepancy: ud.discrepancy,
-                isPositive: ud.is_positive
-              }))
-            };
-          });
-          
-          return {
-            revision: enrichedRevision,
-            productSummary: enrichedProductSummary,
-            userDiscrepancies: enrichedUserDiscrepancies,
-            productDiscrepancies: enrichedProductDiscrepancies,
-            totalFilled: response.data.total_filled,
-            totalUsers: response.data.total_users
-          };
-          
-        } catch (error) {
-          console.error('Error enriching summary:', error);
-          return response.data;
-        }
-      })();
-      
-      return enrichedData;
+      return {
+        revision: transformRevisionFromApi(response.data.revision),
+        productSummary: (response.data.product_summary || []).map((summary: any): ProductSummary => ({
+          productId: summary.product_id,
+          productName: summary.product_name,
+          productSku: summary.product_sku,
+          categoryName: summary.category_name,
+          totalQuantity: summary.total_quantity,
+          userQuantities: (summary.user_quantities || []).map((uq: any) => ({
+            userId: uq.user_id,
+            userName: uq.user_name,
+            quantity: uq.quantity
+          }))
+        })),
+        userDiscrepancies: (response.data.user_discrepancies || []).map((ud: any) => transformDiscrepancyFromApi(ud)),
+        productDiscrepancies: (response.data.product_discrepancies || []).map((pd: any) => transformProductDiscrepancyFromApi(pd)),
+        totalFilled: response.data.total_filled,
+        totalUsers: response.data.total_users
+      };
     } catch (error) {
       console.error('Error fetching revision summary:', error);
       throw error;
@@ -619,84 +317,15 @@ export const revisionService = {
     byUser: boolean = false
   ): Promise<UserDiscrepancySummary[] | ProductDiscrepancySummary[]> => {
     try {
-        const response = await axiosInstance.get<any>(
-          `/api/revisions/${revisionId}/discrepancies?by_user=${byUser}`
-        );
+      const response = await axiosInstance.get<any>(
+        `/api/revisions/${revisionId}/discrepancies?by_user=${byUser}`
+      );
       
-      // Обогащаем данные о товарах
-      const enrichedData = await (async () => {
-        try {
-          const { productService } = await import('./productService');
-          const allProducts = await productService.getAllProducts();
-          const allCategories = await productService.getAllCategories();
-          
-          if (byUser) {
-            // Для расхождений по пользователям обогащаем имена
-            const enrichedUserDiscrepancies = await Promise.all(
-              response.data.map(async (ud: any) => {
-                const baseData = {
-                  userId: ud.user_id,
-                  userName: ud.user_name,
-                  totalDiscrepancy: ud.total_discrepancy,
-                  positiveTotal: ud.positive_total,
-                  negativeTotal: ud.negative_total,
-                  discrepancies: ud.discrepancies.map((d: any) => {
-                    const product = allProducts.find(p => p.id === d.product_id);
-                    
-                    return {
-                      productId: d.product_id,
-                      productName: product?.name || d.product_name,
-                      expected: d.expected,
-                      actual: d.actual,
-                      discrepancy: d.discrepancy,
-                      isPositive: d.is_positive
-                    };
-                  })
-                };
-                
-                // Если нет имени пользователя, получаем его
-                if (!baseData.userName && baseData.userId) {
-                  try {
-                    baseData.userName = await userService.getUserName(baseData.userId);
-                  } catch (error) {
-                    console.error('Error getting user name:', error);
-                  }
-                }
-                
-                return baseData;
-              })
-            );
-            
-            return enrichedUserDiscrepancies;
-          } else {
-            return response.data.map((pd: any) => {
-              const product = allProducts.find(p => p.id === pd.product_id);
-              const category = allCategories.find(c => c.id === product?.categoryId);
-              
-              return {
-                productId: pd.product_id,
-                productName: product?.name || pd.product_name,
-                totalDiscrepancy: pd.total_discrepancy,
-                positiveTotal: pd.positive_total,
-                negativeTotal: pd.negative_total,
-                userDiscrepancies: pd.user_discrepancies.map((ud: any) => ({
-                  userId: ud.user_id,
-                  userName: ud.user_name,
-                  expected: ud.expected,
-                  actual: ud.actual,
-                  discrepancy: ud.discrepancy,
-                  isPositive: ud.is_positive
-                }))
-              };
-            });
-          }
-        } catch (error) {
-          console.error('Error enriching discrepancies:', error);
-          return response.data;
-        }
-      })();
-      
-      return enrichedData;
+      if (byUser) {
+        return (response.data || []).map((ud: any) => transformDiscrepancyFromApi(ud));
+      } else {
+        return (response.data || []).map((pd: any) => transformProductDiscrepancyFromApi(pd));
+      }
     } catch (error) {
       console.error('Error fetching discrepancies:', error);
       throw error;
@@ -748,8 +377,7 @@ export const revisionService = {
         formData
       );
       
-      const enrichedRevision = await enrichProductsData(response.data);
-      return transformRevisionFromApi(enrichedRevision);
+      return transformRevisionFromApi(response.data);
     } catch (error) {
       console.error('Error filling revision (old):', error);
       throw error;
@@ -760,26 +388,7 @@ export const revisionService = {
   getDiscrepanciesByUser: async (revisionId: number): Promise<UserDiscrepancySummary[]> => {
     try {
       const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/discrepancies-by-user`);
-      
-      // Обогащаем имена пользователей
-      const enrichedDiscrepancies = await Promise.all(
-        response.data.map(async (discrepancy) => {
-          const baseData = transformDiscrepancyFromApi(discrepancy);
-          
-          // Если нет имени пользователя, получаем его
-          if (!baseData.userName && baseData.userId) {
-            try {
-              baseData.userName = await userService.getUserName(baseData.userId);
-            } catch (error) {
-              console.error('Error getting user name:', error);
-            }
-          }
-          
-          return baseData;
-        })
-      );
-      
-      return enrichedDiscrepancies;
+      return (response.data || []).map((d: any) => transformDiscrepancyFromApi(d));
     } catch (error) {
       console.error('Error fetching discrepancies by user:', error);
       throw error;
@@ -790,7 +399,7 @@ export const revisionService = {
   getDiscrepanciesByProduct: async (revisionId: number): Promise<ProductDiscrepancySummary[]> => {
     try {
       const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/discrepancies-by-product`);
-      return response.data;
+      return (response.data || []).map((d: any) => transformProductDiscrepancyFromApi(d));
     } catch (error) {
       console.error('Error fetching discrepancies by product:', error);
       throw error;
@@ -801,29 +410,33 @@ export const revisionService = {
   calculateDiscrepancies: async (revisionId: number): Promise<UserDiscrepancySummary[]> => {
     try {
       const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/calculate-discrepancies`);
-      
-      // Обогащаем имена пользователей в расхождениях
-      const enrichedDiscrepancies = await Promise.all(
-        response.data.map(async (discrepancy) => {
-          // Трансформируем базовые данные
-          const transformed = transformDiscrepancyFromApi(discrepancy);
-          
-          // Если есть userId и нет userName, получаем ФИО
-          if (transformed.userId && !transformed.userName) {
-            try {
-              transformed.userName = await userService.getUserName(transformed.userId);
-            } catch (error) {
-              console.error('Error getting user name for discrepancy:', error);
-            }
-          }
-          
-          return transformed;
-        })
-      );
-      
-      return enrichedDiscrepancies;
+      return (response.data || []).map((d: any) => transformDiscrepancyFromApi(d));
     } catch (error) {
       console.error('Error calculating discrepancies:', error);
+      throw error;
+    }
+  },
+
+  // Удалить ревизию
+  deleteRevision: async (revisionId: number): Promise<{ success: boolean; message: string; revisionId: number }> => {
+    try {
+      const response = await axiosInstance.delete(`/api/revisions/${revisionId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error deleting revision:', error);
+      throw error;
+    }
+  },
+
+  // Отменить изменения инвентаря после проверки
+  revertRevisionChanges: async (revisionId: number): Promise<Revision> => {
+    try {
+      const response = await axiosInstance.post<any>(
+        `/api/revisions/${revisionId}/revert-changes`
+      );
+      return transformRevisionFromApi(response.data);
+    } catch (error) {
+      console.error('Error reverting revision changes:', error);
       throw error;
     }
   },

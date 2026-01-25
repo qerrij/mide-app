@@ -467,10 +467,10 @@ const ExecuteManagerRequestPage: React.FC = () => {
               </Typography>
               
               <FormControl fullWidth sx={{ mb: 2 }}>
-                <InputLabel>Исполнитель (если не вы)</InputLabel>
+                <InputLabel>Курьер (если не вы)</InputLabel>
                 <Select
                   value={executorId}
-                  label="Исполнитель (если не вы)"
+                  label="Курьер (если не вы)"
                   onChange={(e) => setExecutorId(e.target.value)}
                 >
                   <MenuItem value="">Я сам</MenuItem>

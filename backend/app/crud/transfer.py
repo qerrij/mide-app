@@ -41,6 +41,11 @@ class CRUDTransfer:
         # Сначала сбрасываем флаги
         transfer.can_approve = False
         transfer.can_execute = False
+        transfer.can_approve_discrepancy = False  # 🔴 НОВЫЙ флаг
+        
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return transfer
         
         # Для обычных перемещений в статусе PENDING_APPROVAL
         if transfer.status == TransferStatus.PENDING_APPROVAL:
@@ -54,12 +59,19 @@ class CRUDTransfer:
         
         # Для проверки расхождений
         elif transfer.status == TransferStatus.CHECKING:
-            # Проверяем есть ли пользователь в pending_approvals (руководители получателя)
-            if user_id in transfer.pending_approvals:
-                transfer.can_approve = True
-            else:
-                # Также проверяем старым способом для совместимости
-                transfer.can_approve = self._is_user_manager(db, user_id, transfer.to_user_id)
+            # 🔴 ИЗМЕНЕНИЕ: Проверяем может ли пользователь подтверждать расхождения
+            # Только определенные роли могут подтверждать расхождения
+            allowed_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]
+            if user.role in allowed_roles:
+                # Проверяем есть ли пользователь в pending_approvals (руководители получателя)
+                if user_id in transfer.pending_approvals:
+                    transfer.can_approve = True
+                    transfer.can_approve_discrepancy = True
+                else:
+                    # Также проверяем старым способом для совместимости
+                    if self._is_user_manager(db, user_id, transfer.to_user_id):
+                        transfer.can_approve = True
+                        transfer.can_approve_discrepancy = True
         
         # Для запросов от руководителя (manager_request)
         if transfer.request_type == "manager_request" and transfer.status == TransferStatus.REQUESTED:
@@ -598,102 +610,208 @@ class CRUDTransfer:
         notes: Optional[str] = None,
         files: Optional[List[UploadFile]] = None
     ) -> bool:
-        """Отметить прибытие товара (получателем)"""
+        """Отметить прибытие товара"""
         try:
             transfer = self.get(db, transfer_id)
             if not transfer:
                 return False
             
-            # Проверяем что перемещение В ПУТИ и получатель правильный
             if transfer.status != TransferStatus.IN_TRANSIT:
                 return False
             
             if transfer.to_user_id != to_user_id:
                 return False
             
-            # ПРОВЕРКА: для расхождений файлы обязательны
-            if action == "discrepancy" and (not files or len(files) == 0):
-                raise ValueError("При обнаружении расхождений необходимо прикрепить фотографии")
-            
-            # Валидация файлов для расхождений
-            if files and action == "discrepancy":
-                errors = validate_files(files)
-                if errors:
-                    raise ValueError(f"Ошибки валидации файлов: {', '.join(errors)}")
-            
             transfer.arrived_at = datetime.now()
             
             if action == "accept":
-                transfer.status = TransferStatus.ARRIVED
+                # 🔴 ACCEPT: файлы ОБЯЗАТЕЛЬНЫ, items ОБЯЗАТЕЛЬНЫ
+                if not files or len(files) == 0:
+                    raise ValueError("Для приема товара необходимо прикрепить фотографии")
                 
-                # Присваиваем полученные количества
-                for item in transfer.items:
-                    item.received_quantity = item.expected_quantity
-                    item.status = TransferItemStatus.RECEIVED
+                if not items or len(items) == 0:
+                    raise ValueError("Необходимо указать полученное количество для каждого товара")
                 
-                db.commit()
+                # Валидация файлов
+                errors = validate_files(files)
+                if errors:
+                    raise ValueError(f"Ошибки валидации файлов: {', '.join(errors)}")
                 
-                # Автоматически завершаем перемещение (без расхождений)
-                self._complete_transfer(db, transfer)
+                # Сохраняем файлы в arrival_files
+                folder_path = f"transfers/{transfer_id}/arrival"
+                saved_files = save_uploaded_files(files, folder_path)
+                current_arrival_files = transfer.arrival_files or []
+                current_arrival_files.extend(saved_files)
+                transfer.arrival_files = current_arrival_files
                 
-            elif action == "reject":
-                transfer.status = TransferStatus.REJECTED
-                transfer.rejection_reason = notes
-                self._return_items(db, transfer)
-                db.commit()
-                self._notify_rejected(db, transfer, to_user_id)
+                # Проверяем все товары
+                for item_data in items:
+                    product_id = item_data.get('product_id')
+                    actual_quantity = item_data.get('actual_quantity', 0)
+                    
+                    if actual_quantity < 0:
+                        raise ValueError(f"Количество товара ID {product_id} не может быть отрицательным")
+                    
+                    transfer_item = next((ti for ti in transfer.items if ti.product_id == product_id), None)
+                    if not transfer_item:
+                        raise ValueError(f"Товар ID {product_id} не найден в перемещении")
+                    
+                    # Проверяем что у отправителя достаточно товара для списания
+                    available_quantity = crud_inventory.get_user_product_quantity(
+                        db, transfer.from_user_id, product_id
+                    )
+                    
+                    if actual_quantity > available_quantity:
+                        raise ValueError(
+                            f"У отправителя недостаточно товара ID {product_id}. "
+                            f"Доступно всего: {available_quantity}, требуется списать: {actual_quantity}"
+                        )
                 
+                # Обрабатываем полученные количества
+                for item_data in items:
+                    product_id = item_data.get('product_id')
+                    actual_quantity = item_data.get('actual_quantity', 0)
+                    item_notes = item_data.get('notes')
+                    
+                    transfer_item = next((ti for ti in transfer.items if ti.product_id == product_id), None)
+                    if transfer_item:
+                        transfer_item.received_quantity = actual_quantity
+                        
+                        # Определяем статус
+                        if actual_quantity == transfer_item.expected_quantity:
+                            transfer_item.status = TransferItemStatus.RECEIVED
+                        elif actual_quantity < transfer_item.expected_quantity:
+                            transfer_item.status = TransferItemStatus.MISSING
+                        else:
+                            transfer_item.status = TransferItemStatus.EXCESS
+                        
+                        # Создаем запись о расхождении если есть разница
+                        if actual_quantity != transfer_item.expected_quantity:
+                            disc_item = TransferDiscrepancyItem(
+                                transfer_id=transfer.id,
+                                product_id=product_id,
+                                expected_quantity=transfer_item.expected_quantity,
+                                actual_quantity=actual_quantity,
+                                discrepancy=actual_quantity - transfer_item.expected_quantity,
+                                notes=item_notes
+                            )
+                            db.add(disc_item)
+                
+                # Проверяем есть ли расхождения
+                has_discrepancies = any(
+                    item.received_quantity != item.expected_quantity 
+                    for item in transfer.items
+                )
+                
+                if has_discrepancies:
+                    transfer.status = TransferStatus.CHECKING
+                    transfer.discrepancy_accepted_by_id = to_user_id
+                    transfer.discrepancy_accepted_at = datetime.now()
+                    self._notify_discrepancies(db, transfer)
+                else:
+                    # Если расхождений нет, завершаем перемещение сразу
+                    transfer.status = TransferStatus.ARRIVED
+                    self._complete_transfer(db, transfer)
+                    
             elif action == "discrepancy":
-                transfer.status = TransferStatus.CHECKING
+                # 🔴 DISCREPANCY: файлы ОБЯЗАТЕЛЬНЫ, items ОБЯЗАТЕЛЬНЫ
+                if not files or len(files) == 0:
+                    raise ValueError("Для расхождений необходимо прикрепить фотографии")
                 
+                if not items or len(items) == 0:
+                    raise ValueError("Для расхождений необходимо указать полученное количество")
+                
+                # Валидация файлов
+                errors = validate_files(files)
+                if errors:
+                    raise ValueError(f"Ошибки валидации файлов: {', '.join(errors)}")
+                
+                # Проверяем все товары
+                for item_data in items:
+                    product_id = item_data.get('product_id')
+                    actual_quantity = item_data.get('actual_quantity', 0)
+                    
+                    if actual_quantity < 0:
+                        raise ValueError(f"Количество товара ID {product_id} не может быть отрицательным")
+                    
+                    transfer_item = next((ti for ti in transfer.items if ti.product_id == product_id), None)
+                    if not transfer_item:
+                        raise ValueError(f"Товар ID {product_id} не найден в перемещении")
+                    
+                    # Проверяем что у отправителя достаточно товара
+                    available_quantity = crud_inventory.get_user_product_quantity(
+                        db, transfer.from_user_id, product_id
+                    )
+                    
+                    if actual_quantity > available_quantity:
+                        raise ValueError(
+                            f"У отправителя недостаточно товара ID {product_id}. "
+                            f"Доступно: {available_quantity}, требуется: {actual_quantity}"
+                        )
+                
+                # Сохраняем файлы для расхождений в discrepancy_files
+                folder_path = f"transfers/{transfer_id}/discrepancies"
+                saved_files = save_uploaded_files(files, folder_path)
+                current_discrepancy_files = transfer.discrepancy_files or []
+                current_discrepancy_files.extend(saved_files)
+                transfer.discrepancy_files = current_discrepancy_files
+                
+                transfer.status = TransferStatus.CHECKING
                 transfer.discrepancy_accepted_by_id = to_user_id
                 transfer.discrepancy_accepted_at = datetime.now()
                 
-                # Сохраняем файлы для расхождений
-                if files:
-                    folder_path = f"transfers/{transfer_id}/discrepancies"
-                    saved_files = save_uploaded_files(files, folder_path)
+                # Обрабатываем товары
+                for item_data in items:
+                    product_id = item_data.get('product_id')
+                    actual_quantity = item_data.get('actual_quantity', 0)
+                    item_notes = item_data.get('notes')
                     
-                    # Получаем текущий список файлов и добавляем новые
-                    current_discrepancy_files = transfer.discrepancy_files or []
-                    current_discrepancy_files.extend(saved_files)
-                    
-                    # Сохраняем обновленный список в базе
-                    transfer.discrepancy_files = current_discrepancy_files
-                
-                if items:
-                    for item_data in items:
-                        product_id = item_data.get('product_id')
-                        actual_quantity = item_data.get('actual_quantity', 0)
-                        item_notes = item_data.get('notes')
+                    transfer_item = next((ti for ti in transfer.items if ti.product_id == product_id), None)
+                    if transfer_item:
+                        transfer_item.received_quantity = actual_quantity
                         
-                        item = next((ti for ti in transfer.items if ti.product_id == product_id), None)
-                        if item:
-                            item.received_quantity = actual_quantity
-                            
-                            if actual_quantity == item.expected_quantity:
-                                item.status = TransferItemStatus.RECEIVED
-                            elif actual_quantity < item.expected_quantity:
-                                item.status = TransferItemStatus.MISSING
-                            else:
-                                item.status = TransferItemStatus.EXCESS
-                            
-                            # Создаем запись о расхождении если есть разница
-                            if actual_quantity != item.expected_quantity:
-                                disc_item = TransferDiscrepancyItem(
-                                    transfer_id=transfer.id,
-                                    product_id=product_id,
-                                    expected_quantity=item.expected_quantity,
-                                    actual_quantity=actual_quantity,
-                                    discrepancy=actual_quantity - item.expected_quantity,
-                                    notes=item_notes
-                                )
-                                db.add(disc_item)
+                        if actual_quantity == transfer_item.expected_quantity:
+                            transfer_item.status = TransferItemStatus.RECEIVED
+                        elif actual_quantity < transfer_item.expected_quantity:
+                            transfer_item.status = TransferItemStatus.MISSING
+                        else:
+                            transfer_item.status = TransferItemStatus.EXCESS
+                        
+                        # Создаем запись о расхождении если есть разница
+                        if actual_quantity != transfer_item.expected_quantity:
+                            disc_item = TransferDiscrepancyItem(
+                                transfer_id=transfer.id,
+                                product_id=product_id,
+                                expected_quantity=transfer_item.expected_quantity,
+                                actual_quantity=actual_quantity,
+                                discrepancy=actual_quantity - transfer_item.expected_quantity,
+                                notes=item_notes
+                            )
+                            db.add(disc_item)
                 
-                # Сохраняем изменения в базе данных
-                db.commit()
                 self._notify_discrepancies(db, transfer)
+                
+            elif action == "reject":
+                # 🔴 REJECT: файлы НЕ ЗАГРУЖАЮТСЯ, items НЕ НУЖНЫ
+                # Просто отмечаем все товары как отклоненные
+                
+                for item in transfer.items:
+                    item.status = TransferItemStatus.REJECTED
+                    item.received_quantity = 0
+                
+                transfer.status = TransferStatus.REJECTED
+                transfer.rejection_reason = notes
+                
+                # Возвращаем зарезервированные товары отправителю
+                self._return_items(db, transfer)
+                
+                # Отправляем уведомления
+                self._notify_rejected(db, transfer, to_user_id)
             
+            else:
+                raise ValueError(f"Неизвестное действие: {action}")
+            
+            db.commit()
             return True
             
         except ValueError as e:
@@ -713,38 +831,58 @@ class CRUDTransfer:
         approved: bool,
         notes: Optional[str] = None
     ) -> bool:
-        """Подтвердить расхождения (проверяют руководители ПОЛУЧАТЕЛЯ)"""
         try:
             transfer = self.get(db, transfer_id)
             if not transfer or transfer.status != TransferStatus.CHECKING:
                 return False
             
-            # Проверяем является ли пользователь руководителем для ПОЛУЧАТЕЛЯ
-            if not self._is_user_manager(db, user_id, transfer.to_user_id):
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
                 return False
             
-            # Проверяем не подтверждал ли уже этот пользователь
+            # ИЗМЕНЕНИЕ: Разрешаем подтверждать расхождения только владельцам, админам и старшим продавцам
+            allowed_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]
+            if user.role not in allowed_roles:
+                print(f"Пользователь с ролью {user.role} не может подтверждать расхождения")
+                return False
+            
+            # Проверяем является ли пользователь руководителем для ПОЛУЧАТЕЛЯ
+            if not self._is_user_manager(db, user_id, transfer.to_user_id):
+                print(f"Пользователь {user_id} не является руководителем для получателя {transfer.to_user_id}")
+                return False
+            
+            # 🔴 ИСПРАВЛЕНИЕ: Проверяем существующие подтверждения
             existing_approval = db.query(TransferApproval).filter(
                 TransferApproval.transfer_id == transfer_id,
                 TransferApproval.user_id == user_id
             ).first()
             
             if existing_approval:
-                return False
-            
-            # Создаем подтверждение для расхождений
-            approval = TransferApproval(
-                transfer_id=transfer_id,
-                user_id=user_id,
-                approved=approved,
-                notes=f"Подтверждение расхождений: {notes}" if notes else "Подтверждение расхождений"
-            )
-            db.add(approval)
+                # Если уже есть подтверждение от этого пользователя
+                if existing_approval.approved:
+                    # Проверяем, связано ли оно с расхождениями
+                    if 'расхождени' in (existing_approval.notes or '').lower():
+                        # Уже подтверждал расхождения
+                        return False
+                    else:
+                        # Это было подтверждение на создание, можно обновить
+                        existing_approval.notes = f"Подтверждение перемещения и расхождений: {notes}" if notes else "Подтверждение перемещения и расхождений"
+                else:
+                    # Уже отклонил - нельзя изменить
+                    return False
+            else:
+                # Создаем новое подтверждение
+                approval = TransferApproval(
+                    transfer_id=transfer_id,
+                    user_id=user_id,
+                    approved=approved,
+                    notes=f"Подтверждение расхождений: {notes}" if notes else "Подтверждение расхождений"
+                )
+                db.add(approval)
             
             if not approved:
                 transfer.status = TransferStatus.REJECTED
                 transfer.rejection_reason = notes
-                # Возвращаем товары отправителю
                 self._return_items(db, transfer)
                 db.commit()
                 self._notify_rejected(db, transfer, user_id)
@@ -752,13 +890,13 @@ class CRUDTransfer:
             
             transfer.discrepancy_approved_by_id = user_id
             transfer.discrepancy_approved_at = datetime.now()
-            
-            # Подтверждаем расхождения - завершаем перемещение
             self._complete_transfer_with_discrepancies(db, transfer)
             return True
             
         except Exception as e:
-            print(f"ERROR: Ошибка подтверждения расхождений: {e}")
+            print(f"ERROR: {e}")
+            import traceback
+            traceback.print_exc()
             db.rollback()
             return False
     
@@ -945,26 +1083,61 @@ class CRUDTransfer:
             )
     
     def _complete_transfer(self, db: Session, transfer: Transfer):
-        """Завершить перемещение (без расхождений)"""
+        """Завершить перемещение (без расхождений) с учетом фактического количества"""
         for item in transfer.items:
-            received_qty = item.received_quantity or item.expected_quantity
+            # Получаем ФАКТИЧЕСКОЕ количество
+            received_qty = item.received_quantity or 0
+            expected_qty = item.expected_quantity
             
-            # 1. Снимаем резервирование у отправителя
-            crud_inventory.update_inventory(
-                db,
-                user_id=transfer.from_user_id,
-                product_id=item.product_id,
-                quantity_change=0,  # Товар уже списан при резервировании
-                reserved_change=-item.expected_quantity
-            )
-            
-            # 2. Добавляем получателю
-            crud_inventory.update_inventory(
-                db,
-                user_id=transfer.to_user_id,
-                product_id=item.product_id,
-                quantity_change=received_qty
-            )
+            if received_qty > 0:
+                # 1. Снимаем резервирование у отправителя (все ожидаемое)
+                crud_inventory.update_inventory(
+                    db,
+                    user_id=transfer.from_user_id,
+                    product_id=item.product_id,
+                    quantity_change=0,
+                    reserved_change=-expected_qty
+                )
+                
+                # 2. Если фактическое НЕ РАВНО ожидаемому
+                if received_qty != expected_qty:
+                    # Рассчитываем разницу
+                    diff = received_qty - expected_qty
+                    
+                    if diff > 0:  # Избыток
+                        # Списываем избыток у отправителя
+                        crud_inventory.update_inventory(
+                            db,
+                            user_id=transfer.from_user_id,
+                            product_id=item.product_id,
+                            quantity_change=-diff
+                        )
+                    else:  # Недостача (diff < 0)
+                        # Возвращаем недостачу отправителю
+                        return_qty = abs(diff)
+                        crud_inventory.update_inventory(
+                            db,
+                            user_id=transfer.from_user_id,
+                            product_id=item.product_id,
+                            quantity_change=return_qty
+                        )
+                
+                # 3. Добавляем получателю фактически полученное
+                crud_inventory.update_inventory(
+                    db,
+                    user_id=transfer.to_user_id,
+                    product_id=item.product_id,
+                    quantity_change=received_qty
+                )
+            else:
+                # Если ничего не получено, просто возвращаем товар отправителю
+                crud_inventory.update_inventory(
+                    db,
+                    user_id=transfer.from_user_id,
+                    product_id=item.product_id,
+                    quantity_change=expected_qty,
+                    reserved_change=-expected_qty
+                )
         
         transfer.status = TransferStatus.COMPLETED
         transfer.completed_at = datetime.now()
@@ -973,65 +1146,60 @@ class CRUDTransfer:
         self._notify_completed(db, transfer)
     
     def _complete_transfer_with_discrepancies(self, db: Session, transfer: Transfer):
-        """Завершить перемещение с учетом расхождений"""
-        try:            
+        """Завершить перемещение с учетом расхождений (после подтверждения руководителем)"""
+        try:
             for item in transfer.items:
                 received_qty = item.received_quantity or 0
                 expected_qty = item.expected_quantity
-                                
-                # Рассчитываем расхождение
-                discrepancy = received_qty - expected_qty
                 
-                # 1. Снимаем резервирование у отправителя
-                try:
+                if received_qty > 0:
+                    # 1. Снимаем резервирование у отправителя (все ожидаемое)
                     crud_inventory.update_inventory(
                         db,
                         user_id=transfer.from_user_id,
                         product_id=item.product_id,
-                        quantity_change=0,  # Общее количество не меняем пока
-                        reserved_change=-expected_qty  # Снимаем резерв
+                        quantity_change=0,
+                        reserved_change=-expected_qty
                     )
-                except Exception as e:
-                    raise
-                
-                # 2. Если есть ПОЛОЖИТЕЛЬНОЕ расхождение (избыток)
-                # Нужно дополнительно списать у отправителя
-                if discrepancy > 0:
-                    try:
-                        crud_inventory.update_inventory(
-                            db,
-                            user_id=transfer.from_user_id,
-                            product_id=item.product_id,
-                            quantity_change=-discrepancy
-                        )
-                    except Exception as e:
-                        raise
-                
-                # 3. Если есть ОТРИЦАТЕЛЬНОЕ расхождение (недостача)
-                # Возвращаем недополученное отправителю
-                elif discrepancy < 0:
-                    try:
-                        return_qty = abs(discrepancy)  # Модуль расхождения
-                        crud_inventory.update_inventory(
-                            db,
-                            user_id=transfer.from_user_id,
-                            product_id=item.product_id,
-                            quantity_change=return_qty  
-                        )
-                    except Exception as e:
-                        raise
-                
-                # 4. Добавляем получателю фактически полученное
-                if received_qty > 0:
-                    try:
-                        crud_inventory.update_inventory(
-                            db,
-                            user_id=transfer.to_user_id,
-                            product_id=item.product_id,
-                            quantity_change=received_qty
-                        )
-                    except Exception as e:
-                        raise
+                    
+                    # 2. Если есть расхождение
+                    if received_qty != expected_qty:
+                        diff = received_qty - expected_qty
+                        
+                        if diff > 0:  # Избыток
+                            # Списываем избыток у отправителя
+                            crud_inventory.update_inventory(
+                                db,
+                                user_id=transfer.from_user_id,
+                                product_id=item.product_id,
+                                quantity_change=-diff
+                            )
+                        else:  # Недостача (diff < 0)
+                            # Возвращаем недостачу отправителю
+                            return_qty = abs(diff)
+                            crud_inventory.update_inventory(
+                                db,
+                                user_id=transfer.from_user_id,
+                                product_id=item.product_id,
+                                quantity_change=return_qty
+                            )
+                    
+                    # 3. Добавляем получателю фактически полученное
+                    crud_inventory.update_inventory(
+                        db,
+                        user_id=transfer.to_user_id,
+                        product_id=item.product_id,
+                        quantity_change=received_qty
+                    )
+                else:
+                    # Если ничего не получено, возвращаем товар отправителю
+                    crud_inventory.update_inventory(
+                        db,
+                        user_id=transfer.from_user_id,
+                        product_id=item.product_id,
+                        quantity_change=expected_qty,
+                        reserved_change=-expected_qty
+                    )
             
             transfer.status = TransferStatus.COMPLETED
             transfer.completed_at = datetime.now()
@@ -1105,7 +1273,11 @@ class CRUDTransfer:
         if not hasattr(transfer, 'can_execute'):
             transfer.can_execute = False
         
-        # Инициализируем discrepancy_files если нет или None
+        # Инициализируем файлы если нет или None
+        if not hasattr(transfer, 'files') or transfer.files is None:
+            transfer.files = []
+        if not hasattr(transfer, 'arrival_files') or transfer.arrival_files is None:
+            transfer.arrival_files = []
         if not hasattr(transfer, 'discrepancy_files') or transfer.discrepancy_files is None:
             transfer.discrepancy_files = []
         

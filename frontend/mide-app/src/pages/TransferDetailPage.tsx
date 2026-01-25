@@ -384,6 +384,21 @@ const TransferDetailPage: React.FC = () => {
     return filePath.split('/').pop() || 'Файл';
   };
 
+  // Функция для определения типа завершения перемещения
+  const getTransferCompletionType = () => {
+    if (!transfer) return 'none';
+    
+    if (transfer.status === TransferStatus.COMPLETED || transfer.status === TransferStatus.CHECKING) {
+      if (transfer.discrepancyFiles.length > 0) {
+        return 'with_discrepancy';
+      } else if (transfer.arrivalFiles.length > 0) {
+        return 'without_discrepancy';
+      }
+    }
+    
+    return 'none';
+  };
+
   if (loading) {
     return (
       <Container sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
@@ -402,6 +417,8 @@ const TransferDetailPage: React.FC = () => {
       </Container>
     );
   }
+
+  const completionType = getTransferCompletionType();
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
@@ -674,7 +691,7 @@ const TransferDetailPage: React.FC = () => {
                             <ExecutorIcon sx={{ color: '#2196f3', fontSize: 16 }} />
                           </Box>
                           <Typography variant="caption" color="textSecondary">
-                            Исполнитель
+                            Курьер
                           </Typography>
                         </Box>
                         {transfer.executorId ? (
@@ -978,121 +995,139 @@ const TransferDetailPage: React.FC = () => {
                 </Card>
               </Grid>
             )}
-
-            {/* Фотографии расхождений (квадратные превью) */}
-            {transfer.discrepancyFiles && transfer.discrepancyFiles.length > 0 && (
-              <Grid size={{ xs: 12 }}>
-                <Card>
-                  <CardHeader
-                    title={`Фотографии расхождений (${transfer.discrepancyFiles.length})`}
-                    subheader="Фотографии, прикрепленные при принятии товара с расхождениями"
-                    titleTypographyProps={{ variant: 'h6', color: '#2a0f35' }}
-                  />
-                  <CardContent>
-                    <ImageList 
-                      cols={isMobile ? 3 : 4} 
-                      gap={12}
-                      sx={{ 
-                        mb: 2,
-                        maxHeight: 'none'
-                      }}
-                    >
-                      {transfer.discrepancyFiles.map((file, index) => {
-                        const fileName = getFileName(file);
-                        const isImage = isImageFile(fileName);
-                        
-                        return (
-                          <ImageListItem key={index}>
-                            {isImage ? (
-                              <Box
-                                component="img"
-                                src={`http://localhost:8000/uploads/${file}`}
-                                alt={fileName}
-                                loading="lazy"
-                                sx={{
-                                  width: '100%',
-                                  height: 140,
-                                  objectFit: 'cover',
-                                  borderRadius: 1,
-                                  cursor: 'pointer',
-                                  '&:hover': {
-                                    opacity: 0.8,
-                                  },
-                                }}
-                                onClick={() => openImageDialog(file)}
-                              />
-                            ) : (
-                              <Paper
-                                sx={{
-                                  width: '100%',
-                                  height: 140,
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  borderRadius: 1,
-                                  bgcolor: '#f5f5f5',
-                                  p: 2,
-                                }}
-                              >
-                                <DescriptionIcon sx={{ fontSize: 40, color: '#666', mb: 1 }} />
-                                <Typography variant="caption" align="center" sx={{ 
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: 'vertical',
-                                  width: '100%'
-                                }}>
-                                  {fileName}
-                                </Typography>
-                              </Paper>
-                            )}
-                            <ImageListItemBar
-                              position="top"
-                              actionIcon={
-                                <Stack direction="row" spacing={0.5}>
-                                  {isImage && (
-                                    <Tooltip title="Просмотр">
-                                      <IconButton
-                                        size="small"
-                                        onClick={() => openImageDialog(file)}
-                                        sx={{ color: 'white', backgroundColor: 'rgba(0,0,0,0.5)' }}
-                                      >
-                                        <ViewIcon fontSize="small" />
-                                      </IconButton>
-                                    </Tooltip>
-                                  )}
-                                  <Tooltip title="Скачать">
-                                    <IconButton
-                                      size="small"
-                                      onClick={() => viewFile(file)}
-                                      sx={{ color: 'white', backgroundColor: 'rgba(0,0,0,0.5)' }}
-                                    >
-                                      <DownloadIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                </Stack>
-                              }
-                              actionPosition="right"
-                            />
-                          </ImageListItem>
-                        );
-                      })}
-                    </ImageList>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
           </Grid>
         )}
 
-        {/* Файлы перемещения (если есть) - квадратные превью */}
-        {transfer.files && transfer.files.length > 0 && (
+        {/* Фотографии при завершении перемещения */}
+        {completionType !== 'none' && (
           <Grid size={{ xs: 12 }}>
             <Card>
               <CardHeader
-                title={`Файлы перемещения (${transfer.files.length})`}
+                title={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {completionType === 'with_discrepancy' ? (
+                      <>
+                        <Warning sx={{ color: '#ff9800' }} />
+                        <span>Фотографии при завершении с расхождениями</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckIcon sx={{ color: '#4caf50' }} />
+                        <span>Фотографии при завершении без расхождений</span>
+                      </>
+                    )}
+                  </Box>
+                }
+                subheader={
+                  completionType === 'with_discrepancy'
+                    ? `Фотографии, прикрепленные получателем при обнаружении расхождений (${transfer.discrepancyFiles.length} файлов)`
+                    : `Фотографии, прикрепленные получателем при приеме товара (${transfer.arrivalFiles.length} файлов)`
+                }
+                titleTypographyProps={{ variant: 'h6', color: '#2a0f35' }}
+              />
+              <CardContent>
+                <ImageList 
+                  cols={isMobile ? 3 : 4} 
+                  gap={12}
+                  sx={{ 
+                    mb: 2,
+                    maxHeight: 'none'
+                  }}
+                >
+                  {(completionType === 'with_discrepancy' ? transfer.discrepancyFiles : transfer.arrivalFiles).map((file, index) => {
+                    const fileName = getFileName(file);
+                    const isImage = isImageFile(fileName);
+                    
+                    return (
+                      <ImageListItem key={index}>
+                        {isImage ? (
+                          <Box
+                            component="img"
+                            src={`http://localhost:8000/uploads/${file}`}
+                            alt={fileName}
+                            loading="lazy"
+                            sx={{
+                              width: '100%',
+                              height: 140,
+                              objectFit: 'cover',
+                              borderRadius: 1,
+                              cursor: 'pointer',
+                              '&:hover': {
+                                opacity: 0.8,
+                              },
+                            }}
+                            onClick={() => openImageDialog(file)}
+                          />
+                        ) : (
+                          <Paper
+                            sx={{
+                              width: '100%',
+                              height: 140,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: 1,
+                              bgcolor: '#f5f5f5',
+                              p: 2,
+                            }}
+                          >
+                            <DescriptionIcon sx={{ fontSize: 40, color: '#666', mb: 1 }} />
+                            <Typography variant="caption" align="center" sx={{ 
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              width: '100%'
+                            }}>
+                              {fileName}
+                            </Typography>
+                          </Paper>
+                        )}
+                        <ImageListItemBar
+                          position="top"
+                          actionIcon={
+                            <Stack direction="row" spacing={0.5}>
+                              {isImage && (
+                                <Tooltip title="Просмотр">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => openImageDialog(file)}
+                                    sx={{ color: 'white', backgroundColor: 'rgba(0,0,0,0.5)' }}
+                                  >
+                                    <ViewIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                              <Tooltip title="Скачать">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => viewFile(file)}
+                                  sx={{ color: 'white', backgroundColor: 'rgba(0,0,0,0.5)' }}
+                                >
+                                  <DownloadIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
+                          }
+                          actionPosition="right"
+                        />
+                      </ImageListItem>
+                    );
+                  })}
+                </ImageList>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {/* Исходные файлы перемещения (если есть) */}
+        {transfer.files.length > 0 && (
+          <Grid size={{ xs: 12 }}>
+            <Card>
+              <CardHeader
+                title={`Исходные файлы перемещения (${transfer.files.length})`}
                 subheader="Файлы, прикрепленные при создании перемещения"
                 titleTypographyProps={{ variant: 'h6', color: '#2a0f35' }}
               />
