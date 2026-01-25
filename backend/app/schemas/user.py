@@ -138,3 +138,10 @@ class UserNameResponse(BaseModel):
 
 class UsersNamesResponse(BaseModel):
     user_names: Dict[str, str]
+
+class UserBasicResponse(BaseModel):
+    id: int
+    full_name: str
+    role: UserRole
+    
+    model_config = ConfigDict(from_attributes=True)

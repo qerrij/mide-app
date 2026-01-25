@@ -21,7 +21,16 @@ import NotificationsPage from './pages/NotificationsPage';
 import VerifyRevisionPage from './pages/VerifyRevisionPage';
 import ViewRevisionPage from './pages/ViewRevisionPage';
 
-// import MovementsPage from './pages/MovementsPage';
+import MovementsPage from './pages/MovementsPage';
+import CreateTransferPage from './pages/CreateTransferPage';
+import TransferDetailPage from './pages/TransferDetailPage';
+import ArrivedTransferPage from './pages/ArrivedTransferPage';
+import VerifyDiscrepancyPage from './pages/VerifyDiscrepancyPage';
+import CreateManagerTransferPage from './pages/CreateManagerTransferPage';
+import ExecuteManagerRequestPage from './pages/ExecuteManagerRequestPage';
+
+
+
 // import DefectsPage from './pages/DefectsPage';
 // import StockPage from './pages/StockPage';
 import StaffPage from './pages/StaffPage';
@@ -137,18 +146,87 @@ function App() {
 
                       <Route path="/notifications" element={<NotificationsPage />} />
                       
-                      {/* <Route path="/movements" element={
+                      <Route path="/movements" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER,
                           UserRole.ADMIN,
                           UserRole.SENIOR_SELLER,
                           UserRole.MENTOR,
-                          UserRole.SELLER
+                          UserRole.SELLER,
                         ]}>
                           <MovementsPage />
                         </RoleBasedRoute>
                       } />
-                       */}
+
+                      <Route path="/movements/create" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                        ]}>
+                          <CreateTransferPage />
+                        </RoleBasedRoute>
+                      } />
+                      <Route path="/movements/create-manager" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                        ]}>
+                          <CreateManagerTransferPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/movements/:id" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                        ]}>
+                          <TransferDetailPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/movements/:id/arrived" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                        ]}>
+                          <ArrivedTransferPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/movements/:id/verify-discrepancy" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                        ]}>
+                          <VerifyDiscrepancyPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/movements/:id/execute-manager-request" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                        ]}>
+                          <ExecuteManagerRequestPage />
+                        </RoleBasedRoute>
+                      } />
+                      
                       {/* <Route path="/defects" element={
                         <RoleBasedRoute allowedRoles={[
                           UserRole.OWNER,

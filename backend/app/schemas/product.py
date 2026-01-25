@@ -35,9 +35,30 @@ class ProductUpdate(BaseModel):
 class ProductResponse(ProductBase):
     id: int
     is_active: bool
-    category_name: Optional[str] = None  # Добавляем имя категории для отображения
+    category_name: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    
+    @field_validator('category_name', mode='before')
+    @classmethod
+    def get_category_name(cls, v, info):
+        """Получить название категории из relationship"""
+        # Если category_name уже задан, возвращаем его
+        if v is not None:
+            return v
+        
+        # Если в данных есть объект category с полем name
+        if hasattr(info, 'data') and info.data:
+            # Проверяем, есть ли объект category в данных
+            if 'category' in info.data and info.data['category']:
+                # Если это dict
+                if isinstance(info.data['category'], dict):
+                    return info.data['category'].get('name')
+                # Если это объект SQLAlchemy
+                elif hasattr(info.data['category'], 'name'):
+                    return info.data['category'].name
+        
+        return None
     
     @field_validator('created_at', 'updated_at', mode='before')
     @classmethod

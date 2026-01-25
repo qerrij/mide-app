@@ -27,12 +27,19 @@ import {
   ArrowForward,
   MarkEmailRead,
   Delete,
+  LocalShipping,
+  TransferWithinAStation,
+  Inventory,
+  Check,
+  Error,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { notificationService } from '../../api/notificationService';
 import {
   Notification,
   NotificationType,
+  getNotificationTypeText,
+  getNotificationPriorityColor,
 } from '../../types';
 
 const Notifications: React.FC = () => {
@@ -60,12 +67,10 @@ const Notifications: React.FC = () => {
     }
   };
 
-  // Загрузка при монтировании
   useEffect(() => {
     loadData();
   }, []);
 
-  // Обновление при открытии меню
   useEffect(() => {
     if (anchorEl) {
       loadData();
@@ -83,7 +88,6 @@ const Notifications: React.FC = () => {
   const handleNotificationClick = async (notification: Notification) => {
     setSelectedNotification(notification);
     
-    // Помечаем как прочитанное
     if (notification.status === 'UNREAD') {
       try {
         await notificationService.markAsRead(notification.id);
@@ -132,7 +136,9 @@ const Notifications: React.FC = () => {
         case 'report':
           navigate(`/reports/${notification.entityId}`);
           break;
-        // Добавьте другие типы сущностей по мере необходимости
+        case 'transfer':
+          navigate(`/movements/${notification.entityId}`);
+          break;
       }
     }
     handleClose();
@@ -159,6 +165,27 @@ const Notifications: React.FC = () => {
         return <Warning sx={{ color: '#ff9800' }} />;
       case NotificationType.SYSTEM_MESSAGE:
         return <NotificationsIcon sx={{ color: '#607d8b' }} />;
+      
+      // Иконки для перемещений
+      case NotificationType.TRANSFER_REQUEST:
+        return <TransferWithinAStation sx={{ color: '#2196f3' }} />;
+      case NotificationType.TRANSFER_APPROVED:
+        return <CheckCircle sx={{ color: '#4caf50' }} />;
+      case NotificationType.TRANSFER_IN_TRANSIT:
+        return <LocalShipping sx={{ color: '#2196f3' }} />;
+      case NotificationType.TRANSFER_DISCREPANCY:
+        return <Warning sx={{ color: '#ff9800' }} />;
+      case NotificationType.TRANSFER_COMPLETED:
+        return <Check sx={{ color: '#4caf50' }} />;
+      case NotificationType.TRANSFER_REJECTED:
+        return <Error sx={{ color: '#f44336' }} />;
+      case NotificationType.TRANSFER_MANAGER_REQUEST:
+        return <TransferWithinAStation sx={{ color: '#673ab7' }} />;
+      case NotificationType.TRANSFER_STATUS:
+        return <NotificationsIcon sx={{ color: '#607d8b' }} />;
+      
+      case NotificationType.OTHER:
+        return <NotificationsIcon />;
       default:
         return <NotificationsIcon />;
     }
@@ -175,6 +202,17 @@ const Notifications: React.FC = () => {
       [NotificationType.REPORT_ACCOUNTANT]: '#673ab7',
       [NotificationType.INVENTORY_LOW]: '#ff9800',
       [NotificationType.SYSTEM_MESSAGE]: '#607d8b',
+      
+      // Цвета для перемещений
+      [NotificationType.TRANSFER_REQUEST]: '#2196f3',
+      [NotificationType.TRANSFER_APPROVED]: '#4caf50',
+      [NotificationType.TRANSFER_IN_TRANSIT]: '#2196f3',
+      [NotificationType.TRANSFER_DISCREPANCY]: '#ff9800',
+      [NotificationType.TRANSFER_COMPLETED]: '#4caf50',
+      [NotificationType.TRANSFER_REJECTED]: '#f44336',
+      [NotificationType.TRANSFER_MANAGER_REQUEST]: '#673ab7',
+      [NotificationType.TRANSFER_STATUS]: '#607d8b',
+      
       [NotificationType.OTHER]: '#9e9e9e',
     };
     return colors[type];
@@ -243,7 +281,6 @@ const Notifications: React.FC = () => {
           },
         }}
       >
-        {/* Заголовок */}
         <Box sx={{ p: 2, pb: 1, flexShrink: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="h6" sx={{ color: '#2a0f35' }}>
@@ -262,11 +299,10 @@ const Notifications: React.FC = () => {
           <Divider />
         </Box>
 
-        {/* Список уведомлений */}
         <Box sx={{ 
           flex: 1, 
           overflowY: 'auto',
-          minHeight: 0, // Важно для flex-контейнера
+          minHeight: 0,
         }}>
           {loading ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
@@ -315,7 +351,7 @@ const Notifications: React.FC = () => {
                         mb: 0.5,
                       }}
                     >
-                      {notification.title}
+                      {getNotificationTypeText(notification.type)}
                     </Typography>
                   }
                   secondary={
@@ -368,7 +404,6 @@ const Notifications: React.FC = () => {
           )}
         </Box>
 
-        {/* Кнопка "Все уведомления" - ВСЕГДА показываем */}
         <Box sx={{ 
           flexShrink: 0,
           borderTop: '1px solid #f0f0f0',
@@ -388,7 +423,6 @@ const Notifications: React.FC = () => {
         </Box>
       </Menu>
 
-      {/* Диалог деталей уведомления */}
       <Dialog
         open={!!selectedNotification}
         onClose={handleCloseDetails}
@@ -409,7 +443,7 @@ const Notifications: React.FC = () => {
                     {getNotificationIcon(selectedNotification.type)}
                   </Avatar>
                   <Box>
-                    <Typography variant="h6">{selectedNotification.title}</Typography>
+                    <Typography variant="h6">{getNotificationTypeText(selectedNotification.type)}</Typography>
                     <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
                       {formatTime(selectedNotification.createdAt)}
                       {selectedNotification.senderName && ` • От: ${selectedNotification.senderName}`}
@@ -437,7 +471,6 @@ const Notifications: React.FC = () => {
                   </Typography>
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {Object.entries(selectedNotification.data).map(([key, value]) => {
-                      // Пропускаем поля, которые не нужно показывать
                       if (typeof value === 'object' && !Array.isArray(value)) {
                         return null;
                       }

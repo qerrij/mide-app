@@ -16,6 +16,17 @@ class NotificationType(str, enum.Enum):
     REPORT_ACCOUNTANT = "REPORT_ACCOUNTANT"    # Отчет на проверке бухгалтера
     INVENTORY_LOW = "INVENTORY_LOW"            # Низкий остаток
     SYSTEM_MESSAGE = "SYSTEM_MESSAGE"          # Системное сообщение
+    
+    # Типы для перемещений (добавлены новые)
+    TRANSFER_REQUEST = "TRANSFER_REQUEST"           # Запрос на подтверждение перемещения
+    TRANSFER_APPROVED = "TRANSFER_APPROVED"         # Перемещение подтверждено
+    TRANSFER_IN_TRANSIT = "TRANSFER_IN_TRANSIT"     # Товар в пути
+    TRANSFER_DISCREPANCY = "TRANSFER_DISCREPANCY"   # Обнаружены расхождения
+    TRANSFER_COMPLETED = "TRANSFER_COMPLETED"       # Перемещение завершено
+    TRANSFER_REJECTED = "TRANSFER_REJECTED"         # Перемещение отклонено
+    TRANSFER_MANAGER_REQUEST = "TRANSFER_MANAGER_REQUEST"  # Запрос от руководителя
+    TRANSFER_STATUS = "TRANSFER_STATUS"             # Изменение статуса перемещения
+    
     OTHER = "OTHER"                            # Прочее
 
 

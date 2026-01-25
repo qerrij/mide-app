@@ -454,6 +454,17 @@ export enum NotificationType {
   REPORT_ACCOUNTANT = 'REPORT_ACCOUNTANT',
   INVENTORY_LOW = 'INVENTORY_LOW',
   SYSTEM_MESSAGE = 'SYSTEM_MESSAGE',
+  
+  // Типы для перемещений (добавлены новые)
+  TRANSFER_REQUEST = 'TRANSFER_REQUEST',
+  TRANSFER_APPROVED = 'TRANSFER_APPROVED',
+  TRANSFER_IN_TRANSIT = 'TRANSFER_IN_TRANSIT',
+  TRANSFER_DISCREPANCY = 'TRANSFER_DISCREPANCY',
+  TRANSFER_COMPLETED = 'TRANSFER_COMPLETED',
+  TRANSFER_REJECTED = 'TRANSFER_REJECTED',
+  TRANSFER_MANAGER_REQUEST = 'TRANSFER_MANAGER_REQUEST',
+  TRANSFER_STATUS = 'TRANSFER_STATUS',
+  
   OTHER = 'OTHER'
 }
 
@@ -530,6 +541,17 @@ export const getNotificationTypeText = (type: NotificationType): string => {
     [NotificationType.REPORT_ACCOUNTANT]: 'Проверка бухгалтера',
     [NotificationType.INVENTORY_LOW]: 'Низкий остаток',
     [NotificationType.SYSTEM_MESSAGE]: 'Системное сообщение',
+    
+    // Типы для перемещений
+    [NotificationType.TRANSFER_REQUEST]: 'Запрос перемещения',
+    [NotificationType.TRANSFER_APPROVED]: 'Перемещение подтверждено',
+    [NotificationType.TRANSFER_IN_TRANSIT]: 'Товар в пути',
+    [NotificationType.TRANSFER_DISCREPANCY]: 'Расхождения в перемещении',
+    [NotificationType.TRANSFER_COMPLETED]: 'Перемещение завершено',
+    [NotificationType.TRANSFER_REJECTED]: 'Перемещение отклонено',
+    [NotificationType.TRANSFER_MANAGER_REQUEST]: 'Запрос перемещения от руководителя',
+    [NotificationType.TRANSFER_STATUS]: 'Статус перемещения',
+    
     [NotificationType.OTHER]: 'Другое',
   };
   return texts[type];
@@ -656,3 +678,232 @@ export interface InventoryResponse {
   quantity: number;
   items: InventoryItem[];
 }
+
+// ================ ПЕРЕМЕЩЕНИЯ ================
+export enum TransferStatus {
+  REQUESTED = 'REQUESTED',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  APPROVED = 'APPROVED',
+  IN_TRANSIT = 'IN_TRANSIT',
+  ARRIVED = 'ARRIVED',
+  CHECKING = 'CHECKING',
+  COMPLETED = 'COMPLETED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED'
+}
+
+export enum TransferItemStatus {
+  EXPECTED = 'EXPECTED',
+  RECEIVED = 'RECEIVED',
+  MISSING = 'MISSING',
+  EXCESS = 'EXCESS',
+  REJECTED = 'REJECTED'
+}
+
+export enum TransferRequestType {
+  USER_REQUEST = 'user_request',
+  MANAGER_REQUEST = 'manager_request'
+}
+
+// Базовые интерфейсы
+export interface TransferItemBase {
+  productId: number;
+  expectedQuantity: number;
+  notes?: string;
+}
+
+export interface TransferItem extends TransferItemBase {
+  id: number;
+  transferId: number;
+  receivedQuantity?: number;
+  status: TransferItemStatus;
+  productName?: string;
+  productSku?: string;
+  productPrice?: number;
+}
+
+export interface TransferDiscrepancyItem {
+  id: number;
+  productId: number;
+  expectedQuantity: number;
+  actualQuantity: number;
+  discrepancy: number;
+  productName?: string;
+  productSku?: string;
+  notes?: string;
+}
+
+export interface TransferApproval {
+  id: number;
+  userId: number;
+  approved: boolean;
+  notes?: string;
+  approvedAt: Date;
+  userName?: string;
+  userRole?: UserRole;
+}
+
+export interface TransferBase {
+  title: string;
+  description?: string;
+  fromUserId: number;
+  toUserId: number;
+  executorId?: number;
+  requestType: TransferRequestType;
+}
+
+export interface Transfer extends TransferBase {
+  id: number;
+  createdById: number;
+  status: TransferStatus;
+  files: string[];
+  discrepancyFiles: string[];
+  
+  // Даты
+  createdAt: Date;
+  approvedAt?: Date;
+  startedAt?: Date;
+  arrivedAt?: Date;
+  completedAt?: Date;
+  cancelledAt?: Date;
+  
+  // Информация о пользователях
+  createdByName?: string;
+  fromUserName?: string;
+  toUserName?: string;
+  executorName?: string;
+  
+  // Роли пользователей
+  fromUserRole?: UserRole;
+  toUserRole?: UserRole;
+  executorRole?: UserRole;
+  
+  // Статистика
+  totalItems?: number;
+  totalQuantity?: number;
+  
+  // Подтверждения
+  approvalsCount: number;
+  pendingApprovals: number[];
+  
+  // Флаги
+  canApprove: boolean;
+  canExecute: boolean;  // Добавляем этот флаг
+
+  rejectionReason?: string;
+
+  discrepancyAcceptedById?: number;
+  discrepancyAcceptedAt?: Date;
+  discrepancyAcceptedByName?: string;
+  discrepancyApprovedById?: number;
+  discrepancyApprovedAt?: Date;
+  discrepancyApprovedByName?: string;
+}
+
+export interface TransferDetail extends Transfer {
+  items: TransferItem[];
+  discrepancyItems: TransferDiscrepancyItem[];
+  discrepancies?: {
+    missingItems: number;
+    excessItems: number;
+    totalDiscrepancy: number;
+    hasDiscrepancies: boolean;
+  };
+  approvals: TransferApproval[];
+
+}
+
+// DTO для создания
+export interface TransferCreateDto extends TransferBase {
+  items: TransferItemBase[];
+}
+
+export interface TransferCreateManagerRequestDto {
+  title: string;
+  description?: string;
+  fromUserId: number;
+  toUserId: number;
+  items: TransferItemBase[];
+}
+
+export interface TransferApprovalDto {
+  approved: boolean;
+  notes?: string;
+}
+
+export interface TransferArrivalDto {
+  action: 'accept' | 'reject' | 'discrepancy';
+  items?: Array<{
+    productId: number;
+    actualQuantity: number;
+    notes?: string;
+  }>;
+  notes?: string;
+}
+
+export interface TransferExecuteManagerRequestDto {
+  executorId?: number;
+  notes?: string;
+}
+
+export interface TransferRejectManagerRequestDto {
+  reason?: string;
+}
+
+export const getTransferStatusText = (status: TransferStatus): string => {
+  const texts = {
+    [TransferStatus.REQUESTED]: 'Запрошено',
+    [TransferStatus.PENDING_APPROVAL]: 'Ожидает подтверждения',
+    [TransferStatus.APPROVED]: 'Подтверждено',
+    [TransferStatus.IN_TRANSIT]: 'В пути',
+    [TransferStatus.ARRIVED]: 'Прибыло',
+    [TransferStatus.CHECKING]: 'Проверка расхождений',
+    [TransferStatus.COMPLETED]: 'Завершено',
+    [TransferStatus.REJECTED]: 'Отклонено',
+    [TransferStatus.CANCELLED]: 'Отменено',
+  };
+  return texts[status];
+};
+
+export const getTransferStatusColor = (status: TransferStatus): string => {
+  const colors = {
+    [TransferStatus.REQUESTED]: '#ff9800',
+    [TransferStatus.PENDING_APPROVAL]: '#ff9800',
+    [TransferStatus.APPROVED]: '#4caf50',
+    [TransferStatus.IN_TRANSIT]: '#2196f3',
+    [TransferStatus.ARRIVED]: '#9c27b0',
+    [TransferStatus.CHECKING]: '#ff9800',
+    [TransferStatus.COMPLETED]: '#4caf50',
+    [TransferStatus.REJECTED]: '#f44336',
+    [TransferStatus.CANCELLED]: '#9e9e9e',
+  };
+  return colors[status];
+};
+
+export const getTransferItemStatusText = (status: TransferItemStatus): string => {
+  const texts = {
+    [TransferItemStatus.EXPECTED]: 'Ожидается',
+    [TransferItemStatus.RECEIVED]: 'Получено',
+    [TransferItemStatus.MISSING]: 'Недостача',
+    [TransferItemStatus.EXCESS]: 'Излишек',
+    [TransferItemStatus.REJECTED]: 'Отклонено',
+  };
+  return texts[status];
+};
+
+export const getTransferItemStatusColor = (status: TransferItemStatus): string => {
+  const colors = {
+    [TransferItemStatus.EXPECTED]: '#ff9800',
+    [TransferItemStatus.RECEIVED]: '#4caf50',
+    [TransferItemStatus.MISSING]: '#f44336',
+    [TransferItemStatus.EXCESS]: '#2196f3',
+    [TransferItemStatus.REJECTED]: '#9e9e9e',
+  };
+  return colors[status];
+};
+
+export const getRequestTypeText = (type: TransferRequestType): string => {
+  return type === TransferRequestType.USER_REQUEST 
+    ? 'Запрос пользователя' 
+    : 'Запрос руководителя';
+};

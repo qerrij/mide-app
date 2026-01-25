@@ -273,6 +273,25 @@ export const userService = {
       return `Пользователь ${userId}`;
     }
   },
+    getAllUsersBasic: async (): Promise<Array<{
+    id: number;
+    fullName: string;
+    role: UserRole;
+  }>> => {
+    try {
+      const response = await axiosInstance.get<any[]>('/api/users/all-basic');
+      // console.log(response.data)
+      // Трансформируем из snake_case в camelCase
+      return response.data.map(user => ({
+        id: user.id,
+        fullName: user.full_name,
+        role: user.role,
+      }));
+    } catch (error) {
+      console.error('Error fetching all users basic:', error);
+      throw error;
+    }
+  },
 };
 
 // Вспомогательные функции для работы со связями пользователей

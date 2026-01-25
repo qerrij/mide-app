@@ -253,21 +253,30 @@ const NotificationsPage: React.FC = () => {
     }
   };
 
-  const getNotificationColor = (type: NotificationType): string => {
-    const colors = {
-      [NotificationType.REVISION_REQUEST]: '#2196f3',
-      [NotificationType.REVISION_COMPLETED]: '#4caf50',
-      [NotificationType.REVISION_VERIFIED]: '#9c27b0',
-      [NotificationType.REPORT_SUBMITTED]: '#ff9800',
-      [NotificationType.REPORT_APPROVED]: '#4caf50',
-      [NotificationType.REPORT_REJECTED]: '#f44336',
-      [NotificationType.REPORT_ACCOUNTANT]: '#673ab7',
-      [NotificationType.INVENTORY_LOW]: '#ff9800',
-      [NotificationType.SYSTEM_MESSAGE]: '#607d8b',
-      [NotificationType.OTHER]: '#9e9e9e',
-    };
-    return colors[type];
+const getNotificationColor = (type: NotificationType): string => {
+  const colors: Record<NotificationType, string> = {
+    [NotificationType.REVISION_REQUEST]: '#2196f3',
+    [NotificationType.REVISION_COMPLETED]: '#4caf50',
+    [NotificationType.REVISION_VERIFIED]: '#9c27b0',
+    [NotificationType.REPORT_SUBMITTED]: '#ff9800',
+    [NotificationType.REPORT_APPROVED]: '#4caf50',
+    [NotificationType.REPORT_REJECTED]: '#f44336',
+    [NotificationType.REPORT_ACCOUNTANT]: '#673ab7',
+    [NotificationType.INVENTORY_LOW]: '#ff9800',
+    [NotificationType.SYSTEM_MESSAGE]: '#607d8b',
+    // Добавьте типы для перемещений
+    [NotificationType.TRANSFER_REQUEST]: '#2196f3',
+    [NotificationType.TRANSFER_APPROVED]: '#4caf50',
+    [NotificationType.TRANSFER_IN_TRANSIT]: '#2196f3',
+    [NotificationType.TRANSFER_DISCREPANCY]: '#ff9800',
+    [NotificationType.TRANSFER_COMPLETED]: '#4caf50',
+    [NotificationType.TRANSFER_REJECTED]: '#f44336',
+    [NotificationType.TRANSFER_MANAGER_REQUEST]: '#673ab7',
+    [NotificationType.TRANSFER_STATUS]: '#607d8b',
+    [NotificationType.OTHER]: '#9e9e9e',
   };
+  return colors[type];
+};
 
   const formatTime = (date: Date): string => {
     return date.toLocaleDateString('ru-RU', {

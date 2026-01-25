@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.crud.user import crud_user
-from app.schemas.user import UserNameResponse, UserResponse, UserCreate, UserUpdate, UserRole, UsersNamesResponse
+from app.schemas.user import UserBasicResponse, UserNameResponse, UserResponse, UserCreate, UserUpdate, UserRole, UsersNamesResponse
 from app.api.dependencies import get_current_user, require_role, require_roles
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -125,6 +125,17 @@ def get_user_name(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_msg
         )
+@router.get("/all-basic", response_model=List[UserBasicResponse])
+def get_all_users_basic(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить список всех пользователей (только id и ФИО)"""
+    try:
+        users = db.query(User).filter(User.is_active == True).all()
+        return users
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/me", response_model=UserResponse)
 def read_current_user(
