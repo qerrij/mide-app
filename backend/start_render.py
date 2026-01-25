@@ -3,7 +3,6 @@ import os
 import time
 
 # Настройка пути
-sys.path.append(os.getcwd())
 
 def wait_for_database():
     """Ждем, пока база данных станет доступной"""
