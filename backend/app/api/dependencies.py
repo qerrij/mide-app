@@ -32,7 +32,7 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user = crud_user.get(db, user_id=user_id)
+    user = crud_user.get_by_username(db, username=username)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

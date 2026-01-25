@@ -247,29 +247,358 @@ export interface UpdateClusterDto {
   isActive?: boolean;
 }
 
-//==== ЭТО ПОКА ЧТО НЕ НУЖНО ====//
+export enum RevisionStatus {
+  REQUESTED = 'REQUESTED',
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  VERIFIED = 'VERIFIED',
+  REJECTED = 'REJECTED'
+}
 
+export enum RevisionType {
+  USER = 'USER',
+  GROUP = 'GROUP',
+  CLUSTER = 'CLUSTER',
+  CITY = 'CITY',
+  GENERAL = 'GENERAL'
+}
+
+// Элементы заполнения ревизии (новая система)
+export interface RevisionFillingItem {
+  productId: number;
+  categoryId: number;
+  quantity: number;
+}
+
+export interface RevisionFillingItemResponse extends RevisionFillingItem {
+  id: number;
+  productName?: string;
+  productSku?: string;
+  categoryName?: string;
+}
+
+// Заполнение ревизии пользователем
+export interface RevisionFilling {
+  id: number;
+  revisionId: number;
+  userId: number;
+  userName?: string;
+  status: RevisionStatus;
+  photos: string[];
+  filledAt?: Date;
+  isCompleted: boolean;
+  items: RevisionFillingItemResponse[];
+}
+
+export interface RevisionFillingCreateDto {
+  userId: number;
+  items: RevisionFillingItem[];
+  photos: string[];
+}
+
+// Старые интерфейсы для обратной совместимости
+export interface RevisionItem {
+  productId: number;
+  categoryId: number;
+  quantity: number;
+}
+
+export interface RevisionItemResponse extends RevisionItem {
+  id: number;
+  productName?: string;
+  productSku?: string;
+  categoryName?: string;
+  actualQuantity?: number;
+}
+
+// Расхождения
+export interface RevisionDiscrepancy {
+  id: number;
+  productId: number;
+  userId: number;
+  expectedQuantity: number;
+  actualQuantity: number;
+  discrepancy: number;
+  isPositive: boolean;
+  productName?: string;
+  productSku?: string;
+  userName?: string;
+  categoryName?: string;
+}
+
+// Основная модель ревизии (обновленная)
+export interface Revision {
+  id: number;
+  requestedById: number;
+  requestedByName?: string;
+  type: RevisionType;
+  status: RevisionStatus;
+  targetUserId?: number;
+  targetGroupId?: number;
+  targetClusterId?: number;
+  targetCity?: string;
+  targetUserName?: string;
+  targetGroupName?: string;
+  targetClusterName?: string;
+  comment?: string;
+  verificationComment?: string;
+  verifiedById?: number;
+  verifiedByName?: string;
+  requestedAt: Date;
+  completedAt?: Date;
+  verifiedAt?: Date;
+  
+  // Для групповых ревизий - заполнения пользователей
+  fillings: RevisionFilling[];
+  
+  // Для обратной совместимости
+  items: RevisionItemResponse[];
+  discrepancies: RevisionDiscrepancy[];
+  photos: string[];  // Теперь фото хранятся в заполнениях
+  
+  // Статистика по заполнениям (только для групповых ревизий)
+  totalFilled?: number;
+  totalUsers?: number;
+  isGroupRevision?: boolean;
+}
+
+export interface RevisionRequestDto {
+  type: RevisionType;
+  targetUserId?: number;
+  targetGroupId?: number;
+  targetClusterId?: number;
+  targetCity?: string;
+  comment?: string;
+}
+
+// Старое заполнение (для обратной совместимости)
+export interface RevisionFillDto {
+  items: RevisionItem[];
+  photos: string[];
+}
+
+export interface RevisionVerifyDto {
+  verificationComment?: string;
+}
+
+// Сводная информация по ревизии
+export interface ProductSummary {
+  productId: number;
+  productName?: string;
+  productSku?: string;
+  categoryName?: string;
+  totalQuantity: number;
+  userQuantities: Array<{
+    userId: number;
+    userName?: string;
+    quantity: number;
+  }>;
+}
+
+export interface UserDiscrepancyDetail {
+  productId: number;
+  productName?: string;
+  expected: number;
+  actual: number;
+  productSku?: string;
+  discrepancy: number;
+  isPositive: boolean;
+}
+
+export interface UserDiscrepancySummary {
+  userId: number;
+  userName?: string;
+  totalDiscrepancy: number;
+  positiveTotal: number;
+  negativeTotal: number;
+  discrepancies: UserDiscrepancyDetail[];
+}
+
+export interface ProductDiscrepancyDetail {
+  userId: number;
+  userName?: string;
+  expected: number;
+  actual: number;
+  discrepancy: number;
+  isPositive: boolean;
+}
+
+export interface ProductDiscrepancySummary {
+  productId: number;
+  productName?: string;
+  totalDiscrepancy: number;
+  productSku?: string;  // Добавьте это поле
+  categoryName?: string;  // Добавьте это поле
+  positiveTotal: number;
+  negativeTotal: number;
+  userDiscrepancies: ProductDiscrepancyDetail[];
+}
+
+export interface RevisionSummaryResponse {
+  revision: Revision;
+  productSummary: ProductSummary[];
+  userDiscrepancies: UserDiscrepancySummary[];
+  productDiscrepancies: ProductDiscrepancySummary[];
+  totalFilled: number;
+  totalUsers: number;
+}
+
+// ================ УВЕДОМЛЕНИЯ ================
 export enum NotificationType {
-  INVENTORY_REVIEW = 'INVENTORY_REVIEW',
-  MOVEMENT_REQUEST = 'MOVEMENT_REQUEST',
-  MOVEMENT_CONFIRMED = 'MOVEMENT_CONFIRMED',
-  MOVEMENT_REJECTED = 'MOVEMENT_REJECTED',
-  DEFECT_REPORTED = 'DEFECT_REPORTED',
+  REVISION_REQUEST = 'REVISION_REQUEST',
+  REVISION_COMPLETED = 'REVISION_COMPLETED',
+  REVISION_VERIFIED = 'REVISION_VERIFIED',
   REPORT_SUBMITTED = 'REPORT_SUBMITTED',
-  SYSTEM = 'SYSTEM'
+  REPORT_APPROVED = 'REPORT_APPROVED',
+  REPORT_REJECTED = 'REPORT_REJECTED',
+  REPORT_ACCOUNTANT = 'REPORT_ACCOUNTANT',
+  INVENTORY_LOW = 'INVENTORY_LOW',
+  SYSTEM_MESSAGE = 'SYSTEM_MESSAGE',
+  
+  // Типы для перемещений (добавлены новые)
+  TRANSFER_REQUEST = 'TRANSFER_REQUEST',
+  TRANSFER_APPROVED = 'TRANSFER_APPROVED',
+  TRANSFER_IN_TRANSIT = 'TRANSFER_IN_TRANSIT',
+  TRANSFER_DISCREPANCY = 'TRANSFER_DISCREPANCY',
+  TRANSFER_COMPLETED = 'TRANSFER_COMPLETED',
+  TRANSFER_REJECTED = 'TRANSFER_REJECTED',
+  TRANSFER_MANAGER_REQUEST = 'TRANSFER_MANAGER_REQUEST',
+  TRANSFER_STATUS = 'TRANSFER_STATUS',
+  
+  OTHER = 'OTHER'
+}
+
+export enum NotificationStatus {
+  UNREAD = 'UNREAD',
+  READ = 'READ',
+  ARCHIVED = 'ARCHIVED'
 }
 
 export interface Notification {
   id: number;
   userId: number;
+  type: NotificationType;
   title: string;
   message: string;
-  type: NotificationType;
-  read: boolean;
+  data?: Record<string, any>;
+  entityType?: string;
+  entityId?: number;
+  status: NotificationStatus;
+  senderId?: number;
+  senderName?: string;
+  priority: number;
   createdAt: Date;
-  data?: any;
-  relatedId?: number;
+  readAt?: Date;
 }
+
+export interface NotificationSummary {
+  unreadCount: number;
+  lastNotificationAt?: Date;
+  notifications: Notification[];
+}
+
+export const getRevisionStatusText = (status: RevisionStatus): string => {
+  const texts = {
+    [RevisionStatus.REQUESTED]: 'Запрошена',
+    [RevisionStatus.IN_PROGRESS]: 'В процессе',
+    [RevisionStatus.COMPLETED]: 'Заполнена',
+    [RevisionStatus.VERIFIED]: 'Проверена',
+    [RevisionStatus.REJECTED]: 'Отклонена',
+  };
+  return texts[status];
+};
+
+export const getRevisionTypeText = (type: RevisionType): string => {
+  const texts = {
+    [RevisionType.USER]: 'Пользователь',
+    [RevisionType.GROUP]: 'Группа',
+    [RevisionType.CLUSTER]: 'Куст',
+    [RevisionType.CITY]: 'Город',
+    [RevisionType.GENERAL]: 'Общая',
+  };
+  return texts[type];
+};
+
+export const getRevisionStatusColor = (status: RevisionStatus): string => {
+  const colors = {
+    [RevisionStatus.REQUESTED]: '#ff9800',
+    [RevisionStatus.IN_PROGRESS]: '#2196f3',
+    [RevisionStatus.COMPLETED]: '#9c27b0',
+    [RevisionStatus.VERIFIED]: '#4caf50',
+    [RevisionStatus.REJECTED]: '#f44336',
+  };
+  return colors[status];
+};
+
+export const getNotificationTypeText = (type: NotificationType): string => {
+  const texts = {
+    [NotificationType.REVISION_REQUEST]: 'Запрос на ревизию',
+    [NotificationType.REVISION_COMPLETED]: 'Ревизия заполнена',
+    [NotificationType.REVISION_VERIFIED]: 'Ревизия проверена',
+    [NotificationType.REPORT_SUBMITTED]: 'Отчет отправлен',
+    [NotificationType.REPORT_APPROVED]: 'Отчет утвержден',
+    [NotificationType.REPORT_REJECTED]: 'Отчет отклонен',
+    [NotificationType.REPORT_ACCOUNTANT]: 'Проверка бухгалтера',
+    [NotificationType.INVENTORY_LOW]: 'Низкий остаток',
+    [NotificationType.SYSTEM_MESSAGE]: 'Системное сообщение',
+    
+    // Типы для перемещений
+    [NotificationType.TRANSFER_REQUEST]: 'Запрос перемещения',
+    [NotificationType.TRANSFER_APPROVED]: 'Перемещение подтверждено',
+    [NotificationType.TRANSFER_IN_TRANSIT]: 'Товар в пути',
+    [NotificationType.TRANSFER_DISCREPANCY]: 'Расхождения в перемещении',
+    [NotificationType.TRANSFER_COMPLETED]: 'Перемещение завершено',
+    [NotificationType.TRANSFER_REJECTED]: 'Перемещение отклонено',
+    [NotificationType.TRANSFER_MANAGER_REQUEST]: 'Запрос перемещения от руководителя',
+    [NotificationType.TRANSFER_STATUS]: 'Статус перемещения',
+    
+    [NotificationType.OTHER]: 'Другое',
+  };
+  return texts[type];
+};
+
+export const getNotificationPriorityColor = (priority: number): string => {
+  if (priority >= 5) return '#f44336';
+  if (priority >= 4) return '#ff9800';
+  if (priority >= 3) return '#2196f3';
+  return '#4caf50';
+};
+
+// Дополнительные хелперы для работы с ревизиями
+export const isGroupRevision = (type: RevisionType): boolean => {
+  return type !== RevisionType.USER;
+};
+
+export const getTargetName = (revision: Revision): string => {
+  if (revision.targetUserName) return revision.targetUserName;
+  if (revision.targetGroupName) return revision.targetGroupName;
+  if (revision.targetClusterName) return revision.targetClusterName;
+  if (revision.targetCity) return `Город: ${revision.targetCity}`;
+  if (revision.type === RevisionType.GENERAL) return 'Все пользователи';
+  return 'Не указано';
+};
+
+export const canFillRevision = (revision: Revision, currentUserId: number): boolean => {
+  // Ревизия должна быть запрошена
+  if (revision.status !== RevisionStatus.REQUESTED && revision.status !== RevisionStatus.IN_PROGRESS) {
+    return false;
+  }
+  
+  // Для индивидуальной ревизии проверяем целевого пользователя
+  if (revision.type === RevisionType.USER) {
+    return revision.targetUserId === currentUserId;
+  }
+  
+  // Для групповых ревизий - все участники могут заполнять
+  return true;
+};
+
+export const canVerifyRevision = (revision: Revision, currentUserId: number): boolean => {
+  // Проверять может только тот, кто запросил ревизию
+  return revision.requestedById === currentUserId && 
+         revision.status === RevisionStatus.COMPLETED;
+};
+
 
 export enum DefectStatus {
   PENDING = 'PENDING',
@@ -349,3 +678,235 @@ export interface InventoryResponse {
   quantity: number;
   items: InventoryItem[];
 }
+
+// ================ ПЕРЕМЕЩЕНИЯ ================
+export enum TransferStatus {
+  REQUESTED = 'REQUESTED',
+  PENDING_APPROVAL = 'PENDING_APPROVAL',
+  APPROVED = 'APPROVED',
+  IN_TRANSIT = 'IN_TRANSIT',
+  ARRIVED = 'ARRIVED',
+  CHECKING = 'CHECKING',
+  COMPLETED = 'COMPLETED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED'
+}
+
+export enum TransferItemStatus {
+  EXPECTED = 'EXPECTED',
+  RECEIVED = 'RECEIVED',
+  MISSING = 'MISSING',
+  EXCESS = 'EXCESS',
+  REJECTED = 'REJECTED'
+}
+
+export enum TransferRequestType {
+  USER_REQUEST = 'user_request',
+  MANAGER_REQUEST = 'manager_request'
+}
+
+// Базовые интерфейсы
+export interface TransferItemBase {
+  productId: number;
+  expectedQuantity: number;
+  notes?: string;
+}
+
+export interface TransferItem extends TransferItemBase {
+  id: number;
+  transferId: number;
+  receivedQuantity?: number;
+  status: TransferItemStatus;
+  productName?: string;
+  productSku?: string;
+  productPrice?: number;
+}
+
+export interface TransferDiscrepancyItem {
+  id: number;
+  productId: number;
+  expectedQuantity: number;
+  actualQuantity: number;
+  discrepancy: number;
+  productName?: string;
+  productSku?: string;
+  notes?: string;
+}
+
+export interface TransferApproval {
+  id: number;
+  userId: number;
+  approved: boolean;
+  notes?: string;
+  approvedAt: Date;
+  userName?: string;
+  userRole?: UserRole;
+}
+
+export interface TransferBase {
+  title: string;
+  description?: string;
+  fromUserId: number;
+  toUserId: number;
+  executorId?: number;
+  requestType: TransferRequestType;
+}
+
+export interface Transfer extends TransferBase {
+  id: number;
+  createdById: number;
+  status: TransferStatus;
+  files: string[];
+  arrivalFiles: string[]; // 🔴 НОВОЕ: Файлы при приемке товара
+  discrepancyFiles: string[];
+  
+  // 🔴 ДОБАВЛЕНО: Информация о расхождениях
+  discrepancyAcceptedById?: number;
+  discrepancyAcceptedAt?: Date;
+  discrepancyApprovedById?: number;
+  discrepancyApprovedAt?: Date;
+  discrepancyAcceptedByName?: string;
+  discrepancyApprovedByName?: string;
+  
+  // Даты
+  createdAt: Date;
+  approvedAt?: Date;
+  startedAt?: Date;
+  arrivedAt?: Date;
+  completedAt?: Date;
+  cancelledAt?: Date;
+  
+  // Информация о пользователях
+  createdByName?: string;
+  fromUserName?: string;
+  toUserName?: string;
+  executorName?: string;
+  
+  // Роли пользователей
+  fromUserRole?: UserRole;
+  toUserRole?: UserRole;
+  executorRole?: UserRole;
+  
+  // Статистика
+  totalItems?: number;
+  totalQuantity?: number;
+  
+  // Подтверждения
+  approvalsCount: number;
+  pendingApprovals: number[];
+  
+  // Флаги
+  canApprove: boolean;
+  canExecute: boolean;
+  canApproveDiscrepancy: boolean;
+  
+  rejectionReason?: string;
+}
+
+export interface TransferDetail extends Transfer {
+  items: TransferItem[];
+  discrepancyItems: TransferDiscrepancyItem[];
+  discrepancies?: {
+    missingItems: number;
+    excessItems: number;
+    totalDiscrepancy: number;
+    hasDiscrepancies: boolean;
+  };
+  approvals: TransferApproval[];
+
+}
+
+// DTO для создания
+export interface TransferCreateDto extends TransferBase {
+  items: TransferItemBase[];
+}
+
+export interface TransferCreateManagerRequestDto {
+  title: string;
+  description?: string;
+  fromUserId: number;
+  toUserId: number;
+  items: TransferItemBase[];
+}
+
+export interface TransferApprovalDto {
+  approved: boolean;
+  notes?: string;
+}
+
+export interface TransferArrivalDto {
+  action: 'accept' | 'reject' | 'discrepancy';
+  items: Array<{
+    productId: number;
+    actualQuantity: number;
+    notes?: string;
+  }>;
+  notes?: string;
+}
+
+export interface TransferExecuteManagerRequestDto {
+  executorId?: number;
+  notes?: string;
+}
+
+export interface TransferRejectManagerRequestDto {
+  reason?: string;
+}
+
+export const getTransferStatusText = (status: TransferStatus): string => {
+  const texts = {
+    [TransferStatus.REQUESTED]: 'Запрошено',
+    [TransferStatus.PENDING_APPROVAL]: 'Ожидает подтверждения',
+    [TransferStatus.APPROVED]: 'Подтверждено',
+    [TransferStatus.IN_TRANSIT]: 'В пути',
+    [TransferStatus.ARRIVED]: 'Прибыло',
+    [TransferStatus.CHECKING]: 'Проверка расхождений',
+    [TransferStatus.COMPLETED]: 'Завершено',
+    [TransferStatus.REJECTED]: 'Отклонено',
+    [TransferStatus.CANCELLED]: 'Отменено',
+  };
+  return texts[status];
+};
+
+export const getTransferStatusColor = (status: TransferStatus): string => {
+  const colors = {
+    [TransferStatus.REQUESTED]: '#ff9800',
+    [TransferStatus.PENDING_APPROVAL]: '#ff9800',
+    [TransferStatus.APPROVED]: '#4caf50',
+    [TransferStatus.IN_TRANSIT]: '#2196f3',
+    [TransferStatus.ARRIVED]: '#9c27b0',
+    [TransferStatus.CHECKING]: '#ff9800',
+    [TransferStatus.COMPLETED]: '#4caf50',
+    [TransferStatus.REJECTED]: '#f44336',
+    [TransferStatus.CANCELLED]: '#9e9e9e',
+  };
+  return colors[status];
+};
+
+export const getTransferItemStatusText = (status: TransferItemStatus): string => {
+  const texts = {
+    [TransferItemStatus.EXPECTED]: 'Ожидается',
+    [TransferItemStatus.RECEIVED]: 'Получено',
+    [TransferItemStatus.MISSING]: 'Недостача',
+    [TransferItemStatus.EXCESS]: 'Излишек',
+    [TransferItemStatus.REJECTED]: 'Отклонено',
+  };
+  return texts[status];
+};
+
+export const getTransferItemStatusColor = (status: TransferItemStatus): string => {
+  const colors = {
+    [TransferItemStatus.EXPECTED]: '#ff9800',
+    [TransferItemStatus.RECEIVED]: '#4caf50',
+    [TransferItemStatus.MISSING]: '#f44336',
+    [TransferItemStatus.EXCESS]: '#2196f3',
+    [TransferItemStatus.REJECTED]: '#9e9e9e',
+  };
+  return colors[status];
+};
+
+export const getRequestTypeText = (type: TransferRequestType): string => {
+  return type === TransferRequestType.USER_REQUEST 
+    ? 'Запрос пользователя' 
+    : 'Запрос руководителя';
+};

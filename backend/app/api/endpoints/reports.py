@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
@@ -7,16 +8,14 @@ from app.crud.inventory import crud_inventory
 from app.crud.company import crud_company
 from app.crud.report import crud_report
 from app.crud.product import crud_product
+from app.crud.notification import crud_notification
 from app.schemas.report import (
-    ReportCreate, 
-    ReportUpdate, 
-    ReportResponse, 
-    ReportFilter, 
-    ReportProductCreate,
-    ReportStatus
+    ReportCreate, ReportUpdate, ReportResponse, 
+    ReportFilter, ReportProductCreate, ReportStatus
 )
+from app.schemas.notification import NotificationType
 from app.api.dependencies import get_current_user, require_roles
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.models.report import Report, ReportStatus as ReportStatusModel
 from app.core.file_utils import save_uploaded_files, validate_files
 from datetime import datetime
@@ -172,14 +171,11 @@ async def create_report(
         temp_report_id = str(uuid.uuid4().hex)[:8]
         
         # Сохраняем фото
-        photo_paths = save_uploaded_files(photos, temp_report_id)
+        photo_paths = save_uploaded_files(photos, f"reports/{temp_report_id}")
         try:
             crud_inventory.reserve_products_for_report(db, current_user.id, products_json)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        
-        # ВАЖНО: photo_paths - это уже список строк, например:
-        # ['reports/c1f5ec2b/photo1.jpg', 'reports/c1f5ec2b/photo2.jpg']
         
         # Создаем DTO для отчета
         report_in = ReportCreate(
@@ -219,6 +215,9 @@ async def create_report(
             except Exception as e:
                 print(f"Не удалось переименовать папку: {e}")
         
+        # Создаем уведомления
+        # self._create_report_notifications(db, db_report, current_user)
+        
         # Загружаем связанные данные для ответа
         db.refresh(db_report)
                 
@@ -233,6 +232,78 @@ async def create_report(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
     
+def _create_report_notifications(self, db: Session, report, current_user):
+    """Создать уведомления о новом отчете"""
+    notifications_data = []
+        
+    # Уведомляем наставника (если есть)
+    if current_user.mentor_id:
+        notifications_data.append({
+            'user_id': current_user.mentor_id,
+            'type': NotificationType.REPORT_SUBMITTED,
+            'title': 'Новый отчет',
+            'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': current_user.id,
+                'seller_name': current_user.full_name,
+                'amount': report.transfer_amount,
+                'date': report.date.isoformat() if report.date else None
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 3
+        })
+        
+    # Уведомляем старшего продавца (если есть и не совпадает с наставником)
+    if current_user.senior_seller_id and current_user.senior_seller_id != current_user.mentor_id:
+        notifications_data.append({
+            'user_id': current_user.senior_seller_id,
+            'type': NotificationType.REPORT_SUBMITTED,
+            'title': 'Новый отчет в кусте',
+            'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': current_user.id,
+                'seller_name': current_user.full_name,
+                'amount': report.transfer_amount,
+                'date': report.date.isoformat() if report.date else None
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 3
+        })
+        
+    # Уведомляем администратора куста (если есть)
+    if current_user.cluster_id:
+        from app.models.cluster import Cluster
+        cluster = db.query(Cluster).filter(Cluster.id == current_user.cluster_id).first()
+        if cluster and cluster.admin_id and cluster.admin_id not in [current_user.mentor_id, current_user.senior_seller_id]:
+            notifications_data.append({
+                'user_id': cluster.admin_id,
+                'type': NotificationType.REPORT_SUBMITTED,
+                'title': 'Новый отчет в кусте',
+                'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
+                'data': {
+                    'report_id': report.id,
+                    'seller_id': current_user.id,
+                    'seller_name': current_user.full_name,
+                    'amount': report.transfer_amount,
+                    'date': report.date.isoformat() if report.date else None
+                },
+                'entity_type': 'report',
+                'entity_id': report.id,
+                'priority': 3
+            })
+        
+    # Создаем уведомления
+    if notifications_data:
+        crud_notification.create_multiple(
+            db,
+            notifications_data=notifications_data,
+            sender_id=current_user.id
+        )
+
 @router.put("/{report_id}", response_model=ReportResponse)
 def update_report(
     report_id: int,
@@ -288,8 +359,6 @@ def get_seller_stats(
     return crud_report.get_stats(db, user_id=seller_id)
 
 
-# Добавить новые endpoint'ы для бухгалтера
-
 @router.get("/accountant/pending", response_model=List[ReportResponse])
 def get_pending_accountant_reports(
     skip: int = 0,
@@ -308,6 +377,7 @@ def get_pending_accountant_reports(
     
     return reports
 
+
 @router.post("/{report_id}/accountant-review", response_model=ReportResponse)
 def accountant_review_report(
     report_id: int,
@@ -319,7 +389,7 @@ def accountant_review_report(
 ):
     """Проверка отчета бухгалтером"""
     if current_user.role != UserRole.ACCOUNTANT:
-        raise HTTPException(status_code=403, detail="Только для бухгалтер")
+        raise HTTPException(status_code=403, detail="Только для бухгалтера")
     
     report = crud_report.get(db, report_id=report_id)
     if not report:
@@ -354,9 +424,77 @@ def accountant_review_report(
     else:
         raise HTTPException(status_code=400, detail="Неверное действие")
     
+    # Создаем уведомление для продавца
+    notification_data = {
+        'user_id': report.seller_id,
+        'type': NotificationType.REPORT_ACCOUNTANT,
+        'title': 'Отчет проверен бухгалтером',
+        'message': f'Ваш отчет #{report_id} {"утвержден" if action == "approve" else "отклонен"} бухгалтером.',
+        'data': {
+            'report_id': report_id,
+            'action': action,
+            'final_amount': final_amount if action == "approve" else None,
+            'comment': comment
+        },
+        'entity_type': 'report',
+        'entity_id': report_id,
+        'priority': 3
+    }
+    
+    crud_notification.create(db, notification_in=notification_data, sender_id=current_user.id)
+    
+    # Уведомляем наставника и старшего продавца
+    seller = db.query(User).filter(User.id == report.seller_id).first()
+    if seller:
+        notifications_data = []
+        
+        if seller.mentor_id:
+            notifications_data.append({
+                'user_id': seller.mentor_id,
+                'type': NotificationType.REPORT_ACCOUNTANT,
+                'title': 'Отчет проверен бухгалтером',
+                'message': f'Отчет #{report_id} продавца {seller.full_name} {"утвержден" if action == "approve" else "отклонен"} бухгалтером.',
+                'data': {
+                    'report_id': report_id,
+                    'seller_id': seller.id,
+                    'seller_name': seller.full_name,
+                    'action': action,
+                    'final_amount': final_amount if action == "approve" else None
+                },
+                'entity_type': 'report',
+                'entity_id': report_id,
+                'priority': 3
+            })
+        
+        if seller.senior_seller_id and seller.senior_seller_id != seller.mentor_id:
+            notifications_data.append({
+                'user_id': seller.senior_seller_id,
+                'type': NotificationType.REPORT_ACCOUNTANT,
+                'title': 'Отчет проверен бухгалтером',
+                'message': f'Отчет #{report_id} продавца {seller.full_name} {"утвержден" if action == "approve" else "отклонен"} бухгалтером.',
+                'data': {
+                    'report_id': report_id,
+                    'seller_id': seller.id,
+                    'seller_name': seller.full_name,
+                    'action': action,
+                    'final_amount': final_amount if action == "approve" else None
+                },
+                'entity_type': 'report',
+                'entity_id': report_id,
+                'priority': 3
+            })
+        
+        if notifications_data:
+            crud_notification.create_multiple(
+                db,
+                notifications_data=notifications_data,
+                sender_id=current_user.id
+            )
+    
     db.commit()
     db.refresh(report)
     return report
+
 
 @router.post("/{report_id}/final-approval", response_model=ReportResponse)
 def final_approve_report(
@@ -367,6 +505,8 @@ def final_approve_report(
     current_user = Depends(get_current_user)
 ):
     """Финальное утверждение отчета руководителем"""
+    from app.models.user import User
+    
     report = crud_report.get(db, report_id=report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -377,13 +517,21 @@ def final_approve_report(
         has_access = True
     elif current_user.role == UserRole.ADMIN:
         # Проверяем, относится ли продавец к кустам админа
-        if current_user.admin_clusters and report.seller.cluster_id in current_user.admin_clusters:
-            has_access = True
+        seller = db.query(User).filter(User.id == report.seller_id).first()
+        if seller and current_user.admin_clusters:
+            try:
+                admin_clusters = json.loads(current_user.admin_clusters)
+                if seller.cluster_id in admin_clusters:
+                    has_access = True
+            except:
+                pass
     elif current_user.role == UserRole.SENIOR_SELLER:
-        if report.seller.cluster_id == current_user.cluster_id:
+        seller = db.query(User).filter(User.id == report.seller_id).first()
+        if seller and seller.cluster_id == current_user.cluster_id:
             has_access = True
     elif current_user.role == UserRole.MENTOR:
-        if report.seller.mentor_id == current_user.id:
+        seller = db.query(User).filter(User.id == report.seller_id).first()
+        if seller and seller.mentor_id == current_user.id:
             has_access = True
     
     if not has_access:
@@ -422,26 +570,6 @@ def final_approve_report(
             created_by=current_user.id
         )
         
-        # # Рассчитываем и выплачиваем ставку продавцу
-        # seller_rate = report.seller.rate or 0
-        # if seller_rate > 0:
-        #     # Рассчитываем общую сумму ставки
-        #     total_rate_amount = sum(
-        #         rp.quantity * seller_rate for rp in report.products
-        #     )
-            
-        #     if total_rate_amount > 0:
-        #         # Списание суммы ставки как расход компании
-        #         rate_description = f"Выплата ставки продавцу {report.seller.full_name} за отчет #{report_id}"
-        #         crud_company.add_expense(
-        #             db,
-        #             amount=total_rate_amount,
-        #             description=rate_description,
-        #             reference_id=report_id,
-        #             reference_type="SELLER_RATE",
-        #             created_by=current_user.id
-        #         )
-        
     elif action == "reject":
         report.status = ReportStatus.REJECTED
         report.reviewed_by = current_user.id
@@ -460,6 +588,26 @@ def final_approve_report(
     
     else:
         raise HTTPException(status_code=400, detail="Неверное действие")
+    
+    # Создаем уведомление для продавца
+    notification_type = NotificationType.REPORT_APPROVED if action == "approve" else NotificationType.REPORT_REJECTED
+    notification_data = {
+        'user_id': report.seller_id,
+        'type': notification_type,
+        'title': f'Отчет {"" if action == "approve" else "не "}утвержден',
+        'message': f'Ваш отчет #{report_id} {"утвержден" if action == "approve" else "отклонен"} руководителем.',
+        'data': {
+            'report_id': report_id,
+            'action': action,
+            'comment': comment,
+            'reviewed_by': current_user.full_name
+        },
+        'entity_type': 'report',
+        'entity_id': report_id,
+        'priority': 3
+    }
+    
+    crud_notification.create(db, notification_in=notification_data, sender_id=current_user.id)
     
     db.commit()
     db.refresh(report)

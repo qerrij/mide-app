@@ -1,3 +1,4 @@
+import json
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Dict
 from sqlalchemy import func, and_
@@ -185,47 +186,81 @@ class CRUDInventory:
             }
         
         elif user.role == UserRole.ADMIN:
-            # Товары своих кустов
-            import json
+            # Товары своих кустов + собственные товары
             admin_clusters = []
+            
+            # Проверяем, является ли admin_clusters строкой или уже списком
             if user.admin_clusters:
-                try:
-                    admin_clusters = json.loads(user.admin_clusters)
-                except:
-                    admin_clusters = []
-            
-            if not admin_clusters:
-                return {"quantity": 0, "items": []}
-            
-            users_in_clusters = db.query(User).filter(
-                User.cluster_id.in_(admin_clusters),
-                User.is_active == True
-            ).all()
+                if isinstance(user.admin_clusters, str):
+                    try:
+                        admin_clusters = json.loads(user.admin_clusters)
+                    except:
+                        admin_clusters = []
+                elif isinstance(user.admin_clusters, list):
+                    admin_clusters = user.admin_clusters
             
             all_items = []
             total_quantity = 0
             
-            for cluster_user in users_in_clusters:
-                user_inventory = db.query(UserInventory).options(
-                    joinedload(UserInventory.product)
-                ).filter(
-                    UserInventory.user_id == cluster_user.id
-                ).all()
+            # ВАЖНО: Добавляем инвентарь самого администратора
+            admin_inventory = db.query(UserInventory).options(
+                joinedload(UserInventory.product)
+            ).filter(
+                UserInventory.user_id == user.id
+            ).all()
+            
+            for item in admin_inventory:
+                all_items.append({
+                    "id": item.id,
+                    "user_id": item.user_id,
+                    "product_id": item.product_id,
+                    "quantity": item.quantity,
+                    "reserved_quantity": item.reserved_quantity,
+                    "product_name": item.product.name if item.product else None,
+                    "product_sku": item.product.sku if item.product else None,
+                    "product_price": item.product.price if item.product else None,
+                    "created_at": item.created_at,
+                    "updated_at": item.updated_at
+                })
+                total_quantity += item.quantity
+            
+            # Если есть кусты под управлением, добавляем товары пользователей из этих кустов
+            if admin_clusters:
+                # Преобразуем все ID кластеров в целые числа
+                try:
+                    cluster_ids = [int(cluster_id) for cluster_id in admin_clusters if cluster_id]
+                except ValueError:
+                    cluster_ids = []
                 
-                for item in user_inventory:
-                    all_items.append({
-                        "id": item.id,
-                        "user_id": item.user_id,
-                        "product_id": item.product_id,
-                        "quantity": item.quantity,
-                        "reserved_quantity": item.reserved_quantity,
-                        "product_name": item.product.name if item.product else None,
-                        "product_sku": item.product.sku if item.product else None,
-                        "product_price": item.product.price if item.product else None,
-                        "created_at": item.created_at,
-                        "updated_at": item.updated_at
-                    })
-                    total_quantity += item.quantity
+                if cluster_ids:
+                    # Находим пользователей в указанных кластерах (кроме самого администратора)
+                    users_in_clusters = db.query(User).filter(
+                        User.cluster_id.in_(cluster_ids),
+                        User.is_active == True,
+                        User.id != user.id  # Исключаем самого администратора
+                    ).all()
+                    
+                    for cluster_user in users_in_clusters:
+                        user_inventory = db.query(UserInventory).options(
+                            joinedload(UserInventory.product)
+                        ).filter(
+                            UserInventory.user_id == cluster_user.id
+                        ).all()
+                        
+                        for item in user_inventory:
+                            all_items.append({
+                                "id": item.id,
+                                "user_id": item.user_id,
+                                "product_id": item.product_id,
+                                "quantity": item.quantity,
+                                "reserved_quantity": item.reserved_quantity,
+                                "product_name": item.product.name if item.product else None,
+                                "product_sku": item.product.sku if item.product else None,
+                                "product_price": item.product.price if item.product else None,
+                                "created_at": item.created_at,
+                                "updated_at": item.updated_at
+                            })
+                            total_quantity += item.quantity
             
             return {
                 "quantity": total_quantity,
@@ -338,5 +373,50 @@ class CRUDInventory:
             )
         
         return True
+    
+
+    def apply_revision_discrepancies(
+        self, 
+        db: Session, 
+        revision_id: int
+    ) -> Dict[str, any]:
+        """Применить расхождения ревизии к инвентарю пользователей"""
+        from app.models.revision import RevisionDiscrepancy
+        
+        # Получаем все расхождения для ревизии
+        discrepancies = db.query(RevisionDiscrepancy)\
+            .filter(RevisionDiscrepancy.revision_id == revision_id)\
+            .all()
+        
+        applied_count = 0
+        total_positive = 0
+        total_negative = 0
+        
+        # Применяем каждое расхождение
+        for disc in discrepancies:
+            # Изменение количества (плюс или минус)
+            quantity_change = disc.discrepancy
+            
+            # Обновляем инвентарь пользователя
+            self.update_inventory(
+                db,
+                user_id=disc.user_id,
+                product_id=disc.product_id,
+                quantity_change=quantity_change
+            )
+            
+            applied_count += 1
+            
+            # Считаем статистику
+            if disc.is_positive:
+                total_positive += quantity_change
+            else:
+                total_negative += abs(quantity_change)
+        
+        return {
+            'applied_count': applied_count,
+            'total_positive': total_positive,
+            'total_negative': total_negative
+        }
 
 crud_inventory = CRUDInventory()

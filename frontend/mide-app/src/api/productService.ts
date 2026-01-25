@@ -7,7 +7,7 @@ const transformProductFromApi = (product: any): Product => {
     id: product.id,
     name: product.name,
     categoryId: product.category_id,
-    categoryName: product.category?.name,
+    categoryName: product.category_name || product.category?.name,
     price: product.price,
     sku: product.sku,
     description: product.description,

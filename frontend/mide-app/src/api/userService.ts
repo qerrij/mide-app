@@ -3,38 +3,30 @@ import { User, CreateUserDto, UpdateUserDto, UserRole, Group, Cluster } from '..
 
 // Функция для трансформации snake_case в camelCase
 const transformUserFromApi = (user: any): User => {
-  // Безопасный парсинг admin_clusters
+  // Исправленный парсинг admin_clusters
   let adminClusterIds: number[] = [];
+  
   try {
     if (user.admin_clusters) {
-      // Проверяем тип
       if (typeof user.admin_clusters === 'string') {
-        const trimmed = user.admin_clusters.trim();
-        if (trimmed !== '' && trimmed !== '[]') {
-          const parsed = JSON.parse(trimmed);
+        if (user.admin_clusters.trim() !== '' && user.admin_clusters.trim() !== '[]') {
+          const parsed = JSON.parse(user.admin_clusters);
           if (Array.isArray(parsed)) {
-            adminClusterIds = parsed.filter((id: any) => id !== null && id !== 0 && !isNaN(Number(id)));
+            adminClusterIds = parsed.filter((id: any) => 
+              id !== null && id !== undefined && id !== 0 && !isNaN(Number(id))
+            ).map((id: any) => Number(id));
           }
         }
       } else if (Array.isArray(user.admin_clusters)) {
-        adminClusterIds = user.admin_clusters.filter((id: any) => id !== null && id !== 0 && !isNaN(Number(id)));
-      } else if (typeof user.admin_clusters === 'object' && user.admin_clusters !== null) {
-        // Если это объект, пытаемся преобразовать в массив
-        const values = Object.values(user.admin_clusters);
-        adminClusterIds = values
-          .filter((id: any) => id !== null && id !== 0 && !isNaN(Number(id)))
-          .map((id: any) => Number(id));
+        adminClusterIds = user.admin_clusters.filter((id: any) => 
+          id !== null && id !== undefined && id !== 0 && !isNaN(Number(id))
+        ).map((id: any) => Number(id));
       }
     }
   } catch (error) {
     console.warn('Error parsing admin_clusters:', error, user.admin_clusters);
-    // Оставляем пустой массив в случае ошибки
     adminClusterIds = [];
   }
-
-  // Преобразуем все ID в числа
-  adminClusterIds = adminClusterIds.map(id => Number(id));
-
 
   return {
     id: user.id,
@@ -88,6 +80,16 @@ const transformUserToApi = (user: CreateUserDto | UpdateUserDto): any => {
   
   return transformed;
 };
+
+// Типы для ответов от новых эндпоинтов
+interface UserNameResponse {
+  id: number;
+  full_name: string;
+}
+
+interface UsersNamesResponse {
+  user_names: { [key: string]: string };
+}
 
 export const userService = {
   // Получить всех пользователей
@@ -152,10 +154,145 @@ export const userService = {
     const users = response.data.map(transformUserFromApi);
     return users.filter(user => !user.groupId);
   },
+
+  // Получить текущего пользователя
+  getCurrentUser: async (): Promise<User> => {
+    try {
+      // Используем эндпоинт /api/auth/me
+      const response = await axiosInstance.get<any>('/api/auth/me');
+      return transformUserFromApi(response.data.user);
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  // Получить ФИО пользователей по списку ID
+  getUsersNames: async (userIds: number[]): Promise<{ [userId: number]: string }> => {
+    try {
+      if (userIds.length === 0) {
+        return {};
+      }
+      
+      // Удаляем дубликаты и фильтруем валидные ID
+      const uniqueIds: number[] = [];
+      const seen = new Set<number>();
+      for (const id of userIds) {
+        if (id > 0 && !seen.has(id)) {
+          seen.add(id);
+          uniqueIds.push(id);
+        }
+      }
+      
+      if (uniqueIds.length === 0) {
+        return {};
+      }
+      
+      // Преобразуем в строку через запятую
+      const idsString = uniqueIds.join(',');
+      
+      console.log('Fetching user names for IDs:', idsString);
+      
+      const response = await axiosInstance.get<UsersNamesResponse>(
+        '/api/users/names',
+        { 
+          params: { user_ids: idsString },
+          timeout: 5000
+        }
+      );
+      
+      console.log('User names response:', response.data);
+      
+      const result: { [userId: number]: string } = {};
+      
+      // Обрабатываем ответ
+      if (response.data && response.data.user_names) {
+        for (const [key, value] of Object.entries(response.data.user_names)) {
+          const userId = parseInt(key, 10);
+          if (!isNaN(userId) && typeof value === 'string') {
+            result[userId] = value;
+          }
+        }
+      }
+      
+      // Добавляем дефолтные значения для отсутствующих ID
+      uniqueIds.forEach(userId => {
+        if (!(userId in result)) {
+          result[userId] = `Пользователь ${userId}`;
+        }
+      });
+      
+      return result;
+    } catch (error: any) {
+      console.error('Error fetching user names:', error);
+      console.error('Error details:', error.response?.data);
+      
+      // Возвращаем дефолтные значения при ошибке
+      const result: { [userId: number]: string } = {};
+      userIds.forEach(userId => {
+        result[userId] = `Пользователь ${userId}`;
+      });
+      
+      return result;
+    }
+  },
+
+  // Получить ФИО одного пользователя по ID
+  getUserName: async (userId: number): Promise<string> => {
+    try {
+      console.log(`Fetching user name for ID: ${userId}`);
+      
+      const response = await axiosInstance.get<UserNameResponse>(
+        `/api/users/${userId}/name`
+      );
+      
+      console.log(`User name response for ${userId}:`, response.data);
+      
+      return response.data.full_name;
+    } catch (error: any) {
+      console.error(`Error fetching user name for ID ${userId}:`, error);
+      return `Пользователь ${userId}`;
+    }
+  },
+  
+  // Оптимизированная версия для получения одного имени (с кешированием)
+  getCachedUserName: async (userId: number): Promise<string> => {
+    // Простая реализация кеширования в памяти
+    const cacheKey = `user_name_${userId}`;
+    const cached = sessionStorage.getItem(cacheKey);
+    
+    if (cached) {
+      return cached;
+    }
+    
+    try {
+      const userName = await userService.getUserName(userId);
+      // Сохраняем в sessionStorage на время сессии
+      sessionStorage.setItem(cacheKey, userName);
+      return userName;
+    } catch (error) {
+      return `Пользователь ${userId}`;
+    }
+  },
+    getAllUsersBasic: async (): Promise<Array<{
+    id: number;
+    fullName: string;
+    role: UserRole;
+  }>> => {
+    try {
+      const response = await axiosInstance.get<any[]>('/api/users/all-basic');
+      // console.log(response.data)
+      // Трансформируем из snake_case в camelCase
+      return response.data.map(user => ({
+        id: user.id,
+        fullName: user.full_name,
+        role: user.role,
+      }));
+    } catch (error) {
+      console.error('Error fetching all users basic:', error);
+      throw error;
+    }
+  },
 };
-
-
-// В конец файла userService.ts добавьте:
 
 // Вспомогательные функции для работы со связями пользователей
 export const getUserRelations = (

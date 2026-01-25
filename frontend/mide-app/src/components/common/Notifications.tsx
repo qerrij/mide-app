@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Badge,
   IconButton,
@@ -12,69 +12,70 @@ import {
   DialogContent,
   DialogActions,
   Avatar,
+  CircularProgress,
+  ListItemIcon,
+  ListItemText,
+  ListItemButton,
 } from '@mui/material';
 import {
   Notifications as NotificationsIcon,
-  Inventory as InventoryIcon,
-  TransferWithinAStation,
-  Warning,
-  Assessment,
+  Assignment as AssignmentIcon,
   CheckCircle,
   Cancel,
-  PhotoCamera,
-  Videocam,
+  Assessment,
+  Warning,
+  ArrowForward,
+  MarkEmailRead,
+  Delete,
+  LocalShipping,
+  TransferWithinAStation,
+  Inventory,
+  Check,
+  Error,
 } from '@mui/icons-material';
-import { Notification, NotificationType } from '../../types';
+import { useNavigate } from 'react-router-dom';
+import { notificationService } from '../../api/notificationService';
+import {
+  Notification,
+  NotificationType,
+  getNotificationTypeText,
+  getNotificationPriorityColor,
+} from '../../types';
 
 const Notifications: React.FC = () => {
+  const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: 1,
-      userId: 1,
-      title: 'Новая ревизия от Ивана Иванова',
-      message: 'Продавец Иван Иванов отправил ревизию для проверки. Товары: HQD Crystal Bar - 50 шт, Elf Bar 600 - 30 шт.',
-      type: NotificationType.INVENTORY_REVIEW,
-      read: false,
-      createdAt: new Date(),
-      data: {
-        seller: 'Иван Иванов',
-        items: ['HQD Crystal Bar - 50 шт', 'Elf Bar 600 - 30 шт'],
-        photos: 3,
-      },
-    },
-    {
-      id: 2,
-      userId: 1,
-      title: 'Запрос на перемещение от Петра Петрова',
-      message: 'Петр Петров хочет передать вам 5 единиц товара HQD Crystal Bar. Проверьте накладную и подтвердите перемещение.',
-      type: NotificationType.MOVEMENT_REQUEST,
-      read: false,
-      createdAt: new Date(Date.now() - 3600000),
-      data: {
-        from: 'Петр Петров',
-        items: ['HQD Crystal Bar - 5 шт'],
-        photos: 2,
-      },
-    },
-    {
-      id: 3,
-      userId: 1,
-      title: 'Бракованный товар обнаружен',
-      message: 'Обнаружен брак в партии одноразок HQD Crystal Bar. Количество: 5 шт. Причина: неисправный аккумулятор.',
-      type: NotificationType.DEFECT_REPORTED,
-      read: true,
-      createdAt: new Date(Date.now() - 7200000),
-      data: {
-        product: 'HQD Crystal Bar',
-        quantity: 5,
-        reason: 'Неисправный аккумулятор',
-        photos: 3,
-        videos: 1,
-      },
-    },
-  ]);
+  const [loading, setLoading] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Загрузка уведомлений и счетчика
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [notificationsData, count] = await Promise.all([
+        notificationService.getNotifications(0, 10, undefined, undefined, true),
+        notificationService.getUnreadCount()
+      ]);
+      setNotifications(notificationsData);
+      setUnreadCount(count);
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (anchorEl) {
+      loadData();
+    }
+  }, [anchorEl]);
 
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -84,44 +85,107 @@ const Notifications: React.FC = () => {
     setAnchorEl(null);
   };
 
-  const handleNotificationClick = (notification: Notification) => {
+  const handleNotificationClick = async (notification: Notification) => {
     setSelectedNotification(notification);
-    markAsRead(notification.id);
+    
+    if (notification.status === 'UNREAD') {
+      try {
+        await notificationService.markAsRead(notification.id);
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
+    }
   };
 
   const handleCloseDetails = () => {
     setSelectedNotification(null);
   };
 
-  const markAsRead = (id: number) => {
-    setNotifications(notifications.map(n =>
-      n.id === id ? { ...n, read: true } : n
-    ));
+  const handleMarkAllAsRead = async () => {
+    try {
+      await notificationService.markAllAsRead();
+      setUnreadCount(0);
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
   };
 
-  const markAllAsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
+  const handleDeleteNotification = async (notificationId: number, event?: React.MouseEvent) => {
+    if (event) {
+      event.stopPropagation();
+    }
+    
+    try {
+      await notificationService.deleteNotification(notificationId);
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      if (selectedNotification?.id === notificationId) {
+        setSelectedNotification(null);
+      }
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+    }
   };
 
-  const clearAll = () => {
-    setNotifications([]);
+  const handleNavigateToEntity = (notification: Notification) => {
+    if (notification.entityType && notification.entityId) {
+      switch (notification.entityType) {
+        case 'revision':
+          navigate(`/revisions/${notification.entityId}`);
+          break;
+        case 'report':
+          navigate(`/reports/${notification.entityId}`);
+          break;
+        case 'transfer':
+          navigate(`/movements/${notification.entityId}`);
+          break;
+      }
+    }
     handleClose();
+    handleCloseDetails();
   };
 
   const getNotificationIcon = (type: NotificationType) => {
     switch (type) {
-      case NotificationType.INVENTORY_REVIEW:
-        return <InventoryIcon sx={{ color: '#56b8d1' }} />;
-      case NotificationType.MOVEMENT_REQUEST:
-        return <TransferWithinAStation sx={{ color: '#2a436d' }} />;
-      case NotificationType.MOVEMENT_CONFIRMED:
-        return <CheckCircle sx={{ color: '#3f1f4b' }} />;
-      case NotificationType.MOVEMENT_REJECTED:
-        return <Cancel sx={{ color: '#ca0ec0' }} />;
-      case NotificationType.DEFECT_REPORTED:
-        return <Warning sx={{ color: '#6d3f57' }} />;
+      case NotificationType.REVISION_REQUEST:
+        return <AssignmentIcon sx={{ color: '#2196f3' }} />;
+      case NotificationType.REVISION_COMPLETED:
+        return <CheckCircle sx={{ color: '#4caf50' }} />;
+      case NotificationType.REVISION_VERIFIED:
+        return <AssignmentIcon sx={{ color: '#9c27b0' }} />;
       case NotificationType.REPORT_SUBMITTED:
-        return <Assessment sx={{ color: '#674fb6' }} />;
+        return <Assessment sx={{ color: '#ff9800' }} />;
+      case NotificationType.REPORT_APPROVED:
+        return <CheckCircle sx={{ color: '#4caf50' }} />;
+      case NotificationType.REPORT_REJECTED:
+        return <Cancel sx={{ color: '#f44336' }} />;
+      case NotificationType.REPORT_ACCOUNTANT:
+        return <Assessment sx={{ color: '#673ab7' }} />;
+      case NotificationType.INVENTORY_LOW:
+        return <Warning sx={{ color: '#ff9800' }} />;
+      case NotificationType.SYSTEM_MESSAGE:
+        return <NotificationsIcon sx={{ color: '#607d8b' }} />;
+      
+      // Иконки для перемещений
+      case NotificationType.TRANSFER_REQUEST:
+        return <TransferWithinAStation sx={{ color: '#2196f3' }} />;
+      case NotificationType.TRANSFER_APPROVED:
+        return <CheckCircle sx={{ color: '#4caf50' }} />;
+      case NotificationType.TRANSFER_IN_TRANSIT:
+        return <LocalShipping sx={{ color: '#2196f3' }} />;
+      case NotificationType.TRANSFER_DISCREPANCY:
+        return <Warning sx={{ color: '#ff9800' }} />;
+      case NotificationType.TRANSFER_COMPLETED:
+        return <Check sx={{ color: '#4caf50' }} />;
+      case NotificationType.TRANSFER_REJECTED:
+        return <Error sx={{ color: '#f44336' }} />;
+      case NotificationType.TRANSFER_MANAGER_REQUEST:
+        return <TransferWithinAStation sx={{ color: '#673ab7' }} />;
+      case NotificationType.TRANSFER_STATUS:
+        return <NotificationsIcon sx={{ color: '#607d8b' }} />;
+      
+      case NotificationType.OTHER:
+        return <NotificationsIcon />;
       default:
         return <NotificationsIcon />;
     }
@@ -129,13 +193,27 @@ const Notifications: React.FC = () => {
 
   const getNotificationColor = (type: NotificationType): string => {
     const colors = {
-      [NotificationType.INVENTORY_REVIEW]: '#56b8d1',
-      [NotificationType.MOVEMENT_REQUEST]: '#2a436d',
-      [NotificationType.MOVEMENT_CONFIRMED]: '#3f1f4b',
-      [NotificationType.MOVEMENT_REJECTED]: '#ca0ec0',
-      [NotificationType.DEFECT_REPORTED]: '#6d3f57',
-      [NotificationType.REPORT_SUBMITTED]: '#674fb6',
-      [NotificationType.SYSTEM]: '#4c5454',
+      [NotificationType.REVISION_REQUEST]: '#2196f3',
+      [NotificationType.REVISION_COMPLETED]: '#4caf50',
+      [NotificationType.REVISION_VERIFIED]: '#9c27b0',
+      [NotificationType.REPORT_SUBMITTED]: '#ff9800',
+      [NotificationType.REPORT_APPROVED]: '#4caf50',
+      [NotificationType.REPORT_REJECTED]: '#f44336',
+      [NotificationType.REPORT_ACCOUNTANT]: '#673ab7',
+      [NotificationType.INVENTORY_LOW]: '#ff9800',
+      [NotificationType.SYSTEM_MESSAGE]: '#607d8b',
+      
+      // Цвета для перемещений
+      [NotificationType.TRANSFER_REQUEST]: '#2196f3',
+      [NotificationType.TRANSFER_APPROVED]: '#4caf50',
+      [NotificationType.TRANSFER_IN_TRANSIT]: '#2196f3',
+      [NotificationType.TRANSFER_DISCREPANCY]: '#ff9800',
+      [NotificationType.TRANSFER_COMPLETED]: '#4caf50',
+      [NotificationType.TRANSFER_REJECTED]: '#f44336',
+      [NotificationType.TRANSFER_MANAGER_REQUEST]: '#673ab7',
+      [NotificationType.TRANSFER_STATUS]: '#607d8b',
+      
+      [NotificationType.OTHER]: '#9e9e9e',
     };
     return colors[type];
   };
@@ -147,23 +225,22 @@ const Notifications: React.FC = () => {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 60) {
-      return `${diffMins} мин. назад`;
-    } else if (diffHours < 24) {
-      return `${diffHours} ч. назад`;
-    } else if (diffDays < 7) {
-      return `${diffDays} дн. назад`;
-    } else {
-      return date.toLocaleDateString('ru-RU');
-    }
+    if (diffMins < 1) return 'Только что';
+    if (diffMins < 60) return `${diffMins} мин. назад`;
+    if (diffHours < 24) return `${diffHours} ч. назад`;
+    if (diffDays < 7) return `${diffDays} дн. назад`;
+    
+    return date.toLocaleDateString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
   };
 
-  const truncateText = (text: string, maxLength: number = 60): string => {
+  const truncateText = (text: string, maxLength: number = 80): string => {
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
   };
-
-  const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <>
@@ -185,20 +262,36 @@ const Notifications: React.FC = () => {
         onClose={handleClose}
         PaperProps={{
           sx: {
-            width: 360,
-            maxHeight: 480,
+            width: 400,
+            height: 'auto',
+            maxHeight: 'calc(100vh - 100px)',
             mt: 1.5,
             maxWidth: '90vw',
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+        MenuListProps={{
+          sx: {
+            p: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
           },
         }}
       >
-        <Box sx={{ p: 2 }}>
+        <Box sx={{ p: 2, pb: 1, flexShrink: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="h6" sx={{ color: '#2a0f35' }}>
               Уведомления
             </Typography>
             {unreadCount > 0 && (
-              <Button size="small" onClick={markAllAsRead}>
+              <Button 
+                size="small" 
+                onClick={handleMarkAllAsRead}
+                startIcon={<MarkEmailRead />}
+              >
                 Прочитать все
               </Button>
             )}
@@ -206,8 +299,16 @@ const Notifications: React.FC = () => {
           <Divider />
         </Box>
 
-        <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
-          {notifications.length === 0 ? (
+        <Box sx={{ 
+          flex: 1, 
+          overflowY: 'auto',
+          minHeight: 0,
+        }}>
+          {loading ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <CircularProgress size={24} />
+            </Box>
+          ) : notifications.length === 0 ? (
             <Box sx={{ p: 3, textAlign: 'center' }}>
               <Typography variant="body1" sx={{ color: '#4c5454' }}>
                 Нет уведомлений
@@ -215,92 +316,113 @@ const Notifications: React.FC = () => {
             </Box>
           ) : (
             notifications.map((notification) => (
-              <Box
+              <ListItemButton
                 key={notification.id}
                 sx={{
                   p: 2,
                   borderBottom: '1px solid #f0f0f0',
-                  cursor: 'pointer',
-                  backgroundColor: notification.read ? 'transparent' : '#f5f3f6',
-                  borderLeft: notification.read ? 'none' : `3px solid ${getNotificationColor(notification.type)}`,
+                  backgroundColor: notification.status === 'UNREAD' ? '#f5f3f6' : 'transparent',
+                  borderLeft: notification.status === 'UNREAD' ? `3px solid ${getNotificationColor(notification.type)}` : 'none',
                   '&:hover': {
                     backgroundColor: '#f0f0f0',
                   },
                 }}
                 onClick={() => handleNotificationClick(notification)}
               >
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                <ListItemIcon sx={{ minWidth: 40 }}>
                   <Avatar
                     sx={{
                       bgcolor: `${getNotificationColor(notification.type)}15`,
                       color: getNotificationColor(notification.type),
                       width: 40,
                       height: 40,
-                      flexShrink: 0,
                     }}
                   >
                     {getNotificationIcon(notification.type)}
                   </Avatar>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                </ListItemIcon>
+                <ListItemText
+                  primary={
                     <Typography
                       variant="subtitle2"
                       sx={{
-                        color: notification.read ? '#4c5454' : '#2a0f35',
-                        fontWeight: notification.read ? 400 : 600,
+                        color: notification.status === 'UNREAD' ? '#2a0f35' : '#4c5454',
+                        fontWeight: notification.status === 'UNREAD' ? 600 : 400,
                         mb: 0.5,
                       }}
                     >
-                      {notification.title}
+                      {getNotificationTypeText(notification.type)}
                     </Typography>
-                    <Typography
-                      variant="body2"
-                      sx={{
-                        color: '#4c5454',
-                        mb: 1,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                      }}
-                    >
-                      {truncateText(notification.message, 80)}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: '#8a8a8a', display: 'block' }}>
-                      {formatTime(notification.createdAt)}
-                    </Typography>
-                  </Box>
-                  {!notification.read && (
-                    <Box
-                      sx={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        backgroundColor: getNotificationColor(notification.type),
-                        flexShrink: 0,
-                        mt: 0.5,
-                      }}
-                    />
-                  )}
-                </Box>
-              </Box>
+                  }
+                  secondary={
+                    <>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: '#4c5454',
+                          mb: 1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                        }}
+                      >
+                        {truncateText(notification.message, 80)}
+                      </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
+                          {formatTime(notification.createdAt)}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          {notification.entityType && (
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleNavigateToEntity(notification);
+                              }}
+                              sx={{ color: getNotificationColor(notification.type) }}
+                            >
+                              <ArrowForward fontSize="small" />
+                            </IconButton>
+                          )}
+                          <IconButton
+                            size="small"
+                            onClick={(e) => handleDeleteNotification(notification.id, e)}
+                            sx={{ color: '#f44336' }}
+                          >
+                            <Delete fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    </>
+                  }
+                />
+              </ListItemButton>
             ))
           )}
         </Box>
 
-        {notifications.length > 0 && (
-          <>
-            <Divider />
-            <Box sx={{ p: 1, textAlign: 'center' }}>
-              <Button size="small" onClick={clearAll} sx={{ color: '#ca0ec0' }}>
-                Очистить все
-              </Button>
-            </Box>
-          </>
-        )}
+        <Box sx={{ 
+          flexShrink: 0,
+          borderTop: '1px solid #f0f0f0',
+        }}>
+          <Box sx={{ p: 1.5, textAlign: 'center' }}>
+            <Button
+              size="small"
+              onClick={() => {
+                navigate('/notifications');
+                handleClose();
+              }}
+              fullWidth
+            >
+              Все уведомления
+            </Button>
+          </Box>
+        </Box>
       </Menu>
 
-      {/* Диалог деталей уведомления */}
       <Dialog
         open={!!selectedNotification}
         onClose={handleCloseDetails}
@@ -309,73 +431,78 @@ const Notifications: React.FC = () => {
       >
         {selectedNotification && (
           <>
-            <DialogTitle sx={{ backgroundColor: '#f5f3f6', color: '#2a0f35' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Avatar
-                  sx={{
-                    bgcolor: `${getNotificationColor(selectedNotification.type)}15`,
-                    color: getNotificationColor(selectedNotification.type),
-                  }}
-                >
-                  {getNotificationIcon(selectedNotification.type)}
-                </Avatar>
-                <Box>
-                  <Typography variant="h6">{selectedNotification.title}</Typography>
-                  <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
-                    {formatTime(selectedNotification.createdAt)}
-                  </Typography>
+            <DialogTitle sx={{ backgroundColor: '#f5f3f6', color: '#2a0f35', pb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Avatar
+                    sx={{
+                      bgcolor: `${getNotificationColor(selectedNotification.type)}15`,
+                      color: getNotificationColor(selectedNotification.type),
+                    }}
+                  >
+                    {getNotificationIcon(selectedNotification.type)}
+                  </Avatar>
+                  <Box>
+                    <Typography variant="h6">{getNotificationTypeText(selectedNotification.type)}</Typography>
+                    <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
+                      {formatTime(selectedNotification.createdAt)}
+                      {selectedNotification.senderName && ` • От: ${selectedNotification.senderName}`}
+                    </Typography>
+                  </Box>
                 </Box>
+                <IconButton
+                  size="small"
+                  onClick={() => handleDeleteNotification(selectedNotification.id)}
+                  sx={{ color: '#f44336' }}
+                >
+                  <Delete />
+                </IconButton>
               </Box>
             </DialogTitle>
-            <DialogContent>
+            <DialogContent sx={{ pt: 3 }}>
               <Typography variant="body1" sx={{ color: '#4c5454', mb: 3, whiteSpace: 'pre-wrap' }}>
                 {selectedNotification.message}
               </Typography>
 
-              {selectedNotification.data && (
+              {selectedNotification.data && Object.keys(selectedNotification.data).length > 0 && (
                 <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2" sx={{ color: '#2a0f35', mb: 1 }}>
+                  <Typography variant="subtitle2" sx={{ color: '#2a0f35', mb: 2 }}>
                     Дополнительная информация:
                   </Typography>
-                  {selectedNotification.data.photos && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      <PhotoCamera sx={{ color: '#674fb6', fontSize: 20 }} />
-                      <Typography variant="body2" sx={{ color: '#4c5454' }}>
-                        Фото: {selectedNotification.data.photos} шт.
-                      </Typography>
-                    </Box>
-                  )}
-                  {selectedNotification.data.videos && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      <Videocam sx={{ color: '#2a436d', fontSize: 20 }} />
-                      <Typography variant="body2" sx={{ color: '#4c5454' }}>
-                        Видео: {selectedNotification.data.videos} шт.
-                      </Typography>
-                    </Box>
-                  )}
-                  {selectedNotification.data.items && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="subtitle2" sx={{ color: '#2a0f35', mb: 1 }}>
-                        Товары:
-                      </Typography>
-                      {selectedNotification.data.items.map((item: string, index: number) => (
-                        <Typography key={index} variant="body2" sx={{ color: '#4c5454', pl: 2 }}>
-                          • {item}
-                        </Typography>
-                      ))}
-                    </Box>
-                  )}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {Object.entries(selectedNotification.data).map(([key, value]) => {
+                      if (typeof value === 'object' && !Array.isArray(value)) {
+                        return null;
+                      }
+                      
+                      return (
+                        <Box key={key} sx={{ display: 'flex', gap: 1 }}>
+                          <Typography variant="body2" sx={{ color: '#2a0f35', minWidth: 120 }}>
+                            {key}:
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#4c5454' }}>
+                            {Array.isArray(value) 
+                              ? value.join(', ') 
+                              : typeof value === 'object' 
+                                ? JSON.stringify(value) 
+                                : String(value)}
+                          </Typography>
+                        </Box>
+                      );
+                    })}
+                  </Box>
                 </Box>
               )}
             </DialogContent>
-            <DialogActions>
+            <DialogActions sx={{ p: 2, pt: 1 }}>
               <Button onClick={handleCloseDetails} sx={{ color: '#4c5454' }}>
                 Закрыть
               </Button>
-              {(selectedNotification.type === NotificationType.MOVEMENT_REQUEST || 
-                selectedNotification.type === NotificationType.INVENTORY_REVIEW) && (
+              {selectedNotification.entityType && selectedNotification.entityId && (
                 <Button
                   variant="contained"
+                  onClick={() => handleNavigateToEntity(selectedNotification)}
+                  startIcon={<ArrowForward />}
                   sx={{
                     backgroundColor: getNotificationColor(selectedNotification.type),
                     '&:hover': {
@@ -384,7 +511,7 @@ const Notifications: React.FC = () => {
                     },
                   }}
                 >
-                  Перейти к проверке
+                  Перейти
                 </Button>
               )}
             </DialogActions>

@@ -84,13 +84,29 @@ def read_cluster(
     
     # Проверяем права доступа
     if current_user.role == UserRole.OWNER:
-        pass
+        pass  # Владелец видит все
+    
     elif current_user.role == UserRole.ADMIN:
+        # Админ может видеть кластеры, если он их админ
         if not current_user.admin_clusters or cluster_id not in current_user.admin_clusters:
             raise HTTPException(status_code=403, detail="Not enough permissions")
+    
     elif current_user.role == UserRole.SENIOR_SELLER:
+        # Старший продавец видит свой куст
         if cluster.senior_seller_id != current_user.id:
+            # Также может видеть куст, если сам принадлежит к нему
+            if current_user.cluster_id != cluster_id:
+                raise HTTPException(status_code=403, detail="Not enough permissions")
+    
+    elif current_user.role in [UserRole.MENTOR, UserRole.SELLER]:
+        # Ментор и продавец могут видеть только свой куст
+        if current_user.cluster_id != cluster_id:
             raise HTTPException(status_code=403, detail="Not enough permissions")
+    
+    elif current_user.role == UserRole.ACCOUNTANT:
+        # Бухгалтер может видеть все кластеры
+        pass
+    
     else:
         raise HTTPException(status_code=403, detail="Not enough permissions")
     
@@ -155,3 +171,4 @@ def remove_group_from_cluster(
         return {"message": "Group removed from cluster successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
