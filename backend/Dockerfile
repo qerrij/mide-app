@@ -14,5 +14,4 @@ COPY . .
 
 RUN mkdir -p uploads
 
-# Команда запуска
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000"]
+CMD ["sh", "-c", "python -c \"import sys; sys.path.append('.'); exec(open('scripts/init_db.py').read())\" && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
