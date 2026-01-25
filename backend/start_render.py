@@ -43,9 +43,9 @@ def init_database():
         from app.models.report import Report
         from app.models.group import Group
         from app.models.cluster import Cluster
-        from app.models.inventory import Inventory
-        from app.models.company import Company
-        from app.models.category import Category
+        from app.models.inventory import UserInventory
+        from app.models.company import CompanyBalance, CompanySettings
+        from app.models.category import ProductCategory
         from app.models.transfer import Transfer
         from app.models.revision import Revision
         from app.models.notification import Notification
