@@ -1,3 +1,4 @@
+from pathlib import Path
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional, Dict, Any
 from sqlalchemy import and_, or_, func
@@ -176,7 +177,7 @@ class CRUDTransfer:
         *,
         transfer_in: Dict[str, Any],
         items: List[Dict[str, Any]],
-        files: Optional[List[UploadFile]] = None,
+        files: Optional[List[Any]] = None,  # Измени тип на Any
         created_by_id: int
     ) -> Transfer:
         """Создать запрос на перемещение от пользователя"""
@@ -206,6 +207,10 @@ class CRUDTransfer:
             folder_path = f"transfers/temp"
             saved_files = save_uploaded_files(files, folder_path)
             
+            # Если не сохранилось ни одного файла
+            if not saved_files:
+                raise ValueError("Не удалось сохранить файлы")
+            
             # Создаем перемещение
             db_transfer = Transfer(
                 title=transfer_in['title'],
@@ -222,6 +227,29 @@ class CRUDTransfer:
             
             db.add(db_transfer)
             db.flush()
+            
+            # Перемещаем файлы в постоянную папку
+            if saved_files:
+                new_folder_path = f"transfers/{db_transfer.id}"
+                new_saved_files = []
+                
+                for old_path in saved_files:
+                    try:
+                        old_full_path = Path(f"uploads/{old_path}")
+                        if old_full_path.exists():
+                            new_dir = Path(f"uploads/{new_folder_path}")
+                            new_dir.mkdir(parents=True, exist_ok=True)
+                            
+                            filename = old_full_path.name
+                            new_full_path = new_dir / filename
+                            
+                            old_full_path.rename(new_full_path)
+                            new_saved_files.append(f"{new_folder_path}/{filename}")
+                    except Exception as e:
+                        print(f"Ошибка перемещения файла {old_path}: {e}")
+                        new_saved_files.append(old_path)
+                
+                db_transfer.files = new_saved_files
             
             # Создаем товары и считаем статистику
             total_items = 0
@@ -272,6 +300,8 @@ class CRUDTransfer:
             
         except Exception as e:
             print(f"ERROR: Ошибка создания перемещения: {e}")
+            import traceback
+            traceback.print_exc()
             db.rollback()
             raise
     

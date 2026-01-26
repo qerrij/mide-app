@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, status, UploadFile, File, Form
 from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.crud.transfer import crud_transfer
@@ -18,18 +18,22 @@ router = APIRouter(prefix="/transfers", tags=["transfers"])
 
 @router.post("/user-request", response_model=TransferResponse, status_code=status.HTTP_201_CREATED)
 async def create_user_transfer(
+    request: Request,
     title: str = Form(...),
     description: Optional[str] = Form(None),
     from_user_id: int = Form(...),
     to_user_id: int = Form(...),
     executor_id: Optional[int] = Form(None),
     items_json: str = Form(...),
-    files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Создать запрос на перемещение от пользователя"""
     try:
+        # Получаем файлы из request
+        form = await request.form()
+        files = form.getlist("files")
+        
         # Парсим товары из JSON
         items_data = json.loads(items_json)
         
@@ -147,14 +151,18 @@ def get_manager_requests(
 @router.post("/{transfer_id}/execute-manager-request", response_model=TransferResponse)
 async def execute_manager_request(
     transfer_id: int,
+    request: Request,
     executor_id: Optional[int] = Form(None),
     notes: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Подтвердить и выполнить запрос перемещения от руководителя"""
     try:
+        # Получаем файлы из request
+        form = await request.form()
+        files = form.getlist("files")
+        
         # Проверяем обязательные файлы
         if not files or len(files) == 0:
             raise HTTPException(status_code=400, detail="Для выполнения запроса необходимо прикрепить фотографии товаров")
@@ -242,15 +250,19 @@ def start_transfer(
 @router.post("/{transfer_id}/arrived")
 async def mark_arrived(
     transfer_id: int,
+    request: Request,
     action: str = Form(...),
     items_json: Optional[str] = Form(None),  # Делаем необязательным
     notes: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Отметить прибытие товара"""
     try:
+        # Получаем файлы из request
+        form = await request.form()
+        files = form.getlist("files")
+        
         # 🔴 Валидация действия
         if action not in ["accept", "reject", "discrepancy"]:
             raise HTTPException(
@@ -278,8 +290,7 @@ async def mark_arrived(
             # Для reject items_json может быть пустым или None
             
             # Если пришли файлы при reject - игнорируем их
-            if files:
-                files = None
+            files = []
         
         items = []
         
@@ -340,8 +351,8 @@ async def mark_arrived(
                     'notes': item.get('notes')
                 })
         
-        # 🔴 Для reject передаем None для files и пустой список для items
-        files_to_pass = files if action in ["accept", "discrepancy"] else None
+        # 🔴 Для reject передаем пустой список для files и items
+        files_to_pass = files if action in ["accept", "discrepancy"] else []
         items_to_pass = items if action in ["accept", "discrepancy"] else []
         
         success = crud_transfer.mark_arrived(
