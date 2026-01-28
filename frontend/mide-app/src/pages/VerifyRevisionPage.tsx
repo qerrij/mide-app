@@ -25,7 +25,6 @@ import {
   AccordionDetails,
   Avatar,
   Stack,
-  Divider,
   Fade,
 } from '@mui/material';
 import {
@@ -49,7 +48,6 @@ import { userService } from '../api/userService';
 import {
   Revision,
   RevisionStatus,
-  UserRole,
   getRevisionStatusText,
   getRevisionTypeText,
   getRevisionStatusColor,
@@ -77,9 +75,7 @@ const VerifyRevisionPage: React.FC = () => {
   const [selectedPhoto, setSelectedPhoto] = useState<{ photos: string[], index: number } | null>(null);
   const [expandedUsers, setExpandedUsers] = useState<number[]>([]);
   
-  // Ссылка на блок подтверждения
   const confirmationRef = useRef<HTMLDivElement>(null);
-  // Состояние видимости кнопки подтверждения
   const [showConfirmButton, setShowConfirmButton] = useState(true);
 
   // Загрузка данных ревизии
@@ -94,65 +90,24 @@ const VerifyRevisionPage: React.FC = () => {
         }
         
         const revisionData = await revisionService.getRevisionById(parseInt(id));
-        console.log('Loaded revision:', revisionData);
         
-        // Проверяем, можно ли проверять эту ревизию
         if (revisionData.status !== RevisionStatus.COMPLETED) {
           throw new Error('Эта ревизия не готова к проверке');
         }
         
-        // Проверяем права пользователя - может ли он проверять эту ревизию
         if (user?.id !== revisionData.requestedById) {
           throw new Error('Только тот, кто запросил ревизию, может её проверять');
         }
+        setRequestedByName(revisionData.requestedByName || `Пользователь ${revisionData.requestedById}`);
         
-        // Загружаем имя пользователя, который запросил ревизию
-        if (revisionData.requestedById) {
-          try {
-            const requester = await userService.getUserById(revisionData.requestedById);
-            setRequestedByName(requester.fullName);
-          } catch (error) {
-            console.error('Error loading requester:', error);
-            setRequestedByName(revisionData.requestedByName || `Пользователь ${revisionData.requestedById}`);
-          }
-        }
+        setRevision(revisionData);
         
-        // Обогащаем имена пользователей в заполнениях
-        const enrichedFillings = await Promise.all(
-          revisionData.fillings.map(async (filling) => {
-            // Проверяем, нужно ли обогащать имя
-            if (filling.userId && (!filling.userName || filling.userName.startsWith('Пользователь'))) {
-              try {
-                const userData = await userService.getUserById(filling.userId);
-                return {
-                  ...filling,
-                  userName: userData.fullName
-                };
-              } catch (error) {
-                console.error('Error loading user for filling:', error);
-                return filling;
-              }
-            }
-            return filling;
-          })
-        );
-        
-        setRevision({
-          ...revisionData,
-          fillings: enrichedFillings
-        });
-        
-        // Загружаем ПРЕДВАРИТЕЛЬНЫЕ расхождения
+        // Получаем расхождения с сервера
         try {
           const calculatedDiscrepancies = await revisionService.calculateDiscrepancies(parseInt(id));
-          console.log('Calculated discrepancies:', calculatedDiscrepancies);
-          
-          // Расхождения УЖЕ содержат имена пользователей из бэкенда
           setDiscrepancies(calculatedDiscrepancies);
-          
         } catch (error) {
           console.error('Error calculating discrepancies:', error);
-          // Если не удалось рассчитать расхождения, показываем пустой массив
           setDiscrepancies([]);
         }
         
@@ -177,37 +132,51 @@ const VerifyRevisionPage: React.FC = () => {
       const sectionTop = confirmationSection.offsetTop;
       const sectionHeight = confirmationSection.offsetHeight;
       
-      // Если пользователь прокрутил до блока подтверждения
       if (scrollPosition > sectionTop + sectionHeight / 2) {
-        // Пользователь видит блок подтверждения - скрываем кнопку
         setShowConfirmButton(false);
       } else {
-        // Пользователь не видит блок подтверждения - показываем кнопку
         setShowConfirmButton(true);
       }
     };
     
-    // Добавляем слушатель скролла
     window.addEventListener('scroll', handleScroll);
-    
-    // Вызываем сразу для определения начального положения
     handleScroll();
     
-    // Убираем слушатель при размонтировании
     return () => {
       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
 
-  // Расчет общего расхождения
+  // Общий итог из серверных данных
   const getTotalDiscrepancy = () => {
     if (discrepancies.length === 0) return { total: 0, positive: 0, negative: 0 };
     
-    const total = discrepancies.reduce((sum, ud) => sum + (ud.totalDiscrepancy || 0), 0);
-    const positive = discrepancies.reduce((sum, ud) => sum + (ud.positiveTotal || 0), 0);
-    const negative = discrepancies.reduce((sum, ud) => sum + (ud.negativeTotal || 0), 0);
+    const total = discrepancies.reduce((sum, ud) => sum + ud.totalDiscrepancy, 0);
+    const positive = discrepancies.reduce((sum, ud) => sum + ud.positiveTotal, 0);
+    const negative = discrepancies.reduce((sum, ud) => sum + ud.negativeTotal, 0);
     
     return { total, positive, negative };
+  };
+
+  // Получение расхождений для пользователя
+  const getUserDiscrepancy = (userId: number) => {
+    const userDiscrepancy = discrepancies.find(d => d.userId === userId);
+    if (!userDiscrepancy) return { total: 0, positive: 0, negative: 0 };
+    
+    return {
+      total: userDiscrepancy.totalDiscrepancy,
+      positive: userDiscrepancy.positiveTotal,
+      negative: userDiscrepancy.negativeTotal,
+    };
+  };
+
+  // Получение ожидаемого количества из заполнения пользователя
+  const getExpectedQuantity = (userId: number, productId: number): number => {
+    const userFilling = revision?.fillings.find(f => f.userId === userId);
+    if (!userFilling) return 0;
+    
+    const item = userFilling.items.find(i => i.productId === productId);
+    return item?.quantity || 0;
   };
 
   // Проверка ревизии
@@ -217,8 +186,6 @@ const VerifyRevisionPage: React.FC = () => {
       
       setVerifying(true);
       setError(null);
-      
-      // Показываем диалог подтверждения
       setShowConfirmDialog(true);
       
     } catch (err: any) {
@@ -452,14 +419,14 @@ const VerifyRevisionPage: React.FC = () => {
         <Box sx={{ 
           p: 4, 
           backgroundColor: isPositiveTotal ? '#2196f315' : 
-                         isNegativeTotal ? '#f4433615' : '#f5f5f5',
+                         isNegativeTotal ? '#f4433615' : '#4caf5015',
           borderRadius: 2,
           textAlign: 'center'
         }}>
           {totalDiscrepancy.total !== 0 ? (
             <>
               <Typography variant="body1" color="#4c5454" gutterBottom>
-                {isPositiveTotal ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
+                {isPositiveTotal ? 'Заполнено больше инвентаря на' : 'Заполнено меньше инвентаря на'}
               </Typography>
               <Typography 
                 variant="h1" 
@@ -482,7 +449,7 @@ const VerifyRevisionPage: React.FC = () => {
                 0
               </Typography>
               <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                Расхождений не обнаружено
+                Заполненное количество соответствует инвентарю
               </Typography>
             </>
           )}
@@ -490,43 +457,46 @@ const VerifyRevisionPage: React.FC = () => {
       </Paper>
 
       {/* Блок 3: Детали по участникам */}
-      {completedFillings.length > 0 && (
+      {discrepancies.length > 0 && (
         <Paper sx={{ p: 3, mb: 3 }}>
           <Typography variant="h6" gutterBottom color="#2a0f35">
-            Детали по участникам ({completedFillings.length})
+            Расхождения по участникам ({discrepancies.length})
           </Typography>
           
-          {completedFillings.map((filling) => {
-            const userDiscrepancy = discrepancies.find(d => d.userId === filling.userId);
-            const isExpanded = expandedUsers.includes(filling.userId);
-            const userTotal = userDiscrepancy?.totalDiscrepancy || 0;
+          {discrepancies.map((userDiscrepancy) => {
+            const userFilling = revision.fillings.find(f => f.userId === userDiscrepancy.userId);
+            const isExpanded = expandedUsers.includes(userDiscrepancy.userId);
+            const userTotal = userDiscrepancy.totalDiscrepancy;
             const userIsPositive = userTotal > 0;
             const userIsNegative = userTotal < 0;
+            const hasDiscrepancies = userDiscrepancy.discrepancies.length > 0;
             
             return (
               <Accordion 
-                key={filling.id} 
+                key={userDiscrepancy.userId} 
                 expanded={isExpanded}
-                onChange={() => handleAccordionChange(filling.userId)}
+                onChange={() => handleAccordionChange(userDiscrepancy.userId)}
                 sx={{ mb: 2 }}
               >
                 <AccordionSummary expandIcon={<ExpandMore />}>
                   <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
                     <Avatar sx={{ width: 40, height: 40, bgcolor: '#2196f3' }}>
-                      {filling.userName?.charAt(0) || 'П'}
+                      {userDiscrepancy.userName?.charAt(0) || 'П'}
                     </Avatar>
                     
                     <Box sx={{ flex: 1 }}>
                       <Typography variant="subtitle1">
-                        {filling.userName || `Пользователь ${filling.userId}`}
+                        {userDiscrepancy.userName || `Пользователь ${userDiscrepancy.userId}`}
                       </Typography>
                       <Typography variant="body2" color="#4c5454">
-                        Товары: {filling.items.length} шт. • Фото: {filling.photos.length} шт.
+                        Товары: {userFilling?.items.length || 0} шт. • 
+                        Фото: {userFilling?.photos.length || 0} шт. • 
+                        {hasDiscrepancies ? ' Есть расхождения' : ' Нет расхождений'}
                       </Typography>
                     </Box>
                     
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                      {userTotal !== 0 ? (
+                      {hasDiscrepancies ? (
                         <Chip
                           label={`${userIsPositive ? '+' : ''}${userTotal}`}
                           sx={{
@@ -548,11 +518,11 @@ const VerifyRevisionPage: React.FC = () => {
                 </AccordionSummary>
                 
                 <AccordionDetails>
-                  {/* Расхождения по товарам */}
-                  {userDiscrepancy && userDiscrepancy.discrepancies.length > 0 && (
+                  {/* Таблица расхождений */}
+                  {hasDiscrepancies && (
                     <Box sx={{ mb: 3 }}>
                       <Typography variant="subtitle2" gutterBottom color="#2a0f35">
-                        Расхождения по товарам
+                        Детали расхождений
                       </Typography>
                       
                       <TableContainer>
@@ -560,61 +530,177 @@ const VerifyRevisionPage: React.FC = () => {
                           <TableHead>
                             <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
                               <TableCell>Товар</TableCell>
-                              <TableCell align="right">Ожидаемо</TableCell>
-                              <TableCell align="right">Фактически</TableCell>
-                              <TableCell align="right">Разница</TableCell>
+                              <TableCell align="right">Заполнено</TableCell>
+                              <TableCell align="center">Расхождение</TableCell>
+                              <TableCell align="center">Статус</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {userDiscrepancy.discrepancies.map((disc, idx) => (
-                              <TableRow key={idx} hover>
-                                <TableCell>
-                                  <Typography variant="body2">
-                                    {disc.productName || `Товар ${disc.productId}`}
-                                  </Typography>
-                                  <Typography variant="caption" color="#4c5454" display="block">
-                                    {disc.productSku || `SKU${disc.productId}`}
-                                  </Typography>
-                                </TableCell>
-                                <TableCell align="right">
-                                  <Typography variant="body2">
-                                    {disc.expected} шт.
-                                  </Typography>
-                                </TableCell>
-                                <TableCell align="right">
-                                  <Typography variant="body2">
-                                    {disc.actual} шт.
-                                  </Typography>
-                                </TableCell>
-                                <TableCell align="right">
+                            {userDiscrepancy.discrepancies.map((disc, idx) => {
+                              const expectedQuantity = getExpectedQuantity(userDiscrepancy.userId, disc.productId);
+                              const discrepancy = disc.discrepancy || 0;
+                              const isPositive = discrepancy > 0;
+                              const isZero = discrepancy === 0;
+                              
+                              return (
+                                <TableRow 
+                                  key={idx} 
+                                  hover
+                                  sx={{
+                                    backgroundColor: isPositive ? '#2196f308' : 
+                                                  isZero ? '#fafafa' : '#f4433608'
+                                  }}
+                                >
+                                  <TableCell>
+                                    <Box>
+                                      <Typography variant="body2">
+                                        {disc.productName || `Товар ${disc.productId}`}
+                                      </Typography>
+                                      <Typography variant="caption" color="#4c5454" display="block">
+                                        {disc.productSku || `SKU${disc.productId}`}
+                                      </Typography>
+                                    </Box>
+                                  </TableCell>
+                                  <TableCell align="right">
+                                    <Typography variant="body2">
+                                      {expectedQuantity} шт.
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell align="center">
+                                    {!isZero ? (
+                                      <Chip
+                                        size="small"
+                                        icon={isPositive ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />}
+                                        label={`${isPositive ? '+' : ''}${disc.discrepancy}`}
+                                        sx={{
+                                          backgroundColor: isPositive ? '#2196f315' : '#f4433615',
+                                          color: isPositive ? '#2196f3' : '#f44336',
+                                          fontWeight: 600,
+                                          minWidth: 60
+                                        }}
+                                      />
+                                    ) : (
+                                      <Chip
+                                        size="small"
+                                        label="0"
+                                        sx={{
+                                          backgroundColor: '#e0e0e0',
+                                          color: '#616161',
+                                          fontWeight: 600,
+                                          minWidth: 60
+                                        }}
+                                      />
+                                    )}
+                                  </TableCell>
+                                  <TableCell align="center">
+                                    {!isZero ? (
+                                      <Chip
+                                        size="small"
+                                        label={isPositive ? 'Излишек' : 'Недостача'}
+                                        sx={{
+                                          backgroundColor: isPositive ? '#2196f315' : '#f4433615',
+                                          color: isPositive ? '#2196f3' : '#f44336',
+                                          fontSize: '0.7rem',
+                                        }}
+                                      />
+                                    ) : (
+                                      <Chip
+                                        size="small"
+                                        label="Нет расхождений"
+                                        sx={{
+                                          backgroundColor: '#4caf5015',
+                                          color: '#4caf50',
+                                          fontSize: '0.7rem',
+                                        }}
+                                      />
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                            
+                            {/* Итоговая строка */}
+                            <TableRow sx={{ backgroundColor: '#fafafa', fontWeight: 'bold' }}>
+                              <TableCell>
+                                <Typography variant="subtitle2">
+                                  Итого:
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="right">
+                                <Typography variant="subtitle2">
+                                  {userFilling?.items.reduce((sum, item) => sum + item.quantity, 0) || 0} шт.
+                                </Typography>
+                              </TableCell>
+                              <TableCell align="center">
+                                {userTotal !== 0 ? (
                                   <Chip
                                     size="small"
-                                    icon={disc.isPositive ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />}
-                                    label={`${disc.isPositive ? '+' : ''}${disc.discrepancy}`}
+                                    icon={userIsPositive ? <ArrowUpward fontSize="small" /> : <ArrowDownward fontSize="small" />}
+                                    label={`${userIsPositive ? '+' : ''}${userTotal}`}
                                     sx={{
-                                      backgroundColor: disc.isPositive ? '#2196f315' : '#f4433615',
-                                      color: disc.isPositive ? '#2196f3' : '#f44336',
-                                      fontWeight: 500,
+                                      backgroundColor: userIsPositive ? '#2196f315' : '#f4433615',
+                                      color: userIsPositive ? '#2196f3' : '#f44336',
+                                      fontWeight: 700,
+                                      fontSize: '0.875rem',
+                                      minWidth: 60
                                     }}
                                   />
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                                ) : (
+                                  <Chip
+                                    size="small"
+                                    label="0"
+                                    sx={{
+                                      backgroundColor: '#e0e0e0',
+                                      color: '#616161',
+                                      fontWeight: 700,
+                                      fontSize: '0.875rem',
+                                      minWidth: 60
+                                    }}
+                                  />
+                                )}
+                              </TableCell>
+                              <TableCell align="center">
+                                {userTotal !== 0 ? (
+                                  <Chip
+                                    size="small"
+                                    label={userIsPositive ? 'В плюсе' : 'В минусе'}
+                                    sx={{
+                                      backgroundColor: userIsPositive ? '#2196f315' : '#f4433615',
+                                      color: userIsPositive ? '#2196f3' : '#f44336',
+                                      fontWeight: 600,
+                                      fontSize: '0.7rem',
+                                    }}
+                                  />
+                                ) : (
+                                  <Chip
+                                    size="small"
+                                    label="Сбалансирован"
+                                    sx={{
+                                      backgroundColor: '#4caf5015',
+                                      color: '#4caf50',
+                                      fontWeight: 600,
+                                      fontSize: '0.7rem',
+                                    }}
+                                  />
+                                )}
+                              </TableCell>
+                            </TableRow>
                           </TableBody>
                         </Table>
                       </TableContainer>
+                      
                     </Box>
                   )}
                   
                   {/* Фотографии */}
-                  {filling.photos.length > 0 && (
+                  {userFilling?.photos && userFilling.photos.length > 0 && (
                     <Box>
                       <Typography variant="subtitle2" gutterBottom color="#2a0f35">
-                        Фотографии ({filling.photos.length})
+                        Фотографии ({userFilling.photos.length})
                       </Typography>
                       
                       <Grid container spacing={1}>
-                        {filling.photos.map((photo, index) => (
+                        {userFilling.photos.map((photo, index) => (
                           <Grid size={{ xs: 6, sm: 4, md: 3 }} key={index}>
                             <Box
                               sx={{
@@ -629,7 +715,7 @@ const VerifyRevisionPage: React.FC = () => {
                                   opacity: 0.9,
                                 },
                               }}
-                              onClick={() => handleViewPhoto(filling.photos, index)}
+                              onClick={() => handleViewPhoto(userFilling.photos, index)}
                             >
                               <Box
                                 sx={{
@@ -651,13 +737,6 @@ const VerifyRevisionPage: React.FC = () => {
                         ))}
                       </Grid>
                     </Box>
-                  )}
-                  
-                  {/* Сообщение если нет расхождений и фотографий */}
-                  {(!userDiscrepancy || userDiscrepancy.discrepancies.length === 0) && filling.photos.length === 0 && (
-                    <Typography variant="body2" color="#4c5454" align="center" sx={{ py: 2 }}>
-                      Нет расхождений и фотографий для отображения
-                    </Typography>
                   )}
                 </AccordionDetails>
               </Accordion>
@@ -765,12 +844,12 @@ const VerifyRevisionPage: React.FC = () => {
           
           {totalDiscrepancy.total !== 0 && (
             <Alert 
-              severity={isPositiveTotal ? "info" : "warning"} 
+              severity={isPositiveTotal ? "warning" : "info"} 
               sx={{ mb: 2 }}
             >
               {isPositiveTotal 
-                ? `Ревизия в плюсе на +${totalDiscrepancy.total}. Данные будут зафиксированы.`
-                : `Ревизия в минусе на ${totalDiscrepancy.total}. Данные будут зафиксированы.`
+                ? `Заполнено больше инвентаря на +${totalDiscrepancy.total} (излишек). Данные будут зафиксированы.`
+                : `Заполнено меньше инвентаря на ${totalDiscrepancy.total} (недостача). Данные будут зафиксированы.`
               }
             </Alert>
           )}

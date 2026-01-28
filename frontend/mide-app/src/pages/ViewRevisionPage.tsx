@@ -341,73 +341,98 @@ const ViewRevisionPage: React.FC = () => {
       </Paper>
 
       {/* Блок 2: Статус ревизии */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom color="#2a0f35">
-          Статус ревизии
-        </Typography>
-        
-        <Box sx={{ 
-          p: 4, 
-          backgroundColor: '#f5f5f5',
-          borderRadius: 2,
-          textAlign: 'center'
-        }}>
-          {isRevisionVerified ? (
-            revision.discrepancies && revision.discrepancies.length > 0 ? (
-              <>
-                <Typography variant="body1" color="#4c5454" gutterBottom>
-                  {revision.discrepancies.some(d => d.isPositive) 
-                    ? 'Ревизия в плюсе' 
-                    : 'Ревизия в минусе'}
-                </Typography>
-                <Typography 
-                  variant="h1" 
-                  color={revision.discrepancies.some(d => d.isPositive) ? '#2196f3' : '#f44336'}
-                  sx={{ fontWeight: 'bold' }}
-                >
-                  {revision.discrepancies.reduce((sum, d) => 
-                    sum + d.discrepancy, 0
-                  )}
-                </Typography>
-                <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                  {revision.discrepancies.filter(d => d.isPositive).length > 0 && 
-                    `Излишек: +${revision.discrepancies.filter(d => d.isPositive).reduce((sum, d) => sum + d.discrepancy, 0)} `}
-                  {revision.discrepancies.filter(d => !d.isPositive).length > 0 && 
-                    `Недостача: -${revision.discrepancies.filter(d => !d.isPositive).reduce((sum, d) => sum + d.discrepancy, 0)}`}
-                </Typography>
-              </>
-            ) : (
-              <>
-                <Typography variant="body1" color="#4c5454" gutterBottom>
-                  Ревизия сбалансирована
-                </Typography>
-                <Typography variant="h1" color="#4caf50" sx={{ fontWeight: 'bold' }}>
-                  0
-                </Typography>
-                <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                  Расхождений не обнаружено
-                </Typography>
-              </>
-            )
+    <Paper sx={{ p: 3, mb: 3 }}>
+      <Typography variant="h6" gutterBottom color="#2a0f35">
+        Статус ревизии
+      </Typography>
+      
+      <Box sx={{ 
+        p: 4, 
+        backgroundColor: '#f5f5f5',
+        borderRadius: 2,
+        textAlign: 'center'
+      }}>
+        {isRevisionVerified ? (
+          revision.discrepancies && revision.discrepancies.length > 0 ? (
+            <>
+              {(() => {
+                // Фильтруем только ненулевые расхождения
+                const nonZeroDiscrepancies = revision.discrepancies.filter(d => d.discrepancy !== 0);
+                const positiveDiscrepancies = nonZeroDiscrepancies.filter(d => d.discrepancy > 0);
+                const negativeDiscrepancies = nonZeroDiscrepancies.filter(d => d.discrepancy < 0);
+                const totalDiscrepancy = nonZeroDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0);
+                
+                if (nonZeroDiscrepancies.length === 0) {
+                  // Все расхождения нулевые
+                  return (
+                    <>
+                      <Typography variant="body1" color="#4c5454" gutterBottom>
+                        Ревизия сбалансирована
+                      </Typography>
+                      <Typography variant="h1" color="#4caf50" sx={{ fontWeight: 'bold' }}>
+                        0
+                      </Typography>
+                      <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
+                        Расхождений не обнаружено
+                      </Typography>
+                    </>
+                  );
+                }
+                
+                return (
+                  <>
+                    <Typography variant="body1" color="#4c5454" gutterBottom>
+                      {totalDiscrepancy > 0 ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
+                    </Typography>
+                    <Typography 
+                      variant="h1" 
+                      color={totalDiscrepancy > 0 ? '#2196f3' : '#f44336'}
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      {totalDiscrepancy}
+                    </Typography>
+                    <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
+                      {positiveDiscrepancies.length > 0 && 
+                        `Излишек: +${positiveDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0)} `}
+                      {negativeDiscrepancies.length > 0 && 
+                        `Недостача: ${negativeDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0)}`}
+                    </Typography>
+                  </>
+                );
+              })()}
+            </>
           ) : (
             <>
               <Typography variant="body1" color="#4c5454" gutterBottom>
-                {revision.status === RevisionStatus.COMPLETED 
-                  ? 'Ревизия заполнена всеми участниками'
-                  : 'Ревизия заполняется'}
+                Ревизия сбалансирована
               </Typography>
-              <Typography variant="h3" color="#2a0f35" sx={{ fontWeight: 'bold', mt: 2 }}>
-                {getRevisionStatusText(revision.status)}
+              <Typography variant="h1" color="#4caf50" sx={{ fontWeight: 'bold' }}>
+                0
               </Typography>
-              {isOwner && isGroupRev && revision.totalFilled !== undefined && (
-                <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                  {revision.totalFilled} из {revision.totalUsers} заполнили
-                </Typography>
-              )}
+              <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
+                Расхождений не обнаружено
+              </Typography>
             </>
-          )}
-        </Box>
-      </Paper>
+          )
+        ) : (
+          <>
+            <Typography variant="body1" color="#4c5454" gutterBottom>
+              {revision.status === RevisionStatus.COMPLETED 
+                ? 'Ревизия заполнена всеми участниками'
+                : 'Ревизия заполняется'}
+            </Typography>
+            <Typography variant="h3" color="#2a0f35" sx={{ fontWeight: 'bold', mt: 2 }}>
+              {getRevisionStatusText(revision.status)}
+            </Typography>
+            {isOwner && isGroupRev && revision.totalFilled !== undefined && (
+              <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
+                {revision.totalFilled} из {revision.totalUsers} заполнили
+              </Typography>
+            )}
+          </>
+        )}
+      </Box>
+    </Paper>
 
       {/* Блок 3: Данные ревизии */}
       {completedFillings.length > 0 ? (

@@ -188,18 +188,20 @@ export const reportService = {
   getPhotoUrl: (photoPath: string): string => {
     if (!photoPath) return '';
     
+    // Если уже полный URL
     if (photoPath.startsWith('http')) {
       return photoPath;
     }
     
-    if (photoPath.startsWith('uploads/')) {
-      return `http://localhost:8000/${photoPath}`;
+    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    
+    // Убираем лишний uploads/ если есть
+    let cleanPath = photoPath;
+    if (cleanPath.startsWith('uploads/')) {
+      cleanPath = cleanPath.substring(8); // Убираем 'uploads/'
     }
     
-    if (photoPath.startsWith('reports/')) {
-      return `http://localhost:8000/uploads/${photoPath}`;
-    }
-    
-    return `http://localhost:8000/uploads/${photoPath}`;
+    // Формируем полный URL
+    return `${API_URL}/uploads/${cleanPath}`;
   },
 };
