@@ -271,7 +271,8 @@ function App() {
                           UserRole.OWNER,
                           UserRole.ADMIN,
                           UserRole.SENIOR_SELLER,
-                          UserRole.MENTOR
+                          UserRole.MENTOR,
+                          UserRole.SELLER
                         ]}>
                           <DefectStatsPage />
                         </RoleBasedRoute>

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, field_validator, ConfigDict
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 from datetime import datetime
 import json
 from app.models.rejection import RejectionStatus
@@ -70,18 +70,6 @@ class RejectionResponse(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
-
-class RejectionProductStats(BaseModel):
-    product_id: int
-    product_name: str
-    product_sku: str
-    category_id: Optional[int] = None
-    category_name: Optional[str] = None
-    total_rejected: int
-    total_value: float
-    users_count: int
-
-
 class RejectionUserStats(BaseModel):
     user_id: int
     user_name: str
@@ -112,3 +100,38 @@ class RejectionDetailedStats(BaseModel):
     total_users: int
     total_products: int
     by_month: Optional[List[Dict]] = None  # Статистика по месяцам
+
+
+
+# Добавим новые схемы
+class UserRejectionStatsDetail(BaseModel):
+    """Детальная статистика брака для пользователя"""
+    user_id: int
+    user_name: str
+    user_role: Optional[str] = None
+    cluster_id: Optional[int] = None
+    cluster_name: Optional[str] = None
+    mentor_id: Optional[int] = None
+    mentor_name: Optional[str] = None
+    total_rejections: int  # Количество запросов на брак
+    total_items: int  # Общее количество бракованных товаров
+    total_value: float  # Общая стоимость брака
+    products_count: int  # Количество разных товаров
+    
+    # Детали по товарам
+    products: List[RejectionUserProductStats] = []
+
+
+class UserRejectionDetailedStats(BaseModel):
+    """Детальная статистика браков для пользователей и их подчиненных"""
+    current_user: RejectionUserStats  # Статистика текущего пользователя
+    subordinates: List[UserRejectionStatsDetail] = []  # Статистика подчиненных
+    total_stats: Dict[str, Any]  # Общая сводка
+
+
+class CombinedRejectionStats(BaseModel):
+    """Объединенная статистика за один запрос"""
+    user_stats: RejectionUserStats  # Статистика по текущему пользователю
+    user_products_stats: List[RejectionUserProductStats]  # Статистика по товарам пользователя
+    subordinates_stats: List[RejectionUserStats] = []  # Статистика подчиненных
+    summary: Dict[str, Any]  # Общая сводка

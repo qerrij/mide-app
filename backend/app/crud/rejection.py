@@ -323,6 +323,125 @@ class CRUDRejection:
                 })
         
         return result
+
+    def get_combined_rejection_stats(
+        self,
+        db: Session,
+        current_user: User,
+        user_id: Optional[int] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None
+    ) -> Dict:
+        """
+        Получить объединенную статистику браков за один запрос
+        """
+        try:
+            target_user_id = user_id if user_id else current_user.id
+            visible_user_ids = self._get_visible_user_ids(db, current_user)
+            
+            if target_user_id not in visible_user_ids and current_user.role != UserRole.OWNER:
+                raise ValueError("Нет прав доступа к статистике этого пользователя")
+            
+            target_user = db.query(User).filter(User.id == target_user_id).first()
+            if not target_user:
+                raise ValueError("Пользователь не найден")
+            
+            # 1. Статистика целевого пользователя
+            user_stats_list = self.get_user_rejection_stats(
+                db=db,
+                current_user=current_user,
+                user_id=target_user_id,
+                date_from=date_from,
+                date_to=date_to
+            )
+            
+            user_stat = user_stats_list[0] if user_stats_list else {
+                "user_id": target_user_id,
+                "user_name": target_user.full_name,
+                "user_role": target_user.role.value,
+                "cluster_id": target_user.cluster_id,
+                "cluster_name": None,
+                "total_rejections": 0,
+                "total_value": 0,
+                "products_count": 0
+            }
+            
+            # 2. Детальная статистика по товарам целевого пользователя
+            user_products_stats = self.get_user_product_rejection_stats(
+                db=db,
+                current_user=current_user,
+                user_id=target_user_id,
+                date_from=date_from,
+                date_to=date_to
+            )
+            
+            # 3. Подчиненные ТОЛЬКО с браком
+            subordinates = []
+            if current_user.role in [UserRole.OWNER, UserRole.ADMIN, UserRole.MENTOR, UserRole.SENIOR_SELLER]:
+                subordinate_ids = [uid for uid in visible_user_ids if uid != target_user_id]
+                
+                for sub_id in subordinate_ids:
+                    sub_stats_list = self.get_user_rejection_stats(
+                        db=db,
+                        current_user=current_user,
+                        user_id=sub_id,
+                        date_from=date_from,
+                        date_to=date_to
+                    )
+                    
+                    # Пропускаем подчиненных без брака
+                    if not sub_stats_list:
+                        continue
+                        
+                    sub_stat = sub_stats_list[0]
+                    
+                    # Пропускаем если нет брака
+                    if sub_stat.get("total_rejections", 0) == 0 and sub_stat.get("total_value", 0) == 0:
+                        continue
+                    
+                    subordinates.append({
+                        "user_id": sub_stat["user_id"],
+                        "user_name": sub_stat["user_name"],
+                        "user_role": sub_stat["user_role"],
+                        "cluster_id": sub_stat["cluster_id"],
+                        "cluster_name": sub_stat["cluster_name"],
+                        "total_rejections": sub_stat["total_rejections"],
+                        "total_value": sub_stat["total_value"],
+                        "products_count": sub_stat["products_count"]
+                    })
+            
+            # 4. Общая статистика (только пользователи с браком)
+            all_users_with_rejections = []
+            if user_stat.get("total_rejections", 0) > 0 or user_stat.get("total_value", 0) > 0:
+                all_users_with_rejections.append(user_stat)
+            all_users_with_rejections.extend(subordinates)
+            
+            total_rejections = sum(u.get("total_rejections", 0) for u in all_users_with_rejections)
+            total_value = sum(u.get("total_value", 0) for u in all_users_with_rejections)
+            
+            summary = {
+                "total_users": len(all_users_with_rejections),
+                "total_rejections": total_rejections,
+                "total_value": total_value,
+                "total_products": len(user_products_stats),
+                "has_rejections": len(all_users_with_rejections) > 0,
+                "date_range": {
+                    "from": date_from.isoformat() if date_from else None,
+                    "to": date_to.isoformat() if date_to else None
+                }
+            }
+            
+            return {
+                "user_stats": user_stat,
+                "user_products_stats": user_products_stats,
+                "subordinates_stats": subordinates,
+                "summary": summary
+            }
+            
+        except Exception as e:
+            print(f"Error in get_combined_rejection_stats: {str(e)}")
+            traceback.print_exc()
+            raise Exception(f"Ошибка при получении статистики: {str(e)}")    
     
     def _get_visible_user_ids(self, db: Session, current_user: User) -> List[int]:
         """

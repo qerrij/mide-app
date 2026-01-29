@@ -1022,6 +1022,60 @@ export interface RejectionDetailedStats {
   }>;
 }
 
+// НОВЫЕ ИНТЕРФЕЙСЫ ДЛЯ ОБЪЕДИНЕННОЙ СТАТИСТИКИ
+
+// Детальная статистика по пользователю (для team-detailed)
+export interface RejectionUserStatsDetail {
+  userId: number;
+  userName: string;
+  userRole?: string;
+  clusterId?: number;
+  clusterName?: string;
+  mentorId?: number;
+  mentorName?: string;
+  totalRejections: number;
+  totalItems: number;
+  totalValue: number;
+  productsCount: number;
+  products: RejectionUserProductStats[];
+}
+
+// Детальная статистика для команды
+export interface TeamRejectionStats {
+  currentUser: RejectionUserStats;
+  subordinates: RejectionUserStatsDetail[];
+  totalStats: {
+    totalUsers: number;
+    totalRejections: number;
+    totalItems: number;
+    totalValue: number;
+    totalProducts: number;
+    dateRange: {
+      from?: string;
+      to?: string;
+    };
+  };
+}
+
+// Объединенная статистика
+export interface CombinedRejectionStats {
+  userStats: RejectionUserStats;
+  userProductsStats: RejectionUserProductStats[];
+  subordinatesStats: RejectionUserStats[];
+  summary: {
+    totalUsers: number;
+    totalRejections: number;
+    totalItems: number;  // Добавляем totalItems
+    totalValue: number;
+    totalProducts: number;
+    hasRejections: boolean;
+    dateRange: {
+      from?: string;
+      to?: string;
+    };
+  };
+}
+
 // Доступный товар для брака
 export interface AvailableProduct {
   productId: number;

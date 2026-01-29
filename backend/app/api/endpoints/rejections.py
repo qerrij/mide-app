@@ -9,9 +9,8 @@ from app.models.user import User, UserRole
 from app.models.rejection import Rejection, RejectionStatus
 from app.api.dependencies import get_current_user, require_roles
 from app.schemas.rejection import (
-    RejectionCreate, RejectionResponse, RejectionUpdate,
-    RejectionProductStats, RejectionUserStats, RejectionUserProductStats,
-    RejectionDetailedStats
+    CombinedRejectionStats, RejectionCreate, RejectionResponse, RejectionUpdate, RejectionUserStats, RejectionUserProductStats,
+    RejectionDetailedStats, UserRejectionDetailedStats, UserRejectionStatsDetail
 )
 from app.crud.rejection import crud_rejection
 from app.core.file_utils import validate_files, save_uploaded_files, get_file_url
@@ -476,59 +475,22 @@ def cancel_rejection(
         )
     
     return None
-
-
-@router.get("/stats/products", response_model=List[RejectionProductStats])
-def get_product_rejection_stats(
-    product_id: Optional[int] = Query(None, description="ID товара для фильтрации"),
-    category_id: Optional[int] = Query(None, description="ID категории для фильтрации"),
+    
+@router.get("/stats/combined", response_model=CombinedRejectionStats)
+def get_combined_rejection_stats(
+    user_id: Optional[int] = Query(None, description="ID пользователя (по умолчанию - текущий)"),
     date_from: Optional[date] = Query(None, description="Дата начала периода"),
     date_to: Optional[date] = Query(None, description="Дата окончания периода"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """
-    Получить статистику браков по товарам
+    Получить объединенную статистику браков за один запрос
     
-    Показывает сколько каждого товара было браковано (только утвержденные браки)
+    ВНИМАНИЕ: возвращаются только те пользователи и подчиненные, у которых был брак!
     """
     try:
-        stats = crud_rejection.get_product_rejection_stats(
-            db=db,
-            current_user=current_user,
-            product_id=product_id,
-            category_id=category_id,
-            date_from=date_from,
-            date_to=date_to
-        )
-        
-        return stats
-        
-    except Exception as e:
-        print(f"Error in get_product_rejection_stats: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ошибка при получении статистики: {str(e)}"
-        )
-
-
-@router.get("/stats/users", response_model=List[RejectionUserStats])
-def get_user_rejection_stats(
-    user_id: Optional[int] = Query(None, description="ID пользователя для детальной статистики"),
-    date_from: Optional[date] = Query(None, description="Дата начала периода"),
-    date_to: Optional[date] = Query(None, description="Дата окончания периода"),
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """
-    Получить статистику браков по пользователям
-    
-    Показывает сколько каждый пользователь браковал товаров (только утвержденные браки)
-    """
-    try:
-        stats = crud_rejection.get_user_rejection_stats(
+        stats = crud_rejection.get_combined_rejection_stats(
             db=db,
             current_user=current_user,
             user_id=user_id,
@@ -536,10 +498,15 @@ def get_user_rejection_stats(
             date_to=date_to
         )
         
-        return stats
+        return CombinedRejectionStats(**stats)
         
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
     except Exception as e:
-        print(f"Error in get_user_rejection_stats: {str(e)}")
+        print(f"Error in get_combined_rejection_stats: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(
@@ -548,83 +515,189 @@ def get_user_rejection_stats(
         )
 
 
-@router.get("/stats/user-products", response_model=List[RejectionUserProductStats])
-def get_user_product_rejection_stats(
-    user_id: Optional[int] = Query(None, description="ID пользователя"),
-    product_id: Optional[int] = Query(None, description="ID товара для фильтрации"),
-    category_id: Optional[int] = Query(None, description="ID категории для фильтрации"),
-    product_name: Optional[str] = Query(None, description="Название товара (поиск)"),
+@router.get("/stats/team-detailed", response_model=UserRejectionDetailedStats)
+def get_team_detailed_rejection_stats(
     date_from: Optional[date] = Query(None, description="Дата начала периода"),
     date_to: Optional[date] = Query(None, description="Дата окончания периода"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """
-    Получить детальную статистику браков по пользователю и товарам
+    Получить детальную статистику браков для команды
     
-    Показывает сколько каждого товара браковал конкретный пользователь
-    (или все пользователи, если user_id не указан)
-    Фильтрация по товару, категории, названию товара
+    Возвращает полную статистику по текущему пользователю 
+    и всем его подчиненным с детализацией по товарам
+    
+    ВНИМАНИЕ: возвращаются только те подчиненные, у которых был брак!
     """
     try:
-        stats = crud_rejection.get_user_product_rejection_stats(
+        # Получаем статистику текущего пользователя
+        user_stats_list = crud_rejection.get_user_rejection_stats(
             db=db,
             current_user=current_user,
-            user_id=user_id,
-            product_id=product_id,
-            category_id=category_id,
-            product_name=product_name,
+            user_id=current_user.id,
             date_from=date_from,
             date_to=date_to
         )
         
-        return stats
+        # Базовые данные текущего пользователя
+        current_user_info = db.query(User).filter(User.id == current_user.id).first()
         
-    except Exception as e:
-        print(f"Error in get_user_product_rejection_stats: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Ошибка при получении статистики: {str(e)}"
-        )
-
-
-@router.get("/stats/detailed", response_model=RejectionDetailedStats)
-def get_detailed_rejection_stats(
-    period: str = Query("all_time", description="Период: month, year, all_time"),
-    date_from: Optional[date] = Query(None, description="Дата начала периода"),
-    date_to: Optional[date] = Query(None, description="Дата окончания периода"),
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """
-    Получить детальную сводную статистику по бракам
-    
-    Общее количество бракованных товаров, стоимость, пользователей, товаров
-    При period='month' добавляется статистика по месяцам
-    """
-    try:
-        if period not in ["month", "year", "all_time"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Период должен быть: month, year или all_time"
-            )
+        user_stat = user_stats_list[0] if user_stats_list else {
+            "user_id": current_user.id,
+            "user_name": current_user.full_name,
+            "user_role": current_user.role.value,
+            "cluster_id": current_user.cluster_id,
+            "cluster_name": None,
+            "total_rejections": 0,
+            "total_value": 0,
+            "products_count": 0
+        }
         
-        stats = crud_rejection.get_detailed_rejection_stats(
+        # Получаем детальную статистику по товарам текущего пользователя
+        user_products = crud_rejection.get_user_product_rejection_stats(
             db=db,
             current_user=current_user,
-            period=period,
+            user_id=current_user.id,
             date_from=date_from,
             date_to=date_to
         )
         
-        return stats
+        # Получаем информацию о менторе текущего пользователя
+        mentor_name = None
+        if current_user_info and current_user_info.mentor_id:
+            mentor = db.query(User).filter(User.id == current_user_info.mentor_id).first()
+            mentor_name = mentor.full_name if mentor else None
         
-    except HTTPException:
-        raise
+        # Формируем детальную статистику текущего пользователя
+        current_user_detail = {
+            "user_id": user_stat["user_id"],
+            "user_name": user_stat["user_name"],
+            "user_role": user_stat["user_role"],
+            "cluster_id": user_stat["cluster_id"],
+            "cluster_name": user_stat["cluster_name"],
+            "mentor_id": current_user_info.mentor_id if current_user_info else None,
+            "mentor_name": mentor_name,
+            "total_rejections": user_stat.get("total_rejections", 0),
+            "total_items": sum(p.get("total_rejected", 0) for p in user_products),
+            "total_value": user_stat.get("total_value", 0),
+            "products_count": len(user_products),
+            "products": user_products
+        }
+        
+        # Получаем подчиненных ТОЛЬКО с браком
+        subordinates = []
+        if current_user.role in [UserRole.OWNER, UserRole.ADMIN, UserRole.MENTOR, UserRole.SENIOR_SELLER]:
+            # Получаем ID всех видимых пользователей
+            visible_user_ids = crud_rejection._get_visible_user_ids(db, current_user)
+            
+            # Убираем текущего пользователя из списка
+            subordinate_ids = [uid for uid in visible_user_ids if uid != current_user.id]
+            
+            for sub_id in subordinate_ids:
+                # Получаем информацию о подчиненном
+                subordinate_user = db.query(User).filter(User.id == sub_id).first()
+                if not subordinate_user:
+                    continue
+                
+                # Получаем статистику подчиненного
+                sub_stats_list = crud_rejection.get_user_rejection_stats(
+                    db=db,
+                    current_user=current_user,
+                    user_id=sub_id,
+                    date_from=date_from,
+                    date_to=date_to
+                )
+                
+                # Пропускаем подчиненных без брака
+                if not sub_stats_list:
+                    continue
+                
+                sub_stat = sub_stats_list[0]
+                
+                # Пропускаем подчиненных с нулевой статистикой
+                if sub_stat.get("total_rejections", 0) == 0 and sub_stat.get("total_value", 0) == 0:
+                    continue
+                
+                # Получаем детальную статистику по товарам
+                sub_products = crud_rejection.get_user_product_rejection_stats(
+                    db=db,
+                    current_user=current_user,
+                    user_id=sub_id,
+                    date_from=date_from,
+                    date_to=date_to
+                )
+                
+                # Получаем информацию о менторе подчиненного
+                sub_mentor_name = None
+                if subordinate_user.mentor_id:
+                    mentor = db.query(User).filter(User.id == subordinate_user.mentor_id).first()
+                    sub_mentor_name = mentor.full_name if mentor else None
+                
+                # Формируем детальную статистику
+                subordinate_detail = {
+                    "user_id": sub_stat["user_id"],
+                    "user_name": sub_stat["user_name"],
+                    "user_role": sub_stat["user_role"],
+                    "cluster_id": sub_stat["cluster_id"],
+                    "cluster_name": sub_stat["cluster_name"],
+                    "mentor_id": subordinate_user.mentor_id,
+                    "mentor_name": sub_mentor_name,
+                    "total_rejections": sub_stat.get("total_rejections", 0),
+                    "total_items": sum(p.get("total_rejected", 0) for p in sub_products),
+                    "total_value": sub_stat.get("total_value", 0),
+                    "products_count": len(sub_products),
+                    "products": sub_products
+                }
+                
+                subordinates.append(subordinate_detail)
+        
+        # Вычисляем общую статистику
+        all_users_data = []
+        if current_user_detail["total_rejections"] > 0 or current_user_detail["total_value"] > 0:
+            all_users_data.append(current_user_detail)
+        all_users_data.extend(subordinates)
+        
+        total_stats = {
+            "total_users": len(all_users_data),
+            "total_rejections": sum(u.get("total_rejections", 0) for u in all_users_data),
+            "total_items": sum(u.get("total_items", 0) for u in all_users_data),
+            "total_value": sum(u.get("total_value", 0) for u in all_users_data),
+            "total_products": len(set(
+                p["product_id"]
+                for u in all_users_data
+                for p in u.get("products", [])
+            )),
+            "date_range": {
+                "from": date_from.isoformat() if date_from else None,
+                "to": date_to.isoformat() if date_to else None
+            }
+        }
+        
+        # Для response_model преобразуем
+        current_user_for_response = RejectionUserStats(**{
+            "user_id": current_user_detail["user_id"],
+            "user_name": current_user_detail["user_name"],
+            "user_role": current_user_detail["user_role"],
+            "cluster_id": current_user_detail["cluster_id"],
+            "cluster_name": current_user_detail["cluster_name"],
+            "total_rejections": current_user_detail["total_rejections"],
+            "total_value": current_user_detail["total_value"],
+            "products_count": current_user_detail["products_count"]
+        })
+        
+        subordinates_for_response = [
+            UserRejectionStatsDetail(**sub) for sub in subordinates
+        ]
+        
+        return UserRejectionDetailedStats(
+            current_user=current_user_for_response,
+            subordinates=subordinates_for_response,
+            total_stats=total_stats
+        )
+        
     except Exception as e:
-        print(f"Error in get_detailed_rejection_stats: {str(e)}")
+        print(f"Error in get_team_detailed_rejection_stats: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(

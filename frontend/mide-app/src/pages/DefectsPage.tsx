@@ -225,13 +225,12 @@ const DefectsPage: React.FC = () => {
             tooltipTitle="Создать брак"
             onClick={() => navigate('/defects/create')}
           />
-          {user?.role !== UserRole.SELLER && (
+
             <SpeedDialAction
               icon={<StatsIcon />}
               tooltipTitle="Статистика"
               onClick={() => navigate('/defects/stats')}
             />
-          )}
           <SpeedDialAction
             icon={<RefreshIcon />}
             tooltipTitle="Обновить"
@@ -260,7 +259,6 @@ const DefectsPage: React.FC = () => {
           Фильтры
         </Button>
         
-        {user?.role !== UserRole.SELLER && (
           <Button
             variant="outlined"
             startIcon={<StatsIcon />}
@@ -270,7 +268,7 @@ const DefectsPage: React.FC = () => {
           >
             Статистика
           </Button>
-        )}
+
         
         <Button
           variant="contained"

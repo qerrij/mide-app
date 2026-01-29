@@ -9,6 +9,8 @@ import {
   RejectionUserProductStats,
   RejectionDetailedStats,
   AvailableProduct,
+  TeamRejectionStats,
+  CombinedRejectionStats,
 } from '../types';
 
 // Функция для трансформации snake_case в camelCase
@@ -184,7 +186,132 @@ export const rejectionService = {
     await axiosInstance.delete(`/rejections/${rejectionId}/cancel`);
   },
 
-  // Статистика по товарам
+  // НОВЫЕ МЕТОДЫ ДЛЯ СТАТИСТИКИ
+  
+  // Получить объединенную статистику
+  getCombinedStats: async (
+    userId?: number,
+    dateFrom?: string,
+    dateTo?: string
+  ): Promise<CombinedRejectionStats> => {
+    const params: any = {};
+    if (userId) params.userId = userId;
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    
+    const response = await axiosInstance.get('/rejections/stats/combined', { params });
+    
+    // Трансформируем поля из snake_case
+    const data = response.data;
+    return {
+      userStats: {
+        userId: data.user_stats.user_id,
+        userName: data.user_stats.user_name,
+        userRole: data.user_stats.user_role,
+        clusterId: data.user_stats.cluster_id,
+        clusterName: data.user_stats.cluster_name,
+        totalRejections: data.user_stats.total_rejections,
+        totalValue: data.user_stats.total_value,
+        productsCount: data.user_stats.products_count,
+      },
+      userProductsStats: (data.user_products_stats || []).map((item: any) => ({
+        userId: item.user_id,
+        userName: item.user_name,
+        productId: item.product_id,
+        productName: item.product_name,
+        productSku: item.product_sku,
+        categoryId: item.category_id,
+        categoryName: item.category_name,
+        totalRejected: item.total_rejected,
+        totalValue: item.total_value,
+      })),
+      subordinatesStats: (data.subordinates_stats || []).map((sub: any) => ({
+        userId: sub.user_id,
+        userName: sub.user_name,
+        userRole: sub.user_role,
+        clusterId: sub.cluster_id,
+        clusterName: sub.cluster_name,
+        totalRejections: sub.total_rejections,
+        totalValue: sub.total_value,
+        productsCount: sub.products_count,
+      })),
+      summary: {
+        totalUsers: data.summary.total_users,
+        totalRejections: data.summary.total_rejections,
+        totalValue: data.summary.total_value,
+        totalItems: data.summary.total_items,
+        totalProducts: data.summary.total_products,
+        hasRejections: data.summary.has_rejections,
+        dateRange: {
+          from: data.summary.date_range?.from,
+          to: data.summary.date_range?.to,
+        },
+      },
+    };
+  },
+
+  // Получить детальную статистику по команде
+  getTeamDetailedStats: async (
+    dateFrom?: string,
+    dateTo?: string
+  ): Promise<TeamRejectionStats> => {
+    const params: any = {};
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    
+    const response = await axiosInstance.get('/rejections/stats/team-detailed', { params });
+    
+    const data = response.data;
+    return {
+      currentUser: {
+        userId: data.current_user.user_id,
+        userName: data.current_user.user_name,
+        userRole: data.current_user.user_role,
+        clusterId: data.current_user.cluster_id,
+        clusterName: data.current_user.cluster_name,
+        totalRejections: data.current_user.total_rejections,
+        totalValue: data.current_user.total_value,
+        productsCount: data.current_user.products_count,
+      },
+      subordinates: (data.subordinates || []).map((sub: any) => ({
+        userId: sub.user_id,
+        userName: sub.user_name,
+        userRole: sub.user_role,
+        clusterId: sub.cluster_id,
+        clusterName: sub.cluster_name,
+        mentorId: sub.mentor_id,
+        mentorName: sub.mentor_name,
+        totalRejections: sub.total_rejections,
+        totalItems: sub.total_items,
+        totalValue: sub.total_value,
+        productsCount: sub.products_count,
+        products: (sub.products || []).map((product: any) => ({
+          userId: product.user_id,
+          userName: product.user_name,
+          productId: product.product_id,
+          productName: product.product_name,
+          productSku: product.product_sku,
+          categoryId: product.category_id,
+          categoryName: product.category_name,
+          totalRejected: product.total_rejected,
+          totalValue: product.total_value,
+        })),
+      })),
+      totalStats: {
+        totalUsers: data.total_stats.total_users,
+        totalRejections: data.total_stats.total_rejections,
+        totalItems: data.total_stats.total_items,
+        totalValue: data.total_stats.total_value,
+        totalProducts: data.total_stats.total_products,
+        dateRange: {
+          from: data.total_stats.date_range?.from,
+          to: data.total_stats.date_range?.to,
+        },
+      },
+    };
+  },
+
+  // СТАРЫЕ МЕТОДЫ (можно оставить для обратной совместимости или удалить)
   getProductStats: async (
     productId?: number,
     categoryId?: number,
@@ -198,10 +325,18 @@ export const rejectionService = {
     if (dateTo) params.dateTo = dateTo;
     
     const response = await axiosInstance.get('/rejections/stats/products', { params });
-    return response.data;
+    return response.data.map((item: any) => ({
+      productId: item.product_id,
+      productName: item.product_name,
+      productSku: item.product_sku,
+      categoryId: item.category_id,
+      categoryName: item.category_name,
+      totalRejected: item.total_rejected,
+      totalValue: item.total_value,
+      usersCount: item.users_count,
+    }));
   },
 
-  // Статистика по пользователям
   getUserStats: async (
     userId?: number,
     dateFrom?: string,
@@ -213,10 +348,18 @@ export const rejectionService = {
     if (dateTo) params.dateTo = dateTo;
     
     const response = await axiosInstance.get('/rejections/stats/users', { params });
-    return response.data;
+    return response.data.map((item: any) => ({
+      userId: item.user_id,
+      userName: item.user_name,
+      userRole: item.user_role,
+      clusterId: item.cluster_id,
+      clusterName: item.cluster_name,
+      totalRejections: item.total_rejections,
+      totalValue: item.total_value,
+      productsCount: item.products_count,
+    }));
   },
 
-  // Детальная статистика по пользователю и товарам
   getUserProductStats: async (
     userId?: number,
     productId?: number,
@@ -234,10 +377,19 @@ export const rejectionService = {
     if (dateTo) params.dateTo = dateTo;
     
     const response = await axiosInstance.get('/rejections/stats/user-products', { params });
-    return response.data;
+    return response.data.map((item: any) => ({
+      userId: item.user_id,
+      userName: item.user_name,
+      productId: item.product_id,
+      productName: item.product_name,
+      productSku: item.product_sku,
+      categoryId: item.category_id,
+      categoryName: item.category_name,
+      totalRejected: item.total_rejected,
+      totalValue: item.total_value,
+    }));
   },
 
-  // Общая статистика
   getDetailedStats: async (
     period: string = 'all_time',
     dateFrom?: string,
@@ -248,6 +400,18 @@ export const rejectionService = {
     if (dateTo) params.dateTo = dateTo;
     
     const response = await axiosInstance.get('/rejections/stats/detailed', { params });
-    return response.data;
+    return {
+      period: response.data.period,
+      totalRejectedItems: response.data.total_rejected_items,
+      totalValue: response.data.total_value,
+      totalUsers: response.data.total_users,
+      totalProducts: response.data.total_products,
+      byMonth: response.data.by_month?.map((month: any) => ({
+        month: month.month,
+        items: month.items,
+        value: month.value,
+        users: month.users,
+      })),
+    };
   },
 };
