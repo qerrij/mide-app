@@ -49,6 +49,7 @@ def init_database():
         from app.models.transfer import Transfer
         from app.models.revision import Revision
         from app.models.notification import Notification
+        from app.models.rejection import Rejection, RejectionItem
         
         # Создаем таблицы в правильном порядке
         print("Creating tables...")
