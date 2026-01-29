@@ -30,7 +30,10 @@ import CreateManagerTransferPage from './pages/CreateManagerTransferPage';
 import ExecuteManagerRequestPage from './pages/ExecuteManagerRequestPage';
 
 
-
+import DefectsPage from './pages/DefectsPage';
+import CreateDefectPage from './pages/CreateDefectPage';
+import DefectDetailPage from './pages/DefectDetailPage';
+import DefectStatsPage from './pages/DefectStatsPage';
 // import DefectsPage from './pages/DefectsPage';
 // import StockPage from './pages/StockPage';
 import StaffPage from './pages/StaffPage';
@@ -224,6 +227,53 @@ function App() {
                           UserRole.SELLER,
                         ]}>
                           <ExecuteManagerRequestPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/defects" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                        ]}>
+                          <DefectsPage  />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/defects/create" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER
+                        ]}>
+                          <CreateDefectPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/defects/:id" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER
+                        ]}>
+                          <DefectDetailPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/defects/stats" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR
+                        ]}>
+                          <DefectStatsPage />
                         </RoleBasedRoute>
                       } />
                       

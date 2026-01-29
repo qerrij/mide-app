@@ -62,7 +62,7 @@ const Drawer: React.FC<DrawerProps> = ({ open, onClose }) => {
     {
       title: 'Брак',
       icon: <Warning />,
-      path: '/defects',
+      path: '/rejections',
       roles: [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR, UserRole.SELLER],
     },
     {

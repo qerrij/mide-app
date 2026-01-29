@@ -10,6 +10,14 @@ def validate_files(files: List[Union[UploadFile, any]]) -> List[str]:
     """Валидация загружаемых файлов (работает с обоими типами)"""
     errors = []
     
+    # Расширенные списки разрешенных расширений
+    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.heic', '.heif', '.tiff', '.tif'}
+    video_extensions = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv', '.m4v', '.mpg', '.mpeg', '.3gp'}
+    document_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt'}
+    
+    # Объединяем все разрешенные расширения
+    valid_extensions = image_extensions | video_extensions | document_extensions
+    
     for file in files:
         # Проверяем есть ли имя файла
         filename = None
@@ -21,16 +29,21 @@ def validate_files(files: List[Union[UploadFile, any]]) -> List[str]:
         if not filename:
             errors.append(f"Файл без имени не разрешен")
             continue
-            
-        valid_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.pdf'}
-        file_ext = os.path.splitext(filename)[1].lower()
         
-        if file_ext not in valid_extensions:
-            errors.append(f"Файл {filename} имеет недопустимое расширение")
+        # Получаем расширение файла
+        file_ext = Path(filename).suffix.lower()
+        
+        if not file_ext:
+            errors.append(f"Файл {filename} не имеет расширения")
             continue
         
-        # Проверка размера (максимум 10MB)
-        max_size = 10 * 1024 * 1024  
+        if file_ext not in valid_extensions:
+            errors.append(f"Файл {filename} имеет недопустимое расширение {file_ext}")
+            continue
+        
+        # Проверка размера (максимум 100MB для видео, 10MB для остальных)
+        max_size = 1000 * 1024 * 1024 if file_ext in video_extensions else 10 * 1024 * 1024
+        
         try:
             if hasattr(file, 'file'):
                 file.file.seek(0, 2)  
@@ -49,7 +62,10 @@ def validate_files(files: List[Union[UploadFile, any]]) -> List[str]:
                     file_size = 0
             
             if file_size > max_size:
-                errors.append(f"Файл {filename} слишком большой ({file_size / 1024 / 1024:.1f}MB)")
+                size_mb = file_size / 1024 / 1024
+                max_mb = max_size / 1024 / 1024
+                errors.append(f"Файл {filename} слишком большой ({size_mb:.1f}MB). Максимум: {max_mb}MB")
+        
         except Exception as e:
             print(f"Ошибка проверки размера файла {filename}: {e}")
     

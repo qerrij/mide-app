@@ -1,870 +1,708 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
-  Paper,
   Typography,
   Box,
-  Grid,
   Button,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   Chip,
   IconButton,
+  TextField,
+  MenuItem,
+  Grid,
   Card,
   CardContent,
   Avatar,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Collapse,
+  CircularProgress,
+  Tabs,
+  Tab,
+  Tooltip,
+  Alert,
   Badge,
+  Snackbar,
+  Stack,
+  useMediaQuery,
+  useTheme,
+  Fab,
+  SpeedDial,
+  SpeedDialAction,
+  SpeedDialIcon,
+  Drawer,
+  Divider,
 } from '@mui/material';
 import {
-  Add,
-  PhotoCamera,
-  Videocam,
-  Warning,
-  ExpandMore,
-  ExpandLess,
-  Image,
-  Movie,
-  CheckCircle,
-  Cancel,
-  Inventory,
-  Person,
+  Add as AddIcon,
+  Visibility as ViewIcon,
+  Delete as DeleteIcon,
+  FilterList as FilterIcon,
+  Refresh as RefreshIcon,
+  BarChart as StatsIcon,
+  Close as CloseIcon,
+  Clear as ClearIcon,
+  Warning as WarningIcon,
+  CheckCircle as ApprovedIcon,
+  Cancel as RejectedIcon,
+  Pending as PendingIcon,
+  Cancel as CancelledIcon,
+  TrendingDown as DefectIcon,
 } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { UserRole, DefectStatus } from '../types';
-
-interface Defect {
-  id: number;
-  product: string;
-  productId: string;
-  seller: string;
-  sellerId: number;
-  quantity: number;
-  reason: string;
-  date: string;
-  status: DefectStatus;
-  photos: string[];
-  videos: string[];
-  reviewedBy?: string;
-  reviewDate?: string;
-  expanded?: boolean;
-}
-
-export enum ProductCategory {
-  DISPOSABLES = 'DISPOSABLES',
-  LIQUIDS = 'LIQUIDS',
-  CONSUMABLES = 'CONSUMABLES',
-  PODS = 'PODS',
-  ENERGY_DRINKS = 'ENERGY_DRINKS'
-}
+import { rejectionService } from '../api/rejectionService';
+import { Rejection, RejectionStatus, getRejectionStatusText, getRejectionStatusColor, UserRole } from '../types';
+import ConfirmationDialog from '../components/rejection/ConfirmationDialog';
 
 const DefectsPage: React.FC = () => {
   const { user } = useAuth();
-  const [openNewDefectDialog, setOpenNewDefectDialog] = useState(false);
-  const [openDefectDetails, setOpenDefectDetails] = useState<Defect | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<string>('');
-  const [defectQuantity, setDefectQuantity] = useState<string>('');
-  const [defectReason, setDefectReason] = useState<string>('');
-  const [defectPhotos, setDefectPhotos] = useState<File[]>([]);
-  const [defectVideos, setDefectVideos] = useState<File[]>([]);
-  const [defects, setDefects] = useState<Defect[]>([
-    {
-      id: 1,
-      product: 'HQD Crystal Bar',
-      productId: '1',
-      seller: 'Иван Иванов',
-      sellerId: 1,
-      quantity: 5,
-      reason: 'Неисправный аккумулятор, не заряжается',
-      date: '2024-01-15 10:30',
-      status: DefectStatus.PENDING,
-      photos: ['photo1.jpg', 'photo2.jpg', 'photo3.jpg'],
-      videos: ['video1.mp4'],
-    },
-    {
-      id: 2,
-      product: 'Elf Bar 600',
-      productId: '2',
-      seller: 'Петр Петров',
-      sellerId: 2,
-      quantity: 2,
-      reason: 'Протекает жидкость, упаковка повреждена',
-      date: '2024-01-14 14:20',
-      status: DefectStatus.REVIEWED,
-      photos: ['photo4.jpg', 'photo5.jpg'],
-      videos: [],
-      reviewedBy: 'Администратор',
-      reviewDate: '2024-01-14 15:30',
-    },
-    {
-      id: 3,
-      product: 'Juicy Bar 30ml',
-      productId: '3',
-      seller: 'Мария Козлова',
-      sellerId: 3,
-      quantity: 10,
-      reason: 'Не соответствует вкусу, подделка',
-      date: '2024-01-13 09:15',
-      status: DefectStatus.APPROVED,
-      photos: ['photo6.jpg'],
-      videos: [],
-      reviewedBy: 'Владелец',
-      reviewDate: '2024-01-13 11:45',
-    },
-    {
-      id: 4,
-      product: 'Pod System X',
-      productId: '4',
-      seller: 'Алексей Сидоров',
-      sellerId: 4,
-      quantity: 1,
-      reason: 'Не заряжается, не включается',
-      date: '2024-01-12 16:45',
-      status: DefectStatus.REJECTED,
-      photos: ['photo7.jpg', 'photo8.jpg', 'photo9.jpg', 'photo10.jpg'],
-      videos: ['video2.mp4', 'video3.mp4'],
-      reviewedBy: 'Старший продавец',
-      reviewDate: '2024-01-12 17:30',
-    },
-  ]);
+  const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+  
+  const [rejections, setRejections] = useState<Rejection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState(0);
+  const [selectedStatus, setSelectedStatus] = useState<RejectionStatus | 'ALL'>('ALL');
+  const [showFilters, setShowFilters] = useState(false);
+  const [speedDialOpen, setSpeedDialOpen] = useState(false);
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedRejection, setSelectedRejection] = useState<Rejection | null>(null);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error'>('success');
+  const [actionLoading, setActionLoading] = useState(false);
+  
+  const [filters, setFilters] = useState({
+    status: '' as RejectionStatus | '',
+    search: '',
+  });
 
-  const mockProducts = [
-    { id: '1', name: 'HQD Crystal Bar', category: ProductCategory.DISPOSABLES },
-    { id: '2', name: 'Elf Bar 600', category: ProductCategory.DISPOSABLES },
-    { id: '3', name: 'Juicy Bar 30ml', category: ProductCategory.LIQUIDS },
-    { id: '4', name: 'Pod System X', category: ProductCategory.PODS },
-    { id: '5', name: 'Energy Drink 250ml', category: ProductCategory.ENERGY_DRINKS },
-  ];
+  const isAdminOrOwner = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
-  const handlePhotoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      const newPhotos = Array.from(event.target.files).slice(0, 5 - defectPhotos.length);
-      setDefectPhotos([...defectPhotos, ...newPhotos]);
+  const loadRejections = async () => {
+    try {
+      setLoading(true);
+      let data: Rejection[];
+      
+      if (isAdminOrOwner) {
+        const status = filters.status !== '' ? filters.status as RejectionStatus : undefined;
+        data = await rejectionService.getAllRejections(0, 100, status);
+      } else {
+        const status = filters.status !== '' ? filters.status as RejectionStatus : undefined;
+        data = await rejectionService.getMyRejections(0, 100, status);
+      }
+      
+      setRejections(data);
+    } catch (err: any) {
+      showSnackbar(err.response?.data?.detail || 'Ошибка загрузки данных', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files) {
-      const newVideos = Array.from(event.target.files).slice(0, 2 - defectVideos.length);
-      setDefectVideos([...defectVideos, ...newVideos]);
+  useEffect(() => {
+    loadRejections();
+  }, [filters.status]);
+
+  const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
+    setSnackbarMessage(message);
+    setSnackbarSeverity(severity);
+    setSnackbarOpen(true);
+  };
+
+  const handleSnackbarClose = () => {
+    setSnackbarOpen(false);
+  };
+
+  const getFilteredRejections = () => {
+    let filtered = rejections;
+    
+    if (filters.search) {
+      const searchLower = filters.search.toLowerCase();
+      filtered = filtered.filter(rejection =>
+        rejection.id.toString().includes(searchLower) ||
+        rejection.userName?.toLowerCase().includes(searchLower) ||
+        rejection.items.some(item => 
+          item.productName?.toLowerCase().includes(searchLower) ||
+          item.productSku?.toLowerCase().includes(searchLower)
+        )
+      );
     }
+    
+    if (selectedStatus !== 'ALL') {
+      filtered = filtered.filter(rejection => rejection.status === selectedStatus);
+    }
+    
+    return filtered;
   };
 
-  const handleRemovePhoto = (index: number) => {
-    setDefectPhotos(defectPhotos.filter((_, i) => i !== index));
-  };
-
-  const handleRemoveVideo = (index: number) => {
-    setDefectVideos(defectVideos.filter((_, i) => i !== index));
-  };
-
-  const handleSubmitDefect = () => {
-    if (!selectedProduct || !defectQuantity || !defectReason || defectPhotos.length === 0) {
-      alert('Заполните все обязательные поля');
+  const handleDeleteClick = (rejection: Rejection, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (rejection.status !== RejectionStatus.PENDING) {
+      showSnackbar('Можно отменить только браки со статусом "На рассмотрении"', 'error');
       return;
     }
+    
+    if (rejection.userId !== user?.id) {
+      showSnackbar('Вы можете отменять только свои браки', 'error');
+      return;
+    }
+    
+    setSelectedRejection(rejection);
+    setDeleteDialogOpen(true);
+  };
 
-    const product = mockProducts.find(p => p.name === selectedProduct);
-    const newDefect: Defect = {
-      id: defects.length + 1,
-      product: selectedProduct,
-      productId: product?.id || '',
-      seller: user?.username || 'Вы',
-      sellerId: user?.id || 0,
-      quantity: parseInt(defectQuantity),
-      reason: defectReason,
-      date: new Date().toLocaleString('ru-RU'),
-      status: DefectStatus.PENDING,
-      photos: defectPhotos.map(p => p.name),
-      videos: defectVideos.map(v => v.name),
+  const handleDeleteConfirm = async () => {
+    if (!selectedRejection) return;
+    
+    try {
+      setActionLoading(true);
+      await rejectionService.cancelRejection(selectedRejection.id);
+      await loadRejections();
+      showSnackbar('Брак успешно отменен');
+      setDeleteDialogOpen(false);
+      setSelectedRejection(null);
+    } catch (err: any) {
+      showSnackbar(err.response?.data?.detail || 'Ошибка при отмене брака', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleViewDetails = (rejection: Rejection, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    navigate(`/defects/${rejection.id}`);
+  };
+
+  const getStats = () => {
+    return {
+      total: rejections.length,
+      pending: rejections.filter(r => r.status === RejectionStatus.PENDING).length,
+      approved: rejections.filter(r => r.status === RejectionStatus.APPROVED).length,
+      rejected: rejections.filter(r => r.status === RejectionStatus.REJECTED).length,
+      cancelled: rejections.filter(r => r.status === RejectionStatus.CANCELLED).length,
+      totalValue: rejections.reduce((sum, r) => sum + r.totalValue, 0),
     };
-
-    setDefects([newDefect, ...defects]);
-    setOpenNewDefectDialog(false);
-    resetForm();
   };
 
-  const resetForm = () => {
-    setSelectedProduct('');
-    setDefectQuantity('');
-    setDefectReason('');
-    setDefectPhotos([]);
-    setDefectVideos([]);
+  const stats = getStats();
+
+  const clearFilters = () => {
+    setFilters({ status: '', search: '' });
+    setSelectedStatus('ALL');
+    if (isMobile) {
+      setFilterDrawerOpen(false);
+    }
   };
 
-  const handleDefectAction = (defectId: number, action: DefectStatus) => {
-    const reviewedBy = user?.role === UserRole.OWNER ? 'Владелец' :
-                      user?.role === UserRole.ADMIN ? 'Администратор' :
-                      user?.role === UserRole.SENIOR_SELLER ? 'Старший продавец' :
-                      user?.role === UserRole.MENTOR ? 'Наставник' : '';
+  const renderActionButtons = () => {
+    if (isMobile) {
+      return (
+        <SpeedDial
+          ariaLabel="Действия"
+          sx={{ position: 'fixed', bottom: 16, right: 16, zIndex: 1000 }}
+          icon={<SpeedDialIcon />}
+          open={speedDialOpen}
+          onOpen={() => setSpeedDialOpen(true)}
+          onClose={() => setSpeedDialOpen(false)}
+        >
+          <SpeedDialAction
+            icon={<FilterIcon />}
+            tooltipTitle="Фильтры"
+            onClick={() => setFilterDrawerOpen(true)}
+          />
+          <SpeedDialAction
+            icon={<AddIcon />}
+            tooltipTitle="Создать брак"
+            onClick={() => navigate('/defects/create')}
+          />
+          {user?.role !== UserRole.SELLER && (
+            <SpeedDialAction
+              icon={<StatsIcon />}
+              tooltipTitle="Статистика"
+              onClick={() => navigate('/defects/stats')}
+            />
+          )}
+          <SpeedDialAction
+            icon={<RefreshIcon />}
+            tooltipTitle="Обновить"
+            onClick={loadRejections}
+          />
+        </SpeedDial>
+      );
+    }
 
-    setDefects(defects.map(d =>
-      d.id === defectId ? {
-        ...d,
-        status: action,
-        reviewedBy,
-        reviewDate: new Date().toLocaleString('ru-RU'),
-      } : d
-    ));
-  };
-
-  const toggleDefectExpand = (defectId: number) => {
-    setDefects(defects.map(d =>
-      d.id === defectId ? { ...d, expanded: !d.expanded } : d
-    ));
-  };
-
-  const getStatusChip = (status: DefectStatus) => {
-    const statusConfig = {
-      [DefectStatus.PENDING]: { color: '#ca0ec0', label: 'На рассмотрении', icon: <Warning /> },
-      [DefectStatus.REVIEWED]: { color: '#56b8d1', label: 'Просмотрено', icon: <Image /> },
-      [DefectStatus.APPROVED]: { color: '#3f1f4b', label: 'Подтверждено', icon: <CheckCircle /> },
-      [DefectStatus.REJECTED]: { color: '#6d3f57', label: 'Отклонено', icon: <Cancel /> },
-    };
-
-    const config = statusConfig[status];
     return (
-      <Chip
-        icon={config.icon}
-        label={config.label}
-        size="small"
-        sx={{
-          backgroundColor: `${config.color}15`,
-          color: config.color,
-          border: `1px solid ${config.color}30`,
-          fontWeight: 500,
+      <Stack 
+        direction={{ xs: 'column', sm: 'row' }} 
+        spacing={1} 
+        sx={{ 
+          width: '100%',
+          justifyContent: { xs: 'stretch', sm: 'flex-end' }
         }}
-      />
+      >
+        <Button
+          variant="outlined"
+          startIcon={<FilterIcon />}
+          onClick={() => setShowFilters(!showFilters)}
+          fullWidth={isTablet}
+          size={isTablet ? "small" : "medium"}
+        >
+          Фильтры
+        </Button>
+        
+        {user?.role !== UserRole.SELLER && (
+          <Button
+            variant="outlined"
+            startIcon={<StatsIcon />}
+            onClick={() => navigate('/defects/stats')}
+            fullWidth={isTablet}
+            size={isTablet ? "small" : "medium"}
+          >
+            Статистика
+          </Button>
+        )}
+        
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => navigate('/defects/create')}
+          sx={{
+            backgroundColor: '#d32f2f',
+            '&:hover': { backgroundColor: '#b71c1c' },
+          }}
+          fullWidth={isTablet}
+          size={isTablet ? "small" : "medium"}
+        >
+          Создать брак
+        </Button>
+        
+        <Button
+          variant="outlined"
+          startIcon={<RefreshIcon />}
+          onClick={loadRejections}
+          fullWidth={isTablet}
+          size={isTablet ? "small" : "medium"}
+        >
+          Обновить
+        </Button>
+      </Stack>
     );
   };
 
-  const getCategoryColor = (category: ProductCategory): string => {
-    const colors = {
-      [ProductCategory.DISPOSABLES]: '#674fb6',
-      [ProductCategory.LIQUIDS]: '#56b8d1',
-      [ProductCategory.CONSUMABLES]: '#2a436d',
-      [ProductCategory.PODS]: '#3f1f4b',
-      [ProductCategory.ENERGY_DRINKS]: '#6d3f57',
-    };
-    return colors[category];
+  const renderFilters = () => {
+    if (isMobile) {
+      return (
+        <Drawer
+          anchor="bottom"
+          open={filterDrawerOpen}
+          onClose={() => setFilterDrawerOpen(false)}
+          PaperProps={{
+            sx: { 
+              borderTopLeftRadius: 16, 
+              borderTopRightRadius: 16,
+              maxHeight: '80vh'
+            }
+          }}
+        >
+          <Box sx={{ p: 3 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">Фильтры браков</Typography>
+              <IconButton onClick={() => setFilterDrawerOpen(false)}>
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            
+            <TextField
+              select
+              fullWidth
+              label="Статус"
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value as RejectionStatus | '' })}
+              sx={{ mb: 2 }}
+              size="small"
+            >
+              <MenuItem value="">Все статусы</MenuItem>
+              <MenuItem value={RejectionStatus.PENDING}>На рассмотрении</MenuItem>
+              <MenuItem value={RejectionStatus.APPROVED}>Утвержден</MenuItem>
+              <MenuItem value={RejectionStatus.REJECTED}>Отклонен</MenuItem>
+              <MenuItem value={RejectionStatus.CANCELLED}>Отменен</MenuItem>
+            </TextField>
+            
+            <TextField
+              fullWidth
+              label="Поиск"
+              value={filters.search}
+              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              placeholder="ID, пользователь, товар..."
+              sx={{ mb: 2 }}
+              size="small"
+            />
+            
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                onClick={clearFilters}
+                fullWidth
+                startIcon={<ClearIcon />}
+                size="small"
+              >
+                Сбросить
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => setFilterDrawerOpen(false)}
+                fullWidth
+                size="small"
+              >
+                Применить
+              </Button>
+            </Stack>
+          </Box>
+        </Drawer>
+      );
+    }
+
+    return (
+      showFilters && (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <TextField
+                select
+                fullWidth
+                label="Статус"
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value as RejectionStatus | '' })}
+                size="small"
+              >
+                <MenuItem value="">Все статусы</MenuItem>
+                <MenuItem value={RejectionStatus.PENDING}>На рассмотрении</MenuItem>
+                <MenuItem value={RejectionStatus.APPROVED}>Утвержден</MenuItem>
+                <MenuItem value={RejectionStatus.REJECTED}>Отклонен</MenuItem>
+                <MenuItem value={RejectionStatus.CANCELLED}>Отменен</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <TextField
+                fullWidth
+                label="Поиск"
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                placeholder="ID, пользователь, товар..."
+                size="small"
+              />
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={clearFilters}
+                sx={{ height: '40px' }}
+                size="small"
+              >
+                Сбросить фильтры
+              </Button>
+            </Grid>
+          </Grid>
+        </Paper>
+      )
+    );
   };
 
-  const stats = {
-    total: defects.length,
-    pending: defects.filter(d => d.status === DefectStatus.PENDING).length,
-    approved: defects.filter(d => d.status === DefectStatus.APPROVED).length,
-    rejected: defects.filter(d => d.status === DefectStatus.REJECTED).length,
+  const getStatusIcon = (status: RejectionStatus) => {
+    switch (status) {
+      case RejectionStatus.PENDING:
+        return <PendingIcon />;
+      case RejectionStatus.APPROVED:
+        return <ApprovedIcon />;
+      case RejectionStatus.REJECTED:
+        return <RejectedIcon />;
+      case RejectionStatus.CANCELLED:
+        return <CancelledIcon />;
+      default:
+        return <WarningIcon />;
+    }
   };
 
-  const pendingDefects = defects.filter(d => d.status === DefectStatus.PENDING);
-  const otherDefects = defects.filter(d => d.status !== DefectStatus.PENDING);
+  const getStatusActions = (rejection: Rejection) => {
+    const actions = [];
+    
+    actions.push(
+      <Tooltip title="Просмотр" key="view">
+        <IconButton
+          size="small"
+          onClick={(e) => handleViewDetails(rejection, e)}
+        >
+          <ViewIcon />
+        </IconButton>
+      </Tooltip>
+    );
+    
+    if (rejection.status === RejectionStatus.PENDING && 
+        rejection.userId === user?.id) {
+      actions.push(
+        <Tooltip title="Отменить" key="delete">
+          <IconButton
+            size="small"
+            color="error"
+            onClick={(e) => handleDeleteClick(rejection, e)}
+          >
+            <DeleteIcon />
+          </IconButton>
+        </Tooltip>
+      );
+    }
+    
+    return actions;
+  };
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4, px: { xs: 1, sm: 2 } }}>
-      <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Typography variant="h4" component="h1" color="#2a0f35">
-            Учет бракованного товара
-          </Typography>
-          <Typography variant="body1" color="#4c5454">
-            Регистрация и управление бракованным товаром
-          </Typography>
+    <Container maxWidth="xl" sx={{ mt: { xs: 2, sm: 4 }, mb: 4 }}>
+      <Box sx={{ mb: 4 }}>
+        <Grid container spacing={2} alignItems="center">
+          <Grid size={{ xs: 12, md: 6 }}>
+            <Typography variant="h4" component="h1" gutterBottom color="#2a0f35">
+              Брак
+            </Typography>
+            <Typography variant="subtitle1" color="#4c5454">
+              Управление учетов бракованных товаров
+            </Typography>
+          </Grid>
+          <Grid size={{ xs: 12, md: 6 }}>
+            {renderActionButtons()}
+          </Grid>
         </Grid>
-        <Grid size={{ xs: 12, md: 4 }} sx={{ textAlign: { md: 'right' } }}>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => setOpenNewDefectDialog(true)}
-            sx={{
-              backgroundColor: '#ca0ec0',
-              '&:hover': {
-                backgroundColor: '#950090',
-              },
-            }}
-          >
-            Зарегистрировать брак
-          </Button>
-        </Grid>
-      </Grid>
+      </Box>
 
       {/* Статистика */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ backgroundColor: '#ca0ec010', border: '1px solid #ca0ec030' }}>
-            <CardContent sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="h5" color="#ca0ec0" gutterBottom>
-                {stats.pending}
-              </Typography>
-              <Typography variant="body2" color="#4c5454">
-                На рассмотрении
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ backgroundColor: '#3f1f4b10', border: '1px solid #3f1f4b30' }}>
-            <CardContent sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="h5" color="#3f1f4b" gutterBottom>
-                {stats.approved}
-              </Typography>
-              <Typography variant="body2" color="#4c5454">
-                Подтверждено
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ backgroundColor: '#6d3f5710', border: '1px solid #6d3f5730' }}>
-            <CardContent sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="h5" color="#6d3f57" gutterBottom>
-                {stats.rejected}
-              </Typography>
-              <Typography variant="body2" color="#4c5454">
-                Отклонено
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ backgroundColor: '#674fb610', border: '1px solid #674fb630' }}>
-            <CardContent sx={{ p: 2, textAlign: 'center' }}>
-              <Typography variant="h5" color="#674fb6" gutterBottom>
-                {stats.total}
-              </Typography>
-              <Typography variant="body2" color="#4c5454">
-                Всего заявок
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Ожидающие рассмотрения */}
-      {pendingDefects.length > 0 && user?.role !== UserRole.SELLER && (
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="h6" gutterBottom color="#3f1f4b" sx={{ mb: 2 }}>
-            Ожидают рассмотрения
-          </Typography>
-          <Grid container spacing={2}>
-            {pendingDefects.map((defect) => (
-              <Grid size={{ xs: 12 }} key={defect.id}>
-                <Card>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                      <Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                          <Person sx={{ color: '#ca0ec0', fontSize: 20 }} />
-                          <Typography variant="subtitle1" sx={{ color: '#2a0f35', fontWeight: 600 }}>
-                            От: {defect.seller}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Inventory sx={{ color: '#674fb6', fontSize: 20 }} />
-                          <Typography variant="subtitle1" sx={{ color: '#2a0f35', fontWeight: 600 }}>
-                            Товар: {defect.product}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      {getStatusChip(defect.status)}
-                    </Box>
-
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="#4c5454" sx={{ mb: 1 }}>
-                        Причина брака:
-                      </Typography>
-                      <Paper sx={{ p: 1.5, backgroundColor: '#f5f3f6' }}>
-                        <Typography variant="body2" sx={{ color: '#2a0f35' }}>
-                          {defect.reason}
-                        </Typography>
-                      </Paper>
-                    </Box>
-
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="#4c5454" sx={{ mb: 1 }}>
-                        Количество: 
-                        <Chip
-                          label={`${defect.quantity} шт.`}
-                          size="small"
-                          sx={{
-                            ml: 1,
-                            backgroundColor: '#ca0ec015',
-                            color: '#ca0ec0',
-                            fontWeight: 500,
-                          }}
-                        />
-                      </Typography>
-                    </Box>
-
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Badge badgeContent={defect.photos.length} color="primary">
-                          <PhotoCamera sx={{ color: '#674fb6', fontSize: 20 }} />
-                        </Badge>
-                        <Badge badgeContent={defect.videos.length} color="secondary">
-                          <Videocam sx={{ color: '#2a436d', fontSize: 20 }} />
-                        </Badge>
-                        <IconButton
-                          size="small"
-                          onClick={() => setOpenDefectDetails(defect)}
-                          sx={{ color: '#2a436d' }}
-                        >
-                          <Image />
-                        </IconButton>
-                      </Box>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
-                          variant="contained"
-                          size="small"
-                          startIcon={<CheckCircle />}
-                          onClick={() => handleDefectAction(defect.id, DefectStatus.APPROVED)}
-                          sx={{
-                            backgroundColor: '#3f1f4b',
-                            '&:hover': { backgroundColor: '#2a0f35' },
-                          }}
-                        >
-                          Подтвердить
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={<Cancel />}
-                          onClick={() => handleDefectAction(defect.id, DefectStatus.REJECTED)}
-                          sx={{
-                            borderColor: '#6d3f57',
-                            color: '#6d3f57',
-                            '&:hover': {
-                              borderColor: '#4c283a',
-                              backgroundColor: 'rgba(109, 63, 87, 0.04)',
-                            },
-                          }}
-                        >
-                          Отклонить
-                        </Button>
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        </Box>
-      )}
-
-      {/* История заявок */}
-      <Typography variant="h6" gutterBottom color="#3f1f4b" sx={{ mb: 2 }}>
-        История заявок
-      </Typography>
-      <Grid container spacing={2}>
-        {otherDefects.map((defect) => (
-          <Grid size={{ xs: 12 }} key={defect.id}>
+      <Grid container spacing={2} sx={{ mb: 4 }}>
+        {[
+          { 
+            count: stats.total, 
+            label: 'Всего браков', 
+            color: '#d32f2f', 
+            icon: <DefectIcon /> 
+          },
+          { 
+            count: stats.pending, 
+            label: 'На рассмотрении', 
+            color: '#ff9800', 
+            icon: <PendingIcon /> 
+          },
+          { 
+            count: stats.approved, 
+            label: 'Утверждены', 
+            color: '#4caf50', 
+            icon: <ApprovedIcon /> 
+          },
+          { 
+            count: stats.rejected, 
+            label: 'Отклонены', 
+            color: '#f44336', 
+            icon: <RejectedIcon /> 
+          },
+          { 
+            count: stats.cancelled, 
+            label: 'Отменены', 
+            color: '#9e9e9e', 
+            icon: <CancelledIcon /> 
+          },
+          { 
+            count: stats.totalValue.toLocaleString('ru-RU', {
+              style: 'currency',
+              currency: 'RUB',
+              minimumFractionDigits: 0,
+              maximumFractionDigits: 0,
+            }), 
+            label: 'Общая сумма', 
+            color: '#2196f3', 
+            icon: '₽'
+          },
+        ].map((stat, index) => (
+          <Grid size={{ xs: 6, sm: 4, md: 2 }} key={index}>
             <Card>
-              <CardContent>
-                <Box 
-                  sx={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                  }}
-                  onClick={() => toggleDefectExpand(defect.id)}
-                >
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ color: '#2a0f35', fontWeight: 600 }}>
-                      {defect.product} • {defect.seller}
-                    </Typography>
-                    <Typography variant="body2" color="#4c5454">
-                      {defect.date}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    {getStatusChip(defect.status)}
-                    {defect.expanded ? <ExpandLess /> : <ExpandMore />}
-                  </Box>
-                </Box>
-
-                <Collapse in={defect.expanded}>
-                  <Box sx={{ mt: 2 }}>
-                    <Divider sx={{ my: 2 }} />
-                    
-                    <Typography variant="body2" color="#4c5454" sx={{ mb: 1 }}>
-                      Детали:
-                    </Typography>
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 12, sm: 6 }}>
-                        <Paper sx={{ p: 1.5, backgroundColor: '#f5f3f6' }}>
-                          <Typography variant="subtitle2" sx={{ color: '#2a0f35', mb: 1 }}>
-                            Причина брака
-                          </Typography>
-                          <Typography variant="body2" sx={{ color: '#4c5454' }}>
-                            {defect.reason}
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                      <Grid size={{ xs: 12, sm: 6 }}>
-                        <Paper sx={{ p: 1.5, backgroundColor: '#f5f3f6' }}>
-                          <Typography variant="subtitle2" sx={{ color: '#2a0f35', mb: 1 }}>
-                            Количество
-                          </Typography>
-                          <Typography variant="h6" sx={{ color: '#ca0ec0' }}>
-                            {defect.quantity} шт.
-                          </Typography>
-                        </Paper>
-                      </Grid>
-                    </Grid>
-
-                    {defect.reviewedBy && (
-                      <Paper sx={{ p: 2, mt: 2, backgroundColor: '#56b8d110', border: '1px solid #56b8d130' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                          <Person sx={{ color: '#56b8d1' }} />
-                          <Typography variant="subtitle2" sx={{ color: '#2a0f35' }}>
-                            Рассмотрено: {defect.reviewedBy}
-                          </Typography>
-                        </Box>
-                        <Typography variant="body2" color="#4c5454">
-                          Дата: {defect.reviewDate}
-                        </Typography>
-                      </Paper>
-                    )}
-
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="subtitle2" sx={{ color: '#2a0f35', mb: 1 }}>
-                        Медиа материалы:
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                        <Chip
-                          icon={<PhotoCamera />}
-                          label={`${defect.photos.length} фото`}
-                          variant="outlined"
-                          onClick={() => setOpenDefectDetails(defect)}
-                        />
-                        {defect.videos.length > 0 && (
-                          <Chip
-                            icon={<Videocam />}
-                            label={`${defect.videos.length} видео`}
-                            variant="outlined"
-                            onClick={() => setOpenDefectDetails(defect)}
-                          />
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
-                </Collapse>
+              <CardContent sx={{ p: 2, textAlign: 'center' }}>
+                <Avatar sx={{ 
+                  bgcolor: `${stat.color}20`, 
+                  color: stat.color, 
+                  margin: '0 auto 8px',
+                  width: 40,
+                  height: 40
+                }}>
+                  {typeof stat.icon === 'string' ? (
+                    <Typography variant="h6" sx={{ fontSize: '1.2rem' }}>{stat.icon}</Typography>
+                  ) : (
+                    stat.icon
+                  )}
+                </Avatar>
+                <Typography variant="h5" color={stat.color} sx={{ 
+                  fontSize: typeof stat.icon === 'string' ? '1.2rem' : '1.5rem',
+                  fontWeight: 500 
+                }}>
+                  {stat.count}
+                </Typography>
+                <Typography variant="caption" color="#4c5454" sx={{ 
+                  fontSize: '0.75rem',
+                  display: 'block',
+                  lineHeight: 1.2
+                }}>
+                  {stat.label}
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
         ))}
       </Grid>
 
-      {/* Диалог регистрации брака */}
-      <Dialog
-        open={openNewDefectDialog}
-        onClose={() => setOpenNewDefectDialog(false)}
-        maxWidth="sm"
-        fullWidth
-        sx={{
-          '& .MuiDialog-paper': {
-            m: { xs: 1, sm: 2 },
-            maxHeight: '90vh',
-          },
-        }}
-      >
-        <DialogTitle sx={{ backgroundColor: '#f5f3f6', color: '#2a0f35' }}>
-          ⚠️ Регистрация бракованного товара
-        </DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid size={{ xs: 12 }}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Выберите товар</InputLabel>
-                <Select
-                  value={selectedProduct}
-                  label="Выберите товар"
-                  onChange={(e) => setSelectedProduct(e.target.value)}
-                >
-                  {mockProducts.map((product) => (
-                    <MenuItem key={product.id} value={product.name}>
-                      {product.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+      {/* Фильтры */}
+      {renderFilters()}
 
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                size="small"
-                type="number"
-                label="Количество бракованного товара"
-                value={defectQuantity}
-                onChange={(e) => setDefectQuantity(e.target.value)}
-                InputProps={{ inputProps: { min: 1 } }}
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Категория"
-                value={mockProducts.find(p => p.name === selectedProduct)?.category || ''}
-                disabled
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                multiline
-                rows={3}
-                size="small"
-                label="Причина брака"
-                value={defectReason}
-                onChange={(e) => setDefectReason(e.target.value)}
-                placeholder="Опишите подробно причину брака..."
-              />
-            </Grid>
-
-            <Grid size={{ xs: 12 }}>
-              <Typography variant="subtitle2" gutterBottom color="#3f1f4b">
-                Фотографии товара (1-5 фото)
-              </Typography>
-              <Box sx={{ border: '2px dashed #d7d2d8', p: 2, borderRadius: 1, mb: 2 }}>
-                <input
-                  accept="image/*"
-                  multiple
-                  style={{ display: 'none' }}
-                  id="defect-photo-upload"
-                  type="file"
-                  onChange={handlePhotoUpload}
-                />
-                <label htmlFor="defect-photo-upload">
-                  <Button
-                    variant="outlined"
-                    component="span"
-                    startIcon={<PhotoCamera />}
-                    size="small"
-                    sx={{
-                      borderColor: '#674fb6',
-                      color: '#674fb6',
-                      mb: 1,
+      {/* Таблица браков */}
+      <Paper sx={{ overflow: 'hidden' }}>
+        <TableContainer sx={{ maxHeight: isMobile ? 500 : 'none' }}>
+          <Table size={isMobile ? "small" : "medium"}>
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: isMobile ? 60 : 80 }}>ID</TableCell>
+                {isAdminOrOwner && !isMobile && <TableCell>Пользователь</TableCell>}
+                <TableCell>Детали</TableCell>
+                <TableCell>Статус</TableCell>
+                <TableCell>Дата создания</TableCell>
+                <TableCell sx={{ width: isMobile ? 80 : 100 }}>Действия</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={isMobile ? 5 : (isAdminOrOwner ? 6 : 5)} align="center" sx={{ py: 8 }}>
+                    <CircularProgress />
+                  </TableCell>
+                </TableRow>
+              ) : getFilteredRejections().length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={isMobile ? 5 : (isAdminOrOwner ? 6 : 5)} align="center" sx={{ py: 8 }}>
+                    <Typography variant="body1" sx={{ color: '#4c5454' }}>
+                      Браков не найдено
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                getFilteredRejections().map((rejection) => (
+                  <TableRow
+                    key={rejection.id}
+                    hover
+                    onClick={() => navigate(`/defects/${rejection.id}`)}
+                    sx={{ 
+                      cursor: 'pointer',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
                     }}
-                    disabled={defectPhotos.length >= 5}
                   >
-                    Добавить фото ({defectPhotos.length}/5)
-                  </Button>
-                </label>
-                
-                {defectPhotos.length > 0 && (
-                  <Grid container spacing={1} sx={{ mt: 1 }}>
-                    {defectPhotos.map((photo, index) => (
-                      <Grid size={{ xs: 6, sm: 4 }} key={index}>
-                        <Card variant="outlined">
-                          <CardContent sx={{ p: 1, textAlign: 'center' }}>
-                            <Typography variant="caption" noWrap fontSize={10}>
-                              {photo.name.length > 15 ? photo.name.substring(0, 12) + '...' : photo.name}
-                            </Typography>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleRemovePhoto(index)}
-                              sx={{ color: '#ca0ec0', p: 0.5 }}
-                            >
-                              <Cancel fontSize="small" />
-                            </IconButton>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                )}
-              </Box>
-            </Grid>
+                    <TableCell>#{rejection.id}</TableCell>
+                    {isAdminOrOwner && !isMobile && (
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                          {rejection.userName}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#4c5454' }}>
+                          {rejection.userRole}
+                        </Typography>
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 500, mb: 0.5 }}>
+                        {rejection.items.length} товар(ов)
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#4c5454', display: 'block' }}>
+                        {rejection.totalItems} ед.
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#4c5454', display: 'block' }}>
+                        {rejection.totalValue.toLocaleString('ru-RU', {
+                          style: 'currency',
+                          currency: 'RUB',
+                          minimumFractionDigits: 0,
+                        })}
+                      </Typography>
+                      {isMobile && isAdminOrOwner && (
+                        <Typography variant="caption" sx={{ color: '#4c5454', display: 'block', mt: 0.5 }}>
+                          {rejection.userName}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={getRejectionStatusText(rejection.status)}
+                        size="small"
+                        sx={{
+                          backgroundColor: `${getRejectionStatusColor(rejection.status)}20`,
+                          color: getRejectionStatusColor(rejection.status),
+                          fontSize: '0.75rem',
+                          fontWeight: 500,
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {new Date(rejection.createdAt).toLocaleDateString('ru-RU')}
+                      {!isMobile && (
+                        <Typography variant="caption" sx={{ display: 'block', color: '#4c5454' }}>
+                          {new Date(rejection.createdAt).toLocaleTimeString('ru-RU', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {getStatusActions(rejection)}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
 
-            <Grid size={{ xs: 12 }}>
-              <Typography variant="subtitle2" gutterBottom color="#3f1f4b">
-                Видео товара (0-2 видео)
-              </Typography>
-              <Box sx={{ border: '2px dashed #d7d2d8', p: 2, borderRadius: 1 }}>
-                <input
-                  accept="video/*"
-                  multiple
-                  style={{ display: 'none' }}
-                  id="defect-video-upload"
-                  type="file"
-                  onChange={handleVideoUpload}
-                />
-                <label htmlFor="defect-video-upload">
-                  <Button
-                    variant="outlined"
-                    component="span"
-                    startIcon={<Videocam />}
-                    size="small"
-                    sx={{
-                      borderColor: '#2a436d',
-                      color: '#2a436d',
-                      mb: 1,
-                    }}
-                    disabled={defectVideos.length >= 2}
-                  >
-                    Добавить видео ({defectVideos.length}/2)
-                  </Button>
-                </label>
-                
-                {defectVideos.length > 0 && (
-                  <Grid container spacing={1} sx={{ mt: 1 }}>
-                    {defectVideos.map((video, index) => (
-                      <Grid size={{ xs: 12, sm: 6 }} key={index}>
-                        <Card variant="outlined">
-                          <CardContent sx={{ p: 1, textAlign: 'center' }}>
-                            <Typography variant="caption" noWrap fontSize={10}>
-                              {video.name.length > 15 ? video.name.substring(0, 12) + '...' : video.name}
-                            </Typography>
-                            <IconButton
-                              size="small"
-                              onClick={() => handleRemoveVideo(index)}
-                              sx={{ color: '#ca0ec0', p: 0.5 }}
-                            >
-                              <Cancel fontSize="small" />
-                            </IconButton>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                )}
-              </Box>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
-          <Button
-            onClick={() => setOpenNewDefectDialog(false)}
-            sx={{ color: '#4c5454' }}
-          >
-            Отмена
-          </Button>
-          <Button
-            onClick={handleSubmitDefect}
-            disabled={!selectedProduct || !defectQuantity || !defectReason || defectPhotos.length === 0}
-            variant="contained"
-            sx={{
-              backgroundColor: '#ca0ec0',
-              color: 'white',
-              '&:hover': {
-                backgroundColor: '#950090',
-              },
-              '&:disabled': {
-                backgroundColor: '#d7d2d8',
-              },
-            }}
-          >
-            Отправить заявку
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Модальное окно отмены брака */}
+      <ConfirmationDialog
+        open={deleteDialogOpen}
+        title="Отменить брак"
+        message={`Вы уверены, что хотите отменить брак #${selectedRejection?.id}? Это действие нельзя отменить.`}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteDialogOpen(false)}
+        loading={actionLoading}
+        confirmText="Отменить"
+        confirmColor="error"
+      />
 
-      {/* Диалог просмотра медиа */}
-      <Dialog
-        open={!!openDefectDetails}
-        onClose={() => setOpenDefectDetails(null)}
-        maxWidth="md"
-        fullWidth
+      {/* Snackbar для уведомлений */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       >
-        {openDefectDetails && (
-          <>
-            <DialogTitle sx={{ backgroundColor: '#f5f3f6', color: '#2a0f35' }}>
-              🎬 Медиа материалы брака
-            </DialogTitle>
-            <DialogContent>
-              <Typography variant="body1" sx={{ color: '#4c5454', mb: 2 }}>
-                {openDefectDetails.product} • {openDefectDetails.seller} • {openDefectDetails.reason}
-              </Typography>
-              
-              {openDefectDetails.photos.length > 0 && (
-                <>
-                  <Typography variant="h6" sx={{ color: '#2a0f35', mb: 2 }}>
-                    Фотографии ({openDefectDetails.photos.length})
-                  </Typography>
-                  <Grid container spacing={2} sx={{ mb: 3 }}>
-                    {openDefectDetails.photos.map((photo, index) => (
-                      <Grid size={{ xs: 12, sm: 6 }} key={index}>
-                        <Card>
-                          <CardContent sx={{ p: 2, textAlign: 'center' }}>
-                            <Box sx={{ 
-                              width: '100%', 
-                              height: 200, 
-                              backgroundColor: '#f5f3f6',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              mb: 1,
-                            }}>
-                              <Image sx={{ fontSize: 60, color: '#674fb6', opacity: 0.5 }} />
-                            </Box>
-                            <Typography variant="body2" color="#4c5454">
-                              Фото {index + 1}: {photo}
-                            </Typography>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </>
-              )}
-
-              {openDefectDetails.videos.length > 0 && (
-                <>
-                  <Typography variant="h6" sx={{ color: '#2a0f35', mb: 2 }}>
-                    Видео ({openDefectDetails.videos.length})
-                  </Typography>
-                  <Grid container spacing={2}>
-                    {openDefectDetails.videos.map((video, index) => (
-                      <Grid size={{ xs: 12, sm: 6 }} key={index}>
-                        <Card>
-                          <CardContent sx={{ p: 2, textAlign: 'center' }}>
-                            <Box sx={{ 
-                              width: '100%', 
-                              height: 200, 
-                              backgroundColor: '#2a436d',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              mb: 1,
-                              borderRadius: 1,
-                            }}>
-                              <Movie sx={{ fontSize: 60, color: 'white', opacity: 0.8 }} />
-                            </Box>
-                            <Typography variant="body2" color="#4c5454">
-                              Видео {index + 1}: {video}
-                            </Typography>
-                          </CardContent>
-                        </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setOpenDefectDetails(null)} sx={{ color: '#4c5454' }}>
-                Закрыть
-              </Button>
-            </DialogActions>
-          </>
-        )}
-      </Dialog>
+        <Alert 
+          onClose={handleSnackbarClose} 
+          severity={snackbarSeverity} 
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

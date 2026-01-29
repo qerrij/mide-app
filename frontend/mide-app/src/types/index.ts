@@ -910,3 +910,146 @@ export const getRequestTypeText = (type: TransferRequestType): string => {
     ? 'Запрос пользователя' 
     : 'Запрос руководителя';
 };
+
+
+// ================ БРАК (DEFECTS/REJECTIONS) ================
+export enum RejectionStatus {
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED'
+}
+
+// Товар для создания брака
+export interface RejectionItemCreate {
+  productId: number;
+  quantity: number;
+}
+
+// Товар в ответе от сервера
+export interface RejectionItemResponse {
+  id: number;
+  productId: number;
+  productName?: string;
+  productSku?: string;
+  categoryName?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+// Создание брака
+export interface RejectionCreate {
+  items: RejectionItemCreate[];
+  comment?: string;
+}
+
+// Обновление статуса брака
+export interface RejectionUpdate {
+  status?: RejectionStatus;
+  comment?: string;
+}
+
+// Полный ответ по браку
+export interface Rejection {
+  id: number;
+  userId: number;
+  userName?: string;
+  userRole?: string;
+  comment?: string;
+  status: RejectionStatus;
+  photoPaths?: string[];
+  videoPaths?: string[];
+  totalItems: number;
+  totalValue: number;
+  items: RejectionItemResponse[];
+  createdAt: Date;
+  updatedAt?: Date;
+  reviewedAt?: Date;
+  reviewedBy?: number;
+  reviewerName?: string;
+}
+
+// Статистика по товарам
+export interface RejectionProductStats {
+  productId: number;
+  productName: string;
+  productSku: string;
+  categoryId?: number;
+  categoryName?: string;
+  totalRejected: number;
+  totalValue: number;
+  usersCount: number;
+}
+
+// Статистика по пользователям
+export interface RejectionUserStats {
+  userId: number;
+  userName: string;
+  userRole?: string;
+  clusterId?: number;
+  clusterName?: string;
+  totalRejections: number;
+  totalValue: number;
+  productsCount: number;
+}
+
+// Детальная статистика по пользователю и товарам
+export interface RejectionUserProductStats {
+  userId: number;
+  userName: string;
+  productId: number;
+  productName: string;
+  productSku: string;
+  categoryId?: number;
+  categoryName?: string;
+  totalRejected: number;
+  totalValue: number;
+}
+
+// Общая статистика
+export interface RejectionDetailedStats {
+  period: string;
+  totalRejectedItems: number;
+  totalValue: number;
+  totalUsers: number;
+  totalProducts: number;
+  byMonth?: Array<{
+    month: string;
+    items: number;
+    value: number;
+    users: number;
+  }>;
+}
+
+// Доступный товар для брака
+export interface AvailableProduct {
+  productId: number;
+  productName: string;
+  productSku: string;
+  categoryId?: number;
+  categoryName?: string;
+  availableQuantity: number;
+  price: number;
+}
+
+// Хелперы
+export const getRejectionStatusText = (status: RejectionStatus): string => {
+  const texts = {
+    [RejectionStatus.PENDING]: 'На рассмотрении',
+    [RejectionStatus.APPROVED]: 'Утвержден',
+    [RejectionStatus.REJECTED]: 'Отклонен',
+    [RejectionStatus.CANCELLED]: 'Отменен',
+  };
+  return texts[status];
+};
+
+export const getRejectionStatusColor = (status: RejectionStatus): string => {
+  const colors = {
+    [RejectionStatus.PENDING]: '#ff9800',
+    [RejectionStatus.APPROVED]: '#4caf50',
+    [RejectionStatus.REJECTED]: '#f44336',
+    [RejectionStatus.CANCELLED]: '#9e9e9e',
+  };
+  return colors[status];
+};
