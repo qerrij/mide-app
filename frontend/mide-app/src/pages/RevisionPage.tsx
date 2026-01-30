@@ -7,12 +7,6 @@ import {
   Box,
   Button,
   Chip,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   IconButton,
   Tooltip,
   TextField,
@@ -24,15 +18,25 @@ import {
   Alert,
   CircularProgress,
   Stack,
+  Card,
+  CardContent,
+  CardActions,
+  Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Visibility as ViewIcon,
   Edit as EditIcon,
-  CheckCircle as VerifyIcon,
   Refresh as RefreshIcon,
   Search as SearchIcon,
   FilterList as FilterIcon,
+  ChevronRight as ChevronRightIcon,
+  Person as PersonIcon,
+  Group as GroupIcon,
+  LocationCity as CityIcon,
+  Home as ClusterIcon,
+  Public as PublicIcon,
+  Schedule as ScheduleIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -60,11 +64,29 @@ const RevisionsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<RevisionStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<RevisionType | 'all'>('all');
   
-  // Функция для получения имени цели ревизии (теперь использует данные из самой ревизии)
+  // Функция для получения имени цели ревизии
   const getTargetName = (revision: Revision): string => {
     return getTargetNameHelper(revision);
   };
   
+  // Иконки для типов ревизий
+  const getTypeIcon = (type: RevisionType) => {
+    switch (type) {
+      case RevisionType.USER:
+        return <PersonIcon sx={{ fontSize: 18 }} />;
+      case RevisionType.GROUP:
+        return <GroupIcon sx={{ fontSize: 18 }} />;
+      case RevisionType.CLUSTER:
+        return <ClusterIcon sx={{ fontSize: 18 }} />;
+      case RevisionType.CITY:
+        return <CityIcon sx={{ fontSize: 18 }} />;
+      case RevisionType.GENERAL:
+        return <PublicIcon sx={{ fontSize: 18 }} />;
+      default:
+        return <PersonIcon sx={{ fontSize: 18 }} />;
+    }
+  };
+
   // Загрузка ревизий
   const loadRevisions = async () => {
     try {
@@ -91,34 +113,17 @@ const RevisionsPage: React.FC = () => {
     loadRevisions();
   }, [user]);
 
-  // Фильтрация ревизий
-  const filteredRevisions = revisions.filter(revision => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = 
-      revision.id.toString().includes(searchTerm) ||
-      revision.requestedByName?.toLowerCase().includes(searchLower) ||
-      getTargetName(revision).toLowerCase().includes(searchLower) ||
-      (revision.comment && revision.comment.toLowerCase().includes(searchLower));
-    
-    const matchesStatus = statusFilter === 'all' || revision.status === statusFilter;
-    const matchesType = typeFilter === 'all' || revision.type === typeFilter;
-    
-    return matchesSearch && matchesStatus && matchesType;
-  });
-
   // Может ли пользователь запрашивать ревизии
   const canRequestRevision = user?.role && [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER].includes(user.role);
 
-  // Может ли пользователь проверять конкретную ревизию
-  const canVerifyRevision = (revision: Revision): boolean => {
+  // Проверяет, заполнил ли пользователь ревизию
+  const hasUserFilledRevision = (revision: Revision): boolean => {
     if (!user) return false;
-    // Проверять может только тот, кто запросил ревизию
-    return revision.requestedById === user.id && 
-           revision.status === RevisionStatus.COMPLETED;
+    return revision.fillings?.some(f => f.userId === user.id && f.isCompleted) || false;
   };
 
-  // Может ли пользователь заполнять ревизию
-  const canFillRevision = (revision: Revision): boolean => {
+  // Может ли пользователь заполнить ревизию
+  const canUserFillRevision = (revision: Revision): boolean => {
     if (!user) return false;
     
     // OWNER и ACCOUNTANT не заполняют ревизии
@@ -133,12 +138,7 @@ const RevisionsPage: React.FC = () => {
     }
     
     // Проверяем, заполнил ли уже пользователь эту ревизию
-    const hasUserFilling = revision.fillings?.some(
-      f => f.userId === user.id && f.isCompleted
-    );
-    
-    // Если уже заполнил - нельзя заполнять снова
-    if (hasUserFilling) {
+    if (hasUserFilledRevision(revision)) {
       return false;
     }
     
@@ -158,30 +158,64 @@ const RevisionsPage: React.FC = () => {
     return false;
   };
 
-  // Проверяет, заполнил ли пользователь ревизию
-  const hasUserFilledRevision = (revision: Revision): boolean => {
+  // Может ли пользователь проверить ревизию
+  const canUserVerifyRevision = (revision: Revision): boolean => {
     if (!user) return false;
-    return revision.fillings?.some(f => f.userId === user.id && f.isCompleted) || false;
+    
+    // Проверять может только тот, кто запросил ревизию
+    return revision.requestedById === user.id && 
+           revision.status === RevisionStatus.COMPLETED;
   };
+
+  // Определяет, какое действие доступно для ревизии
+  const getRevisionAction = (revision: Revision): { 
+    label: string; 
+    action: () => void;
+    variant: 'contained' | 'outlined';
+    color: 'primary' | 'secondary' | 'success';
+  } => {
+    if (canUserFillRevision(revision)) {
+      return {
+        label: 'Заполнить ревизию',
+        action: () => navigate(`/revisions/${revision.id}/fill`),
+        variant: 'contained' as const,
+        color: 'primary' as const
+      };
+    } else if (canUserVerifyRevision(revision)) {
+      return {
+        label: 'Проверить ревизию',
+        action: () => navigate(`/revisions/${revision.id}`),
+        variant: 'contained' as const,
+        color: 'success' as const
+      };
+    } else {
+      return {
+        label: 'Подробнее',
+        action: () => navigate(`/revisions/${revision.id}`),
+        variant: 'outlined' as const,
+        color: 'primary' as const
+      };
+    }
+  };
+
+  // Фильтрация ревизий
+  const filteredRevisions = revisions.filter(revision => {
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch = 
+      revision.id.toString().includes(searchTerm) ||
+      revision.requestedByName?.toLowerCase().includes(searchLower) ||
+      getTargetName(revision).toLowerCase().includes(searchLower) ||
+      (revision.comment && revision.comment.toLowerCase().includes(searchLower));
+    
+    const matchesStatus = statusFilter === 'all' || revision.status === statusFilter;
+    const matchesType = typeFilter === 'all' || revision.type === typeFilter;
+    
+    return matchesSearch && matchesStatus && matchesType;
+  });
 
   // Обработчик создания новой ревизии
   const handleRequestRevision = () => {
     navigate('/revisions/request');
-  };
-
-  // Обработчик просмотра ревизии
-  const handleViewRevision = (revisionId: number) => {
-    navigate(`/revisions/${revisionId}`);
-  };
-
-  // Обработчик заполнения ревизии
-  const handleFillRevision = (revisionId: number) => {
-    navigate(`/revisions/${revisionId}/fill`);
-  };
-
-  // Обработчик проверки ревизии
-  const handleVerifyRevision = (revisionId: number) => {
-    navigate(`/revisions/${revisionId}/verify`);
   };
 
   // Форматирование даты
@@ -190,6 +224,12 @@ const RevisionsPage: React.FC = () => {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
+    });
+  };
+
+  // Форматирование времени
+  const formatTime = (date: Date): string => {
+    return new Date(date).toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
     });
@@ -197,119 +237,164 @@ const RevisionsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-        <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-          <CircularProgress />
-        </Box>
-      </Container>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          background: 'linear-gradient(135deg, #f9f7fa 0%, #f0edf2 100%)',
+          py: 4,
+          px: 2,
+        }}
+      >
+        <Container maxWidth="md">
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+            <CircularProgress sx={{ color: '#674fb6' }} />
+          </Box>
+        </Container>
+      </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Typography variant="h4" component="h1" gutterBottom color="#2a0f35">
-              Ревизии
-            </Typography>
-            <Typography variant="subtitle1" color="#4c5454">
-              Полный пересчет товаров и сверка остатков
-            </Typography>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #f9f7fa 0%, #f0edf2 100%)',
+        py: 4,
+        px: 2,
+      }}
+    >
+      <Container maxWidth="md">
+        {/* Шапка */}
+        <Box sx={{ mb: 4 }}>
+          <Grid container spacing={2} alignItems="center">
+            <Grid size={{ xs: 12 }}>
+              <Typography variant="h4" component="h1" gutterBottom color="#2a0f35" fontWeight={600}>
+                Ревизии
+              </Typography>
+              <Typography variant="subtitle1" color="#4c5454">
+                Полный пересчет товаров и сверка остатков
+              </Typography>
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <Stack direction="row" spacing={2} justifyContent="space-between" alignItems="center">
+                {canRequestRevision && (
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={handleRequestRevision}
+                    fullWidth
+                    sx={{
+                      borderRadius: 8,
+                      backgroundColor: '#674fb6',
+                      '&:hover': { backgroundColor: '#483399' },
+                      py: 1.5,
+                    }}
+                  >
+                    Запросить
+                  </Button>
+                )}
+                <Button
+                  variant="outlined"
+                  startIcon={<RefreshIcon />}
+                  onClick={loadRevisions}
+                  fullWidth
+                  sx={{
+                    borderRadius: 8,
+                    borderColor: '#674fb6',
+                    color: '#674fb6',
+                    '&:hover': {
+                      borderColor: '#483399',
+                      backgroundColor: 'rgba(103, 79, 182, 0.04)',
+                    },
+                    py: 1.5,
+                  }}
+                >
+                  Обновить
+                </Button>
+              </Stack>
+            </Grid>
           </Grid>
-          <Grid size={{ xs: 12, md: 6 }} sx={{ textAlign: { md: 'right' } }}>
-            {canRequestRevision && (
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={handleRequestRevision}
-                sx={{
-                  backgroundColor: '#2196f3',
-                  '&:hover': { backgroundColor: '#1976d2' },
-                  mr: 1,
-                }}
-              >
-                Запросить ревизию
-              </Button>
-            )}
-            <Button
-              variant="outlined"
-              startIcon={<RefreshIcon />}
-              onClick={loadRevisions}
-              sx={{
-                borderColor: '#2196f3',
-                color: '#2196f3',
-                '&:hover': {
-                  borderColor: '#1976d2',
-                  backgroundColor: 'rgba(33, 150, 243, 0.04)',
-                },
-              }}
-            >
-              Обновить
-            </Button>
-          </Grid>
-        </Grid>
-      </Box>
+        </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
+        {error && (
+          <Alert 
+            severity="error" 
+            sx={{ 
+              mb: 3, 
+              borderRadius: 8,
+              backgroundColor: 'rgba(202, 14, 192, 0.1)',
+            }}
+          >
+            {error}
+          </Alert>
+        )}
 
-      {/* Фильтры */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid size={{ xs: 12, md: 4 }}>
+        {/* Фильтры */}
+        <Paper 
+          sx={{ 
+            p: 3, 
+            mb: 3, 
+            borderRadius: 8,
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(103, 79, 182, 0.1)',
+          }}
+        >
+          <Stack spacing={3}>
             <TextField
               fullWidth
-              placeholder="Поиск по ID, имени или комментарию..."
+              placeholder="Поиск ревизий..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <SearchIcon />
+                    <SearchIcon sx={{ color: '#674fb6' }} />
                   </InputAdornment>
                 ),
+                sx: { borderRadius: 8 }
               }}
             />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <FormControl fullWidth>
-              <InputLabel>Статус</InputLabel>
-              <Select
-                value={statusFilter}
-                label="Статус"
-                onChange={(e) => setStatusFilter(e.target.value as RevisionStatus | 'all')}
-              >
-                <MenuItem value="all">Все статусы</MenuItem>
-                {Object.values(RevisionStatus).map((status) => (
-                  <MenuItem key={status} value={status}>
-                    {getRevisionStatusText(status)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <FormControl fullWidth>
-              <InputLabel>Тип</InputLabel>
-              <Select
-                value={typeFilter}
-                label="Тип"
-                onChange={(e) => setTypeFilter(e.target.value as RevisionType | 'all')}
-              >
-                <MenuItem value="all">Все типы</MenuItem>
-                {Object.values(RevisionType).map((type) => (
-                  <MenuItem key={type} value={type}>
-                    {getRevisionTypeText(type)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid size={{ xs: 12, md: 2 }} sx={{ textAlign: 'right' }}>
+            
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 6 }}>
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: '#4c5454' }}>Статус</InputLabel>
+                  <Select
+                    value={statusFilter}
+                    label="Статус"
+                    onChange={(e) => setStatusFilter(e.target.value as RevisionStatus | 'all')}
+                    sx={{ borderRadius: 8 }}
+                  >
+                    <MenuItem value="all">Все</MenuItem>
+                    {Object.values(RevisionStatus).map((status) => (
+                      <MenuItem key={status} value={status}>
+                        {getRevisionStatusText(status)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: '#4c5454' }}>Тип</InputLabel>
+                  <Select
+                    value={typeFilter}
+                    label="Тип"
+                    onChange={(e) => setTypeFilter(e.target.value as RevisionType | 'all')}
+                    sx={{ borderRadius: 8 }}
+                  >
+                    <MenuItem value="all">Все</MenuItem>
+                    {Object.values(RevisionType).map((type) => (
+                      <MenuItem key={type} value={type}>
+                        {getRevisionTypeText(type)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+
             <Button
               variant="outlined"
               startIcon={<FilterIcon />}
@@ -318,218 +403,331 @@ const RevisionsPage: React.FC = () => {
                 setStatusFilter('all');
                 setTypeFilter('all');
               }}
+              sx={{
+                borderRadius: 8,
+                borderColor: '#56b8d1',
+                color: '#56b8d1',
+                '&:hover': {
+                  borderColor: '#2a9ab3',
+                  backgroundColor: 'rgba(86, 184, 209, 0.04)',
+                },
+              }}
             >
-              Сбросить
+              Сбросить фильтры
             </Button>
-          </Grid>
-        </Grid>
-      </Paper>
+          </Stack>
+        </Paper>
 
-      {/* Таблица ревизий */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow sx={{ backgroundColor: '#f5f3f6' }}>
-              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>ID</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Тип</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Запросил</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Назначение</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Статус</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Дата запроса</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', color: '#2a0f35' }}>Действия</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredRevisions.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
-                  <Typography variant="body1" color="#4c5454">
-                    Ревизии не найдены
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredRevisions.map((revision) => (
-                <TableRow key={revision.id} hover>
-                  <TableCell>#{revision.id}</TableCell>
-                  <TableCell>
-                    <Chip
-                      label={getRevisionTypeText(revision.type)}
-                      size="small"
-                      sx={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Box>
-                      <Typography variant="body2">
-                        {revision.requestedByName}
-                      </Typography>
-                      {revision.comment && (
-                        <Typography variant="caption" color="text.secondary">
-                          {revision.comment}
+        {/* Счетчик ревизий */}
+        <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="h6" color="#3f1f4b" fontWeight={500}>
+            Все ревизии
+          </Typography>
+          <Chip
+            label={`${filteredRevisions.length} из ${revisions.length}`}
+            size="small"
+            sx={{
+              backgroundColor: '#674fb6',
+              color: 'white',
+              fontWeight: 500,
+              borderRadius: 8,
+            }}
+          />
+        </Box>
+
+        {/* Список ревизий */}
+        {filteredRevisions.length === 0 ? (
+          <Paper
+            sx={{
+              p: 4,
+              textAlign: 'center',
+              borderRadius: 8,
+              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(103, 79, 182, 0.1)',
+            }}
+          >
+            <Typography variant="body1" color="#4c5454">
+              Ревизии не найдены
+            </Typography>
+            <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
+              Попробуйте изменить параметры поиска
+            </Typography>
+          </Paper>
+        ) : (
+          <Stack spacing={2}>
+            {filteredRevisions.map((revision) => {
+              const action = getRevisionAction(revision);
+              const userCanFill = canUserFillRevision(revision);
+              const userCanVerify = canUserVerifyRevision(revision);
+              const hasUserFilled = hasUserFilledRevision(revision);
+              
+              return (
+                <Card
+                  key={revision.id}
+                  sx={{
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid rgba(103, 79, 182, 0.15)',
+                    boxShadow: '0 4px 12px rgba(103, 79, 182, 0.08)',
+                    transition: 'all 0.3s ease',
+                    '&:hover': {
+                      transform: 'translateY(-2px)',
+                      boxShadow: '0 8px 25px rgba(103, 79, 182, 0.12)',
+                      borderColor: 'rgba(103, 79, 182, 0.25)',
+                    },
+                    ...(userCanFill && {
+                      borderLeft: '4px solid #674fb6',
+                      backgroundColor: 'rgba(103, 79, 182, 0.02)',
+                    }),
+                    ...(userCanVerify && {
+                      borderLeft: '4px solid #4caf50',
+                      backgroundColor: 'rgba(76, 175, 80, 0.02)',
+                    }),
+                  }}
+                >
+                  <CardContent sx={{ p: 3 }}>
+                    {/* Заголовок */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                      <Box>
+                        <Typography variant="h6" color="#2a0f35" fontWeight={600}>
+                          Ревизия #{revision.id}
                         </Typography>
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {getTargetName(revision)}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={getRevisionStatusText(revision.status)}
-                      size="small"
-                      sx={{
-                        backgroundColor: `${getRevisionStatusColor(revision.status)}15`,
-                        color: getRevisionStatusColor(revision.status),
-                        fontWeight: 500,
-                      }}
-                    />
-                    {revision.isGroupRevision && (
-                      <Typography variant="caption" display="block" color="text.secondary">
-                        {revision.totalFilled || 0}/{revision.totalUsers || 0}
-                      </Typography>
-                    )}
-                    {hasUserFilledRevision(revision) && (
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                          {getTypeIcon(revision.type)}
+                          <Typography variant="body2" color="#674fb6" fontWeight={500}>
+                            {getRevisionTypeText(revision.type)}
+                          </Typography>
+                          {(userCanFill || userCanVerify) && (
+                            <Chip
+                              label={userCanFill ? "Нужно заполнить" : "Нужно проверить"}
+                              size="small"
+                              sx={{
+                                backgroundColor: userCanFill ? 'rgba(103, 79, 182, 0.1)' : 'rgba(76, 175, 80, 0.1)',
+                                color: userCanFill ? '#674fb6' : '#4caf50',
+                                fontWeight: 500,
+                                borderRadius: 6,
+                                fontSize: '0.7rem',
+                                height: '20px',
+                              }}
+                            />
+                          )}
+                        </Stack>
+                      </Box>
                       <Chip
-                        label="Заполнено вами"
+                        label={getRevisionStatusText(revision.status)}
                         size="small"
                         sx={{
-                          mt: 0.5,
-                          backgroundColor: '#4caf5015',
-                          color: '#4caf50',
-                          fontSize: '0.7rem'
+                          backgroundColor: `${getRevisionStatusColor(revision.status)}15`,
+                          color: getRevisionStatusColor(revision.status),
+                          fontWeight: 500,
+                          borderRadius: 8,
+                          fontSize: '0.75rem',
                         }}
                       />
-                    )}
-                  </TableCell>
-                  <TableCell>{formatDate(revision.requestedAt)}</TableCell>
-                  <TableCell>
-                    <Stack direction="row" spacing={1}>
-                      <Tooltip title="Просмотр">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleViewRevision(revision.id)}
-                          sx={{ color: '#2196f3' }}
-                        >
-                          <ViewIcon />
-                        </IconButton>
-                      </Tooltip>
-                      
-                      {canFillRevision(revision) && (
-                        <Tooltip title="Заполнить ревизию">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleFillRevision(revision.id)}
-                            sx={{ color: '#9c27b0' }}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      
-                      {canVerifyRevision(revision) && (
-                        <Tooltip title="Проверить ревизию">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleVerifyRevision(revision.id)}
-                            sx={{ color: '#4caf50' }}
-                          >
-                            <VerifyIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Stack>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+                    </Box>
 
-      {/* Статистика для административных ролей */}
-      {(user?.role === UserRole.OWNER || 
-        user?.role === UserRole.ADMIN || 
-        user?.role === UserRole.SENIOR_SELLER) && (
-        <Box sx={{ mt: 6 }}>
-          <Typography variant="h5" gutterBottom color="#3f1f4b">
-            Статистика по ревизиям
-          </Typography>
-          <Grid container spacing={3} sx={{ mt: 2 }}>
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#2196f310',
-                  border: '1px solid #2196f330',
-                }}
-              >
-                <Typography variant="h4" color="#2196f3">
-                  {revisions.length}
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Всего ревизий
-                </Typography>
-              </Paper>
+                    <Divider sx={{ my: 2, opacity: 0.3 }} />
+
+                    {/* Информация */}
+                    <Stack spacing={2}>
+                      <Box>
+                        <Typography variant="caption" color="#4c5454" display="block">
+                          Запросил
+                        </Typography>
+                        <Typography variant="body2" color="#2a0f35" fontWeight={500}>
+                          {revision.requestedByName}
+                        </Typography>
+                        {revision.comment && (
+                          <Typography variant="caption" color="#4c5454" display="block" sx={{ mt: 0.5 }}>
+                            {revision.comment}
+                          </Typography>
+                        )}
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="#4c5454" display="block">
+                          Назначение
+                        </Typography>
+                        <Typography variant="body2" color="#2a0f35" fontWeight={500}>
+                          {getTargetName(revision)}
+                        </Typography>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="caption" color="#4c5454" display="block">
+                          Дата запроса
+                        </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <ScheduleIcon sx={{ fontSize: 16, color: '#56b8d1' }} />
+                          <Typography variant="body2" color="#2a0f35">
+                            {formatDate(revision.requestedAt)} в {formatTime(revision.requestedAt)}
+                          </Typography>
+                        </Stack>
+                      </Box>
+
+                      {/* Дополнительная информация */}
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        {revision.isGroupRevision && (
+                          <Chip
+                            icon={<GroupIcon sx={{ fontSize: 14 }} />}
+                            label={`${revision.totalFilled || 0}/${revision.totalUsers || 0}`}
+                            size="small"
+                            sx={{
+                              backgroundColor: 'rgba(86, 184, 209, 0.1)',
+                              color: '#2a9ab3',
+                              borderRadius: 6,
+                              fontSize: '0.75rem',
+                            }}
+                          />
+                        )}
+                        {hasUserFilled && (
+                          <Chip
+                            label="Заполнено вами"
+                            size="small"
+                            sx={{
+                              backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                              color: '#4caf50',
+                              borderRadius: 6,
+                              fontSize: '0.75rem',
+                            }}
+                          />
+                        )}
+                      </Box>
+                    </Stack>
+                  </CardContent>
+
+                  <CardActions sx={{ p: 3, pt: 0 }}>
+                    <Button
+                      fullWidth
+                      variant={action.variant}
+                      color={action.color}
+                      onClick={action.action}
+                      sx={{
+                        borderRadius: 8,
+                        py: 1.5,
+                        ...(userCanFill && {
+                          backgroundColor: '#674fb6',
+                          '&:hover': { backgroundColor: '#483399' },
+                        }),
+                        ...(userCanVerify && {
+                          backgroundColor: '#4caf50',
+                          '&:hover': { backgroundColor: '#388e3c' },
+                        }),
+                      }}
+                    >
+                      {action.label}
+                    </Button>
+                  </CardActions>
+                </Card>
+              );
+            })}
+          </Stack>
+        )}
+
+        {/* Статистика для административных ролей */}
+        {(user?.role === UserRole.OWNER || 
+          user?.role === UserRole.ADMIN || 
+          user?.role === UserRole.SENIOR_SELLER) && (
+          <Box sx={{ mt: 6 }}>
+            <Typography variant="h5" gutterBottom color="#3f1f4b" fontWeight={600}>
+              Статистика
+            </Typography>
+            <Grid container spacing={2} sx={{ mt: 2 }}>
+              <Grid size={{ xs: 6 }}>
+                <Paper
+                  sx={{
+                    p: 2.5,
+                    textAlign: 'center',
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(103, 79, 182, 0.1)',
+                    border: '1px solid #674fb630',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Typography variant="h4" color="#674fb6" fontWeight={600}>
+                    {revisions.length}
+                  </Typography>
+                  <Typography variant="caption" color="#4c5454" sx={{ mt: 0.5 }}>
+                    Всего ревизий
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <Paper
+                  sx={{
+                    p: 2.5,
+                    textAlign: 'center',
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                    border: '1px solid #ff980030',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Typography variant="h4" color="#ff9800" fontWeight={600}>
+                    {revisions.filter(r => r.status === RevisionStatus.REQUESTED).length}
+                  </Typography>
+                  <Typography variant="caption" color="#4c5454" sx={{ mt: 0.5 }}>
+                    Ожидают заполнения
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <Paper
+                  sx={{
+                    p: 2.5,
+                    textAlign: 'center',
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                    border: '1px solid #9c27b030',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Typography variant="h4" color="#9c27b0" fontWeight={600}>
+                    {revisions.filter(r => r.status === RevisionStatus.COMPLETED).length}
+                  </Typography>
+                  <Typography variant="caption" color="#4c5454" sx={{ mt: 0.5 }}>
+                    Ожидают проверки
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <Paper
+                  sx={{
+                    p: 2.5,
+                    textAlign: 'center',
+                    borderRadius: 8,
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                    border: '1px solid #4caf5030',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Typography variant="h4" color="#4caf50" fontWeight={600}>
+                    {revisions.filter(r => r.status === RevisionStatus.VERIFIED).length}
+                  </Typography>
+                  <Typography variant="caption" color="#4c5454" sx={{ mt: 0.5 }}>
+                    Проверены
+                  </Typography>
+                </Paper>
+              </Grid>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#ff980010',
-                  border: '1px solid #ff980030',
-                }}
-              >
-                <Typography variant="h4" color="#ff9800">
-                  {revisions.filter(r => r.status === RevisionStatus.REQUESTED).length}
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Ожидают заполнения
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#9c27b010',
-                  border: '1px solid #9c27b030',
-                }}
-              >
-                <Typography variant="h4" color="#9c27b0">
-                  {revisions.filter(r => r.status === RevisionStatus.COMPLETED).length}
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Ожидают проверки
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#4caf5010',
-                  border: '1px solid #4caf5030',
-                }}
-              >
-                <Typography variant="h4" color="#4caf50">
-                  {revisions.filter(r => r.status === RevisionStatus.VERIFIED).length}
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Проверены
-                </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-        </Box>
-      )}
-    </Container>
+          </Box>
+        )}
+      </Container>
+    </Box>
   );
 };
 
