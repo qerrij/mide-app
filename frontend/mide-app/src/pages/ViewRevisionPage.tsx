@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Paper,
@@ -8,37 +8,48 @@ import {
   Grid,
   Alert,
   CircularProgress,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Chip,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Avatar,
   Stack,
+  Divider,
+  Card,
+  Avatar,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  Divider,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  IconButton,
+  Fab,
+  Fade,
+  useTheme,
+  useMediaQuery,
 } from '@mui/material';
 import {
-  ArrowBack,
-  CheckCircle,
-  ExpandMore,
-  PhotoCamera,
-  Person,
-  Group,
+  ArrowBack as ArrowBackIcon,
+  CheckCircle as CheckCircleIcon,
+  PhotoCamera as PhotoCameraIcon,
+  Person as PersonIcon,
+  Group as GroupIcon,
+  LocationCity as CityIcon,
+  Home as ClusterIcon,
+  Public as PublicIcon,
+  People as PeopleIcon,
+  Schedule as ScheduleIcon,
+  ExpandMore as ExpandMoreIcon,
+  Photo as PhotoIcon,
+  Inventory as InventoryIcon,
+  Edit as EditIcon,
+  Close as CloseIcon,
+  CalendarToday as CalendarIcon,
+  CheckCircleOutline as CheckCircleOutlineIcon,
+  Verified as VerifiedIcon,
+  AddCircleOutline as AddCircleOutlineIcon,
   LocationCity,
-  Home,
-  Language,
-  People,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
+import { MobilePhotoViewer } from '../components/MobilePhotoViewer';
 import { useAuth } from '../contexts/AuthContext';
 import { revisionService } from '../api/revisionService';
 import {
@@ -49,13 +60,17 @@ import {
   getRevisionStatusColor,
   RevisionFilling,
   isGroupRevision,
-  getTargetName,
+  getTargetName as getTargetNameHelper,
 } from '../types';
+
+// Компонент для просмотра фото на мобилках
 
 const ViewRevisionPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,19 +95,13 @@ const ViewRevisionPage: React.FC = () => {
         const revisionData = await revisionService.getRevisionById(revisionId);
         setRevision(revisionData);
         
-        // Определяем, является ли пользователь владельцем ревизии
         const isOwner = revisionData.requestedById === user?.id;
         const isGroupRev = isGroupRevision(revisionData.type);
         
-        if (isOwner && isGroupRev) {
-          // Владелец видит все заполнения
-          // Ничего не меняем, fillings уже загружены
-        } else {
-          // Не владелец - получаем только свое заполнение
+        if (!isOwner || !isGroupRev) {
           const myFilling = await revisionService.getMyFilling(revisionId);
           setUserFilling(myFilling);
           
-          // Обновляем ревизию, оставляя только свое заполнение
           if (myFilling) {
             setRevision({
               ...revisionData,
@@ -114,43 +123,56 @@ const ViewRevisionPage: React.FC = () => {
     loadData();
   }, [id, user]);
 
-  // Проверка, является ли пользователь владельцем
   const isOwner = revision?.requestedById === user?.id;
-  
-  // Проверка, является ли ревизия групповой
   const isGroupRev = revision ? isGroupRevision(revision.type) : false;
   
-  // Форматирование даты
+  const getTargetName = (revision: Revision): string => {
+    return getTargetNameHelper(revision);
+  };
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'USER':
+        return <PersonIcon sx={{ fontSize: 18 }} />;
+      case 'GROUP':
+        return <GroupIcon sx={{ fontSize: 18 }} />;
+      case 'CLUSTER':
+        return <ClusterIcon sx={{ fontSize: 18 }} />;
+      case 'CITY':
+        return <CityIcon sx={{ fontSize: 18 }} />;
+      case 'GENERAL':
+        return <PublicIcon sx={{ fontSize: 18 }} />;
+      default:
+        return <PersonIcon sx={{ fontSize: 18 }} />;
+    }
+  };
+
   const formatDate = (date?: Date): string => {
     if (!date) return 'Не указано';
     return new Date(date).toLocaleDateString('ru-RU', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
+    });
+  };
+
+  const formatTime = (date: Date): string => {
+    return new Date(date).toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
     });
   };
 
-  // Получение иконки типа ревизии
-  const getRevisionTypeIcon = (type?: string) => {
-    switch (type) {
-      case 'USER': return <Person />;
-      case 'GROUP': return <Group />;
-      case 'CLUSTER': return <Home />;
-      case 'CITY': return <LocationCity />;
-      case 'GENERAL': return <Language />;
-      default: return <Language />;
-    }
+  const formatDateTime = (date?: Date): string => {
+    if (!date) return 'Не указано';
+    return `${formatDate(date)} в ${formatTime(date)}`;
   };
 
-  // Просмотр фото
   const handleViewPhoto = (photos: string[], index: number) => {
     setSelectedPhoto({ photos, index });
     setShowPhotoDialog(true);
   };
 
-  // Обработка раскрытия/закрытия аккордеона
   const handleAccordionChange = (userId: number) => {
     setExpandedUsers(prev => 
       prev.includes(userId) 
@@ -159,522 +181,903 @@ const ViewRevisionPage: React.FC = () => {
     );
   };
 
-  // Проверка, может ли пользователь проверить ревизию
   const canVerifyRevision = isOwner && revision?.status === RevisionStatus.COMPLETED;
+
+  const hasUserFilledRevision = (): boolean => {
+    if (!user || !revision) return false;
+    return revision.fillings?.some(f => f.userId === user.id && f.isCompleted) || false;
+  };
 
   if (loading) {
     return (
-      <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
-        <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-          <CircularProgress />
-        </Box>
-      </Container>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          background: '#f8f9fa',
+          py: 4,
+        }}
+      >
+        <Container maxWidth="lg">
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+            <CircularProgress sx={{ color: '#007AFF' }} />
+          </Box>
+        </Container>
+      </Box>
     );
   }
 
   if (!revision) {
     return (
-      <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
-        <Alert severity="error">
-          Ревизия не найдена
-        </Alert>
-      </Container>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          background: '#f8f9fa',
+          py: 4,
+        }}
+      >
+        <Container maxWidth="lg">
+          <Alert 
+            severity="error" 
+            sx={{ 
+              borderRadius: 8,
+              backgroundColor: '#FF3B3015',
+            }}
+          >
+            Ревизия не найдена
+          </Alert>
+        </Container>
+      </Box>
     );
   }
 
   const completedFillings = revision.fillings?.filter(f => f.isCompleted) || [];
   const isRevisionVerified = revision.status === RevisionStatus.VERIFIED;
+  const userHasFilled = hasUserFilledRevision();
+
+  // Функция для расчета общего расхождения
+  const calculateTotalDiscrepancy = () => {
+    if (!revision.discrepancies || revision.discrepancies.length === 0) return 0;
+    
+    const nonZeroDiscrepancies = revision.discrepancies.filter(d => d.discrepancy !== 0);
+    return nonZeroDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0);
+  };
+
+  const totalDiscrepancy = calculateTotalDiscrepancy();
 
   return (
-    <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
-      {/* Кнопка назад */}
-      <Button
-        startIcon={<ArrowBack />}
-        onClick={() => navigate('/revisions')}
-        sx={{ mb: 3 }}
-      >
-        Назад к ревизиям
-      </Button>
+    <Box sx={{ minHeight: '100vh', py: 3, position: 'relative' }}>
+      {/* Плавающая кнопка назад для мобильных устройств */}
+      {isMobile && (
+        <Fab
+          onClick={() => navigate('/revisions')}
+          sx={{
+            position: 'fixed',
+            top: 64,
+            left: 16,
+            zIndex: 1000,
+            backgroundColor: 'rgba(255, 255, 255, 0.8)',
+            backdropFilter: 'blur(10px)',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            '&:hover': { 
+              backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            },
+            width: 44,
+            height: 44,
+            // Смещаем немного вниз чтобы не было под топ баром
+            mt: 1,
+          }}
+        >
+          <ArrowBackIcon sx={{ 
+            color: 'rgba(0, 122, 255, 0.8)',
+            fontSize: 22 
+          }} />
+        </Fab>
+      )}
 
-      {/* Заголовок */}
-      <Box sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography variant="h4" component="h1" gutterBottom color="#2a0f35">
+      <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
+        {/* Кнопка назад для десктопа (всегда статичная сверху) */}
+        {!isMobile && (
+          <Button
+            startIcon={<ArrowBackIcon />}
+            onClick={() => navigate('/revisions')}
+            sx={{
+              borderRadius: 8,
+              color: '#007AFF',
+              textTransform: 'none',
+              fontSize: '0.9rem',
+              mb: 3,
+              px: 2,
+              py: 1,
+              border: '1px solid rgba(0, 122, 255, 0.2)',
+              '&:hover': { 
+                backgroundColor: 'rgba(0, 122, 255, 0.04)',
+                border: '1px solid rgba(0, 122, 255, 0.3)',
+              },
+              position: 'relative',
+              zIndex: 1,
+            }}
+          >
+            Назад к ревизиям
+          </Button>
+        )}
+
+        {/* Для мобилок добавляем отступ сверху для кнопки */}
+        {isMobile && <Box sx={{ height: 16, mb: 2 }} />}
+
+        {error && (
+          <Alert 
+            severity="error" 
+            sx={{ 
+              mb: 3, 
+              borderRadius: 8,
+              backgroundColor: '#FF3B3015',
+            }}
+          >
+            {error}
+          </Alert>
+        )}
+
+        {/* Шапка с основной информацией */}
+        <Paper 
+          sx={{ 
+            p: { xs: 2, sm: 2.5 },
+            mb: 3,
+            borderRadius: 8,
+            backgroundColor: '#fff',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          }}
+        >
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="h5" component="h1" color="#000" fontWeight={600} gutterBottom>
               Ревизия #{revision.id}
-              {!isOwner && (
-                <Typography variant="subtitle1" color="#4c5454" sx={{ mt: 1 }}>
-                  {isGroupRev ? 'Ваши данные' : 'Просмотр ревизии'}
-                </Typography>
-              )}
             </Typography>
-            
-            <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-              <Chip
-                icon={getRevisionTypeIcon(revision.type)}
-                label={getRevisionTypeText(revision.type)}
-                sx={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}
-              />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {getTypeIcon(revision.type)}
+                <Typography variant="body2" color="#007AFF" fontWeight={500}>
+                  {getRevisionTypeText(revision.type)}
+                </Typography>
+              </Box>
               <Chip
                 label={getRevisionStatusText(revision.status)}
+                size="small"
                 sx={{
                   backgroundColor: `${getRevisionStatusColor(revision.status)}15`,
                   color: getRevisionStatusColor(revision.status),
                   fontWeight: 500,
+                  borderRadius: 6,
+                  fontSize: '0.7rem',
                 }}
               />
-              
-              {isOwner && isGroupRev && revision.totalFilled !== undefined && (
+              {!isOwner && userHasFilled && (
                 <Chip
-                  icon={<People />}
-                  label={`${revision.totalFilled}/${revision.totalUsers} заполнили`}
-                  sx={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}
+                  label="Заполнено вами"
+                  size="small"
+                  sx={{
+                    backgroundColor: '#E6F4EA',
+                    color: '#34C759',
+                    borderRadius: 6,
+                    fontSize: '0.7rem',
+                  }}
                 />
               )}
-            </Stack>
+              {isOwner && isGroupRev && revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
+                <Chip
+                  icon={<PeopleIcon sx={{ fontSize: 14 }} />}
+                  label={`${revision.totalFilled}/${revision.totalUsers}`}
+                  size="small"
+                  sx={{
+                    backgroundColor: '#F2F2F7',
+                    color: '#5AC8FA',
+                    borderRadius: 6,
+                    fontSize: '0.7rem',
+                  }}
+                />
+              )}
+            </Box>
           </Box>
-          
-          {canVerifyRevision && (
-            <Button
-              variant="contained"
-              startIcon={<CheckCircle />}
-              onClick={() => navigate(`/revisions/${revision.id}/verify`)}
+
+          <Stack spacing={2}>
+            <Grid container spacing={2}>
+              {/* Запрос */}
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+                  <Avatar
+                    sx={{ 
+                      width: 36, 
+                      height: 36, 
+                      bgcolor: '#007AFF',
+                      flexShrink: 0,
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    {revision.requestedByName?.charAt(0) || 'П'}
+                  </Avatar>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                      Запросил
+                    </Typography>
+                    <Typography variant="body2" color="#000" fontWeight={500}>
+                      {revision.requestedByName || `Пользователь ${revision.requestedById}`}
+                    </Typography>
+                    <Typography variant="caption" color="#8E8E93">
+                      {formatDateTime(revision.requestedAt)}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Grid>
+              
+              {/* Цель ревизии */}
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Box sx={{ pl: { xs: 0, sm: 0.5 } }}>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 1.5,
+                    mb: 0.5 
+                  }}>
+                    <Box sx={{ 
+                      width: 36, 
+                      height: 36, 
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <LocationCity sx={{ 
+                        fontSize: 20, 
+                        color: '#8E8E93',
+                        opacity: 0.7 
+                      }} />
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                        Цель ревизии
+                      </Typography>
+                      <Typography variant="body2" color="#000" fontWeight={500}>
+                        {getTargetName(revision)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              </Grid>
+            </Grid>
+
+            {/* Комментарий */}
+            {revision.comment && (
+              <Box>
+                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                  Комментарий
+                </Typography>
+                <Typography variant="body2" color="#000" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {revision.comment}
+                </Typography>
+              </Box>
+            )}
+
+            {/* Комментарий проверки */}
+            {revision.verificationComment && (
+              <Box>
+                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                  Комментарий проверки
+                </Typography>
+                <Typography variant="body2" color="#000" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {revision.verificationComment}
+                </Typography>
+              </Box>
+            )}
+          </Stack>
+        </Paper>
+
+        {/* Блок статуса ревизии */}
+        <Paper 
+          sx={{ 
+            p: { xs: 2, sm: 2.5 },
+            mb: 3,
+            borderRadius: 8,
+            backgroundColor: '#fff',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            textAlign: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          <Box 
+            sx={{ 
+              position: 'absolute', 
+              top: 0, 
+              right: 0, 
+              width: 120, 
+              height: 120, 
+              opacity: 0.05,
+              zIndex: 0,
+            }}
+          >
+            <Box
               sx={{
-                backgroundColor: '#4caf50',
-                '&:hover': { backgroundColor: '#388e3c' },
+                width: '100%',
+                height: '100%',
+                backgroundImage: 'radial-gradient(circle, #007AFF 2px, transparent 2px)',
+                backgroundSize: '20px 20px',
               }}
-            >
-              Проверить ревизию
-            </Button>
-          )}
-        </Box>
-      </Box>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Блок 1: Информация о ревизии */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom color="#2a0f35">
-          Информация о ревизии
-        </Typography>
-        
-        <Grid container spacing={2}>
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
-                Запросил:
-              </Typography>
-              <Typography variant="body1">
-                {revision.requestedByName || `Пользователь ${revision.requestedById}`}
-              </Typography>
-            </Box>
-            
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
-                Дата запроса:
-              </Typography>
-              <Typography variant="body1">
-                {formatDate(revision.requestedAt)}
-              </Typography>
-            </Box>
-            
-            {revision.completedAt && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
-                  Дата заполнения:
-                </Typography>
-                <Typography variant="body1">
-                  {formatDate(revision.completedAt)}
-                </Typography>
-              </Box>
-            )}
-          </Grid>
+            />
+          </Box>
           
-          <Grid size={{ xs: 12, md: 6 }}>
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
-                Цель:
-              </Typography>
-              <Typography variant="body1">
-                {getTargetName(revision)}
-              </Typography>
-            </Box>
-            
-            {revision.verifiedAt && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
-                  Дата проверки:
-                </Typography>
-                <Typography variant="body1">
-                  {formatDate(revision.verifiedAt)}
-                </Typography>
-              </Box>
-            )}
-          </Grid>
-        </Grid>
-        
-        {revision.comment && (
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
-              Комментарий:
-            </Typography>
-            <Typography variant="body1">
-              {revision.comment}
-            </Typography>
-          </Box>
-        )}
-        
-        {revision.verificationComment && (
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" sx={{ color: '#4c5454', mb: 0.5 }}>
-              Комментарий проверки:
-            </Typography>
-            <Typography variant="body1">
-              {revision.verificationComment}
-            </Typography>
-          </Box>
-        )}
-      </Paper>
-
-      {/* Блок 2: Статус ревизии */}
-    <Paper sx={{ p: 3, mb: 3 }}>
-      <Typography variant="h6" gutterBottom color="#2a0f35">
-        Статус ревизии
-      </Typography>
-      
-      <Box sx={{ 
-        p: 4, 
-        backgroundColor: '#f5f5f5',
-        borderRadius: 2,
-        textAlign: 'center'
-      }}>
-        {isRevisionVerified ? (
-          revision.discrepancies && revision.discrepancies.length > 0 ? (
-            <>
-              {(() => {
-                // Фильтруем только ненулевые расхождения
-                const nonZeroDiscrepancies = revision.discrepancies.filter(d => d.discrepancy !== 0);
-                const positiveDiscrepancies = nonZeroDiscrepancies.filter(d => d.discrepancy > 0);
-                const negativeDiscrepancies = nonZeroDiscrepancies.filter(d => d.discrepancy < 0);
-                const totalDiscrepancy = nonZeroDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0);
-                
-                if (nonZeroDiscrepancies.length === 0) {
-                  // Все расхождения нулевые
-                  return (
-                    <>
-                      <Typography variant="body1" color="#4c5454" gutterBottom>
-                        Ревизия сбалансирована
-                      </Typography>
-                      <Typography variant="h1" color="#4caf50" sx={{ fontWeight: 'bold' }}>
-                        0
-                      </Typography>
-                      <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                        Расхождений не обнаружено
-                      </Typography>
-                    </>
-                  );
-                }
-                
-                return (
+          <Box sx={{ position: 'relative', zIndex: 1, py: { xs: 2, sm: 3 } }}>
+            {isRevisionVerified ? (
+              <Box>
+                {totalDiscrepancy === 0 ? (
                   <>
-                    <Typography variant="body1" color="#4c5454" gutterBottom>
+                    <Typography variant="body2" color="#8E8E93" gutterBottom>
+                      Ревизия сбалансирована
+                    </Typography>
+                    <Typography 
+                      variant="h1" 
+                      color="#34C759" 
+                      sx={{ 
+                        fontWeight: 'bold', 
+                        my: 1,
+                        fontSize: { xs: '3rem', sm: '4rem' }
+                      }}
+                    >
+                      0
+                    </Typography>
+                    <Typography variant="caption" color="#8E8E93">
+                      Расхождений не обнаружено
+                    </Typography>
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="body2" color="#8E8E93" gutterBottom>
                       {totalDiscrepancy > 0 ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
                     </Typography>
                     <Typography 
                       variant="h1" 
-                      color={totalDiscrepancy > 0 ? '#2196f3' : '#f44336'}
-                      sx={{ fontWeight: 'bold' }}
+                      color={totalDiscrepancy > 0 ? '#007AFF' : '#FF3B30'}
+                      sx={{ 
+                        fontWeight: 'bold', 
+                        my: 1,
+                        fontSize: { xs: '3rem', sm: '4rem' }
+                      }}
                     >
-                      {totalDiscrepancy}
+                      {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
                     </Typography>
-                    <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                      {positiveDiscrepancies.length > 0 && 
-                        `Излишек: +${positiveDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0)} `}
-                      {negativeDiscrepancies.length > 0 && 
-                        `Недостача: ${negativeDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0)}`}
+                    <Typography variant="caption" color="#8E8E93">
+                      {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
                     </Typography>
                   </>
-                );
-              })()}
-            </>
-          ) : (
-            <>
-              <Typography variant="body1" color="#4c5454" gutterBottom>
-                Ревизия сбалансирована
-              </Typography>
-              <Typography variant="h1" color="#4caf50" sx={{ fontWeight: 'bold' }}>
-                0
-              </Typography>
-              <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                Расхождений не обнаружено
-              </Typography>
-            </>
-          )
-        ) : (
-          <>
-            <Typography variant="body1" color="#4c5454" gutterBottom>
-              {revision.status === RevisionStatus.COMPLETED 
-                ? 'Ревизия заполнена всеми участниками'
-                : 'Ревизия заполняется'}
-            </Typography>
-            <Typography variant="h3" color="#2a0f35" sx={{ fontWeight: 'bold', mt: 2 }}>
-              {getRevisionStatusText(revision.status)}
-            </Typography>
-            {isOwner && isGroupRev && revision.totalFilled !== undefined && (
-              <Typography variant="body2" color="#4c5454" sx={{ mt: 1 }}>
-                {revision.totalFilled} из {revision.totalUsers} заполнили
-              </Typography>
+                )}
+              </Box>
+            ) : (
+              <Box>
+                <Typography variant="body2" color="#8E8E93" gutterBottom>
+                  {revision.status === RevisionStatus.COMPLETED 
+                    ? 'Ревизия заполнена всеми участниками'
+                    : 'Статус ревизии'}
+                </Typography>
+                <Typography 
+                  variant="h2" 
+                  color="#000" 
+                  sx={{ 
+                    fontWeight: 'bold', 
+                    my: 1,
+                    fontSize: { xs: '2rem', sm: '2.5rem' }
+                  }}
+                >
+                  {getRevisionStatusText(revision.status)}
+                </Typography>
+                {isOwner && isGroupRev && revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
+                  <Typography variant="caption" color="#8E8E93">
+                    {revision.totalFilled} из {revision.totalUsers} заполнили
+                  </Typography>
+                )}
+              </Box>
             )}
-          </>
-        )}
-      </Box>
-    </Paper>
+          </Box>
+        </Paper>
 
-      {/* Блок 3: Данные ревизии */}
-      {completedFillings.length > 0 ? (
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h6" gutterBottom color="#2a0f35">
-            {isOwner && isGroupRev 
-              ? `Данные участников (${completedFillings.length})` 
-              : 'Ваши данные'}
-          </Typography>
-          
-          {completedFillings.map((filling) => {
-            const isExpanded = expandedUsers.includes(filling.userId);
-            const userDiscrepancies = isRevisionVerified 
-              ? revision.discrepancies?.filter(d => d.userId === filling.userId) || []
-              : [];
-              const userTotal = userDiscrepancies.reduce((sum, d) => 
-                sum + d.discrepancy, 0  // Просто складываем с учетом знака
-              );
-            const userIsPositive = userTotal > 0;
-            const userIsNegative = userTotal < 0;
-            
-            return (
-              <Accordion 
-                key={filling.id} 
-                expanded={isExpanded}
-                onChange={() => handleAccordionChange(filling.userId)}
-                sx={{ mb: 2 }}
-              >
-                <AccordionSummary expandIcon={<ExpandMore />}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 2 }}>
-                    <Avatar sx={{ width: 40, height: 40, bgcolor: '#2196f3' }}>
-                      {filling.userName?.charAt(0) || 'П'}
-                    </Avatar>
-                    
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="subtitle1">
-                        {filling.userName || `Пользователь ${filling.userId}`}
-                      </Typography>
-                      <Typography variant="body2" color="#4c5454">
-                        Товары: {filling.items.length} шт. • Фото: {filling.photos.length} шт.
-                      </Typography>
-                    </Box>
-                    
-                    {/* Показываем расхождения только если ревизия проверена */}
-                    {isRevisionVerified && (
-                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                        {userTotal !== 0 ? (
-                          <Chip
-                            label={`${userIsPositive ? '+' : ''}${userTotal}`}
-                            sx={{
-                              backgroundColor: userIsPositive ? '#2196f315' : '#f4433615',
-                              color: userIsPositive ? '#2196f3' : '#f44336',
-                              fontWeight: 600,
-                              fontSize: '1rem',
-                              minWidth: 80
-                            }}
-                          />
-                        ) : (
-                          <Chip
-                            label="Нет расхождений"
-                            sx={{ backgroundColor: '#4caf5015', color: '#4caf50' }}
-                          />
-                        )}
-                      </Box>
-                    )}
-                  </Box>
-                </AccordionSummary>
+        {/* Данные участников - переработанный блок */}
+        {completedFillings.length > 0 && (
+          <Paper 
+            sx={{ 
+              p: 0,
+              mb: 3,
+              borderRadius: 8,
+              backgroundColor: '#fff',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              width: '100%',
+              overflow: 'hidden',
+            }}
+          >
+            <Box sx={{ 
+              p: { xs: 2, sm: 2.5 },
+              pb: 2,
+              borderBottom: '1px solid rgba(0,0,0,0.05)',
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="subtitle1" color="#000" fontWeight={600}>
+                  {isOwner && isGroupRev 
+                    ? `Данные участников (${completedFillings.length})` 
+                    : 'Ваши данные'}
+                </Typography>
+                <Chip
+                  label={`${completedFillings.length}`}
+                  size="small"
+                  sx={{
+                    backgroundColor: '#F2F2F7',
+                    color: '#8E8E93',
+                    fontWeight: 500,
+                    borderRadius: 8,
+                    fontSize: '0.8rem',
+                  }}
+                />
+              </Box>
+            </Box>
+
+            <Box sx={{ width: '100%' }}>
+              {completedFillings.map((filling) => {
+                const isExpanded = expandedUsers.includes(filling.userId);
+                const userDiscrepancies = isRevisionVerified 
+                  ? revision.discrepancies?.filter(d => d.userId === filling.userId) || []
+                  : [];
+                const userTotal = userDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0);
                 
-                <AccordionDetails>
-                  {/* Товары */}
-                  {filling.items.length > 0 && (
-                    <Box sx={{ mb: 3 }}>
-                      <Typography variant="subtitle2" gutterBottom color="#2a0f35">
-                        Товары ({filling.items.length})
-                      </Typography>
-                      
-                      <TableContainer>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                              <TableCell>Товар</TableCell>
-                              <TableCell align="right">Количество</TableCell>
-                              {/* Показываем колонку расхождений только если ревизия проверена */}
-                              {isRevisionVerified && (
-                                <TableCell align="right">Расхождение</TableCell>
-                              )}
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {filling.items.map((item, idx) => {
-                              const discrepancy = isRevisionVerified
-                                ? userDiscrepancies.find(d => d.productId === item.productId)
-                                : null;
-                              
-                              return (
-                                <TableRow key={idx} hover>
-                                  <TableCell>
-                                    <Typography variant="body2">
-                                      {item.productName || `Товар ${item.productId}`}
-                                    </Typography>
-                                    <Typography variant="caption" color="#4c5454" display="block">
-                                      {item.productSku || `SKU${item.productId}`}
-                                    </Typography>
-                                  </TableCell>
-                                  <TableCell align="right">
-                                    <Typography variant="body2">
-                                      {item.quantity} шт.
-                                    </Typography>
-                                  </TableCell>
-                                  {isRevisionVerified && (
-                                    <TableCell align="right">
-                                      {discrepancy ? (
-                                        <Chip
-                                          size="small"
-                                          label={`${discrepancy.isPositive ? '+' : ''}${discrepancy.discrepancy}`}
-                                          sx={{
-                                            backgroundColor: discrepancy.isPositive ? '#2196f315' : '#f4433615',
-                                            color: discrepancy.isPositive ? '#2196f3' : '#f44336',
-                                            fontWeight: 500,
-                                          }}
-                                        />
-                                      ) : (
-                                        <Typography variant="body2" color="#4c5454">
-                                          -
-                                        </Typography>
-                                      )}
-                                    </TableCell>
-                                  )}
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </Box>
-                  )}
-                  
-                  {/* Фотографии */}
-                  {filling.photos.length > 0 && (
-                    <Box>
-                      <Typography variant="subtitle2" gutterBottom color="#2a0f35">
-                        Фотографии ({filling.photos.length})
-                      </Typography>
-                      
-                      <Grid container spacing={1}>
-                        {filling.photos.map((photo, index) => (
-                          <Grid size={{ xs: 6, sm: 4, md: 3 }} key={index}>
-                            <Box
-                              sx={{
-                                position: 'relative',
-                                height: 100,
-                                backgroundImage: `url(${revisionService.getPhotoUrl(photo)})`,
-                                backgroundSize: 'cover',
-                                backgroundPosition: 'center',
-                                borderRadius: 1,
-                                cursor: 'pointer',
-                                '&:hover': {
-                                  opacity: 0.9,
-                                },
-                              }}
-                              onClick={() => handleViewPhoto(filling.photos, index)}
-                            >
-                              <Box
-                                sx={{
-                                  position: 'absolute',
-                                  top: 4,
-                                  right: 4,
-                                  backgroundColor: 'rgba(0,0,0,0.5)',
-                                  borderRadius: '50%',
-                                  p: 0.5,
-                                }}
-                              >
-                                <PhotoCamera sx={{ color: 'white', fontSize: 12 }} />
+                return (
+                  <Box
+                    key={filling.id}
+                    sx={{
+                      borderBottom: '1px solid rgba(0,0,0,0.05)',
+                      '&:last-child': { borderBottom: 'none' },
+                      width: '100%',
+                    }}
+                  >
+                    <Accordion 
+                      expanded={isExpanded}
+                      onChange={() => handleAccordionChange(filling.userId)}
+                      sx={{
+                        boxShadow: 'none',
+                        '&:before': { display: 'none' },
+                        '&.Mui-expanded': { margin: 0 },
+                        width: '100%',
+                        backgroundColor: 'transparent',
+                      }}
+                    >
+                      <AccordionSummary
+                        expandIcon={<ExpandMoreIcon />}
+                        sx={{
+                          minHeight: 72,
+                          '&.Mui-expanded': { minHeight: 72 },
+                          px: { xs: 2, sm: 2.5 },
+                          py: 2,
+                          width: '100%',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
+                          <Avatar
+                            sx={{ 
+                              width: 44, 
+                              height: 44, 
+                              bgcolor: '#007AFF',
+                              fontSize: '1rem',
+                            }}
+                          >
+                            {filling.userName?.charAt(0) || 'П'}
+                          </Avatar>
+                          
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" color="#000" fontWeight={600} noWrap>
+                              {filling.userName || `Пользователь ${filling.userId}`}
+                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5, flexWrap: 'wrap' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <InventoryIcon sx={{ fontSize: 14, color: '#8E8E93' }} />
+                                <Typography variant="caption" color="#8E8E93">
+                                  {filling.items.length} товаров
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <PhotoIcon sx={{ fontSize: 14, color: '#8E8E93' }} />
+                                <Typography variant="caption" color="#8E8E93">
+                                  {filling.photos.length} фото
+                                </Typography>
                               </Box>
                             </Box>
-                            <Typography variant="caption" align="center" display="block" sx={{ mt: 0.5 }}>
-                              Фото {index + 1}
-                            </Typography>
-                          </Grid>
-                        ))}
-                      </Grid>
-                    </Box>
-                  )}
-                  
-                  {/* Сообщение если нет товаров и фотографий */}
-                  {filling.items.length === 0 && filling.photos.length === 0 && (
-                    <Typography variant="body2" color="#4c5454" align="center" sx={{ py: 2 }}>
-                      Нет данных для отображения
-                    </Typography>
-                  )}
-                </AccordionDetails>
-              </Accordion>
-            );
-          })}
-        </Paper>
-      ) : (
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Alert severity="info">
-            Нет заполненных данных
-          </Alert>
-        </Paper>
-      )}
+                          </Box>
+                          
+                          {isRevisionVerified && userTotal !== 0 && (
+                            <Box sx={{ flexShrink: 0 }}>
+                              <Chip
+                                label={`${userTotal > 0 ? '+' : ''}${userTotal}`}
+                                size="small"
+                                sx={{
+                                  backgroundColor: userTotal > 0 ? '#2196f315' : '#f4433615',
+                                  color: userTotal > 0 ? '#2196f3' : '#f44336',
+                                  fontWeight: 600,
+                                  fontSize: '0.85rem',
+                                  minWidth: 60,
+                                }}
+                              />
+                            </Box>
+                          )}
+                        </Box>
+                      </AccordionSummary>
+                      
+                      <AccordionDetails sx={{ 
+                        px: 0, 
+                        pb: 3, 
+                        width: '100%',
+                        backgroundColor: '#F8F9FA',
+                      }}>
+                        <Box sx={{ 
+                          px: { xs: 2, sm: 2.5 },
+                          width: '100%',
+                        }}>
+                          <Stack spacing={2} sx={{ width: '100%' }}>
+                            {filling.items.length > 0 && (
+                              <Box sx={{ width: '100%' }}>
+                                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                                  Товары ({filling.items.length})
+                                </Typography>
+                                
+                                <Stack spacing={1.5} sx={{ width: '100%' }}>
+                                  {filling.items.map((item, idx) => {
+                                    const discrepancy = isRevisionVerified
+                                      ? userDiscrepancies.find(d => d.productId === item.productId)
+                                      : null;
+                                    
+                                    return (
+                                      <Paper
+                                        key={idx}
+                                        sx={{
+                                          p: 2,
+                                          borderRadius: 8,
+                                          backgroundColor: '#fff',
+                                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          width: '100%',
+                                        }}
+                                      >
+                                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                                          <Typography variant="body2" color="#000" fontWeight={600} noWrap>
+                                            {item.productName || `Товар ${item.productId}`}
+                                          </Typography>
+                                          <Typography variant="caption" color="#8E8E93">
+                                            {item.productSku || `SKU${item.productId}`}
+                                          </Typography>
+                                        </Box>
+                                        
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                                          <Box sx={{ 
+                                            backgroundColor: '#007AFF15',
+                                            borderRadius: 6,
+                                            px: 1.5,
+                                            py: 0.5,
+                                          }}>
+                                            <Typography variant="body2" color="#007AFF" fontWeight={600}>
+                                              {item.quantity} шт.
+                                            </Typography>
+                                          </Box>
+                                          
+                                          {isRevisionVerified && discrepancy && (
+                                            <Chip
+                                              size="small"
+                                              label={`${discrepancy.isPositive ? '+' : ''}${discrepancy.discrepancy}`}
+                                              sx={{
+                                                backgroundColor: discrepancy.isPositive ? '#2196f315' : '#f4433615',
+                                                color: discrepancy.isPositive ? '#2196f3' : '#f44336',
+                                                fontWeight: 600,
+                                                fontSize: '0.8rem',
+                                                minWidth: 45,
+                                                borderRadius: 4,
+                                                height: 26,
+                                              }}
+                                            />
+                                          )}
+                                        </Box>
+                                      </Paper>
+                                    );
+                                  })}
+                                </Stack>
+                              </Box>
+                            )}
+                            
+                            {filling.photos.length > 0 && (
+                              <Box sx={{ width: '100%' }}>
+                                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                                  Фотографии ({filling.photos.length})
+                                </Typography>
+                                
+                                <Grid container spacing={1.5} sx={{ width: '100%' }}>
+                                  {filling.photos.map((photo, index) => (
+                                    <Grid size={{ xs: 6, sm: 4, md: 3 }} key={index}>
+                                      <Box
+                                        onClick={() => handleViewPhoto(filling.photos, index)}
+                                        sx={{
+                                          position: 'relative',
+                                          height: 100,
+                                          borderRadius: 8,
+                                          overflow: 'hidden',
+                                          cursor: 'pointer',
+                                          backgroundColor: '#F2F2F7',
+                                          backgroundImage: `url(${revisionService.getPhotoUrl(photo)})`,
+                                          backgroundSize: 'cover',
+                                          backgroundPosition: 'center',
+                                          transition: 'transform 0.2s ease',
+                                          '&:hover': { 
+                                            transform: 'scale(1.02)',
+                                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                          },
+                                        }}
+                                      >
+                                        <Box
+                                          sx={{
+                                            position: 'absolute',
+                                            top: 6,
+                                            right: 6,
+                                            backgroundColor: 'rgba(0,0,0,0.5)',
+                                            borderRadius: '50%',
+                                            p: 0.5,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            width: 24,
+                                            height: 24,
+                                          }}
+                                        >
+                                          <PhotoCameraIcon sx={{ color: 'white', fontSize: 14 }} />
+                                        </Box>
+                                      </Box>
+                                      <Typography variant="caption" align="center" display="block" sx={{ mt: 0.5, color: '#8E8E93' }}>
+                                        Фото {index + 1}
+                                      </Typography>
+                                    </Grid>
+                                  ))}
+                                </Grid>
+                              </Box>
+                            )}
+                            
+                            {filling.items.length === 0 && filling.photos.length === 0 && (
+                              <Box sx={{ textAlign: 'center', py: 3, width: '100%' }}>
+                                <Typography variant="body2" color="#8E8E93">
+                                  Нет данных для отображения
+                                </Typography>
+                              </Box>
+                            )}
+                          </Stack>
+                        </Box>
+                      </AccordionDetails>
+                    </Accordion>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Paper>
+        )}
 
-      {/* Диалог фото */}
-      <Dialog
-        open={showPhotoDialog}
-        onClose={() => setShowPhotoDialog(false)}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogTitle>
-          Просмотр фотографии
-        </DialogTitle>
-        <DialogContent>
-          {selectedPhoto && selectedPhoto.photos[selectedPhoto.index] && (
-            <Box
-              sx={{
-                width: '100%',
-                maxHeight: '70vh',
+        {/* Сообщение если нет заполненных данных */}
+        {completedFillings.length === 0 && (
+          <Paper
+            sx={{
+              p: 4,
+              textAlign: 'center',
+              borderRadius: 8,
+              backgroundColor: '#fff',
+              border: 'none',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              mb: 3,
+              width: '100%',
+            }}
+          >
+            <Typography variant="body1" color="#8E8E93">
+              Нет заполненных данных
+            </Typography>
+            <Typography variant="body2" color="#8E8E93" sx={{ mt: 0.5 }}>
+              {userHasFilled ? 'Вы еще не заполнили эту ревизию' : 'Участники еще не заполнили ревизию'}
+            </Typography>
+          </Paper>
+        )}
+
+        {/* Блок с хронологией в конце */}
+        <Paper 
+          sx={{ 
+            p: { xs: 2, sm: 2.5 },
+            borderRadius: 8,
+            backgroundColor: '#fff',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          }}
+        >
+          <Typography variant="subtitle1" color="#000" fontWeight={600} gutterBottom>
+            Хронология
+          </Typography>
+          
+          <Stack spacing={2}>
+            {/* Создана */}
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+              <Box sx={{ 
+                width: 32, 
+                height: 32, 
+                borderRadius: '50%', 
+                backgroundColor: '#007AFF15',
                 display: 'flex',
+                alignItems: 'center',
                 justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                <CalendarIcon sx={{ fontSize: 18, color: '#007AFF' }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="body2" color="#000" fontWeight={500}>
+                  Создана
+                </Typography>
+                <Typography variant="caption" color="#8E8E93">
+                  {formatDateTime(revision.requestedAt)}
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Заполнена */}
+            {revision.completedAt && (
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                <Box sx={{ 
+                  width: 32, 
+                  height: 32, 
+                  borderRadius: '50%', 
+                  backgroundColor: '#34C75915',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <CheckCircleOutlineIcon sx={{ fontSize: 18, color: '#34C759' }} />
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="body2" color="#000" fontWeight={500}>
+                    Заполнена
+                  </Typography>
+                  <Typography variant="caption" color="#8E8E93">
+                    {formatDateTime(revision.completedAt)}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+
+            {/* Проверена */}
+            {revision.verifiedAt && (
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                <Box sx={{ 
+                  width: 32, 
+                  height: 32, 
+                  borderRadius: '50%', 
+                  backgroundColor: '#FF950015',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <VerifiedIcon sx={{ fontSize: 18, color: '#FF9500' }} />
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="body2" color="#000" fontWeight={500}>
+                    Проверена
+                  </Typography>
+                  <Typography variant="caption" color="#8E8E93">
+                    {formatDateTime(revision.verifiedAt)}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+
+            {/* Кнопки действий (только для владельца и если ревизия не проверена) */}
+            {!isRevisionVerified && (
+              <Box sx={{ pt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {canVerifyRevision && (
+                  <Button
+                    variant="contained"
+                    startIcon={<VerifiedIcon />}
+                    onClick={() => navigate(`/revisions/${revision.id}/verify`)}
+                    sx={{
+                      borderRadius: 8,
+                      backgroundColor: '#34C759',
+                      '&:hover': { backgroundColor: '#2AA44F' },
+                      py: 1,
+                      textTransform: 'none',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Проверить ревизию
+                  </Button>
+                )}
+                {!userHasFilled && revision.status === RevisionStatus.IN_PROGRESS && (
+                  <Button
+                    variant="contained"
+                    startIcon={<EditIcon />}
+                    onClick={() => navigate(`/revisions/${revision.id}/fill`)}
+                    sx={{
+                      borderRadius: 8,
+                      backgroundColor: '#007AFF',
+                      '&:hover': { backgroundColor: '#0056CC' },
+                      py: 1,
+                      textTransform: 'none',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Заполнить ревизию
+                  </Button>
+                )}
+              </Box>
+            )}
+          </Stack>
+        </Paper>
+      </Container>
+
+      {/* Диалог фото для десктопа */}
+      {!isMobile && (
+        <Dialog
+          open={showPhotoDialog}
+          onClose={() => setShowPhotoDialog(false)}
+          maxWidth="lg"
+          fullWidth
+          PaperProps={{
+            sx: { borderRadius: 8, backgroundColor: '#fff' }
+          }}
+        >
+          <DialogTitle sx={{ px: 3, py: 2, color: '#000', fontWeight: 500 }}>
+            Просмотр фотографии
+          </DialogTitle>
+          <DialogContent sx={{ p: 3 }}>
+            {selectedPhoto && selectedPhoto.photos[selectedPhoto.index] && (
+              <Box
+                sx={{
+                  width: '100%',
+                  maxHeight: '70vh',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  borderRadius: 6,
+                  overflow: 'hidden',
+                }}
+              >
+                <img
+                  src={revisionService.getPhotoUrl(selectedPhoto.photos[selectedPhoto.index])}
+                  alt={`Фото ${selectedPhoto.index + 1}`}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '70vh',
+                    objectFit: 'contain',
+                  }}
+                />
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2 }}>
+            <Button 
+              onClick={() => setShowPhotoDialog(false)}
+              sx={{
+                borderRadius: 8,
+                px: 3,
+                py: 1,
+                textTransform: 'none',
+                fontSize: '0.9rem',
               }}
             >
-              <img
-                src={revisionService.getPhotoUrl(selectedPhoto.photos[selectedPhoto.index])}
-                alt={`Фото ${selectedPhoto.index + 1}`}
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '70vh',
-                  objectFit: 'contain',
-                }}
-              />
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowPhotoDialog(false)}>
-            Закрыть
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
+              Закрыть
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
+
+      {/* Просмотр фото для мобилок */}
+      {isMobile && selectedPhoto && (
+  <MobilePhotoViewer
+    open={showPhotoDialog}
+    photos={selectedPhoto.photos}
+    currentIndex={selectedPhoto.index}
+    onClose={() => setShowPhotoDialog(false)}
+    onIndexChange={(index) => setSelectedPhoto({ ...selectedPhoto, index })}
+    getPhotoUrl={revisionService.getPhotoUrl}
+  />
+      )}
+    </Box>
   );
 };
 
