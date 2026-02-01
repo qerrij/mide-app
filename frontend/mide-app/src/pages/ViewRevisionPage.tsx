@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container,
   Paper,
@@ -62,8 +62,6 @@ import {
   isGroupRevision,
   getTargetName as getTargetNameHelper,
 } from '../types';
-
-// Компонент для просмотра фото на мобилках
 
 const ViewRevisionPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -193,13 +191,13 @@ const ViewRevisionPage: React.FC = () => {
       <Box
         sx={{
           minHeight: '100vh',
-          background: '#f8f9fa',
+          background: '#f5f3f6',
           py: 4,
         }}
       >
         <Container maxWidth="lg">
           <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-            <CircularProgress sx={{ color: '#007AFF' }} />
+            <CircularProgress sx={{ color: '#674fb6' }} />
           </Box>
         </Container>
       </Box>
@@ -211,7 +209,7 @@ const ViewRevisionPage: React.FC = () => {
       <Box
         sx={{
           minHeight: '100vh',
-          background: '#f8f9fa',
+          background: '#f5f3f6',
           py: 4,
         }}
       >
@@ -220,7 +218,12 @@ const ViewRevisionPage: React.FC = () => {
             severity="error" 
             sx={{ 
               borderRadius: 8,
-              backgroundColor: '#FF3B3015',
+              backgroundColor: 'rgba(202, 14, 192, 0.08)',
+              border: '1px solid rgba(202, 14, 192, 0.2)',
+              color: '#ca0ec0',
+              '& .MuiAlert-icon': {
+                color: '#ca0ec0',
+              }
             }}
           >
             Ревизия не найдена
@@ -245,7 +248,7 @@ const ViewRevisionPage: React.FC = () => {
   const totalDiscrepancy = calculateTotalDiscrepancy();
 
   return (
-    <Box sx={{ minHeight: '100vh', py: 3, position: 'relative' }}>
+    <Box sx={{ minHeight: '100vh', py: 3, position: 'relative'}}>
       {/* Плавающая кнопка назад для мобильных устройств */}
       {isMobile && (
         <Fab
@@ -257,41 +260,40 @@ const ViewRevisionPage: React.FC = () => {
             zIndex: 1000,
             backgroundColor: 'rgba(255, 255, 255, 0.8)',
             backdropFilter: 'blur(10px)',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
             '&:hover': { 
               backgroundColor: 'rgba(255, 255, 255, 0.9)',
             },
             width: 44,
             height: 44,
-            // Смещаем немного вниз чтобы не было под топ баром
             mt: 1,
           }}
         >
           <ArrowBackIcon sx={{ 
-            color: 'rgba(0, 122, 255, 0.8)',
+            color: 'rgba(103, 79, 182, 0.8)',
             fontSize: 22 
           }} />
         </Fab>
       )}
 
       <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 2, md: 3 } }}>
-        {/* Кнопка назад для десктопа (всегда статичная сверху) */}
+        {/* Кнопка назад для десктопа */}
         {!isMobile && (
           <Button
             startIcon={<ArrowBackIcon />}
             onClick={() => navigate('/revisions')}
             sx={{
               borderRadius: 8,
-              color: '#007AFF',
+              color: '#674fb6',
               textTransform: 'none',
               fontSize: '0.9rem',
               mb: 3,
               px: 2,
               py: 1,
-              border: '1px solid rgba(0, 122, 255, 0.2)',
+              border: '1px solid rgba(103, 79, 182, 0.2)',
               '&:hover': { 
-                backgroundColor: 'rgba(0, 122, 255, 0.04)',
-                border: '1px solid rgba(0, 122, 255, 0.3)',
+                backgroundColor: 'rgba(103, 79, 182, 0.04)',
+                border: '1px solid rgba(103, 79, 182, 0.3)',
               },
               position: 'relative',
               zIndex: 1,
@@ -310,7 +312,12 @@ const ViewRevisionPage: React.FC = () => {
             sx={{ 
               mb: 3, 
               borderRadius: 8,
-              backgroundColor: '#FF3B3015',
+              backgroundColor: 'rgba(202, 14, 192, 0.08)',
+              border: '1px solid rgba(202, 14, 192, 0.2)',
+              color: '#ca0ec0',
+              '& .MuiAlert-icon': {
+                color: '#ca0ec0',
+              }
             }}
           >
             {error}
@@ -318,23 +325,23 @@ const ViewRevisionPage: React.FC = () => {
         )}
 
         {/* Шапка с основной информацией */}
-        <Paper 
+        <Card 
           sx={{ 
             p: { xs: 2, sm: 2.5 },
             mb: 3,
             borderRadius: 8,
-            backgroundColor: '#fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
           }}
         >
           <Box sx={{ mb: 2 }}>
-            <Typography variant="h5" component="h1" color="#000" fontWeight={600} gutterBottom>
+            <Typography variant="h5" component="h1" color="#2a0f35" fontWeight={600} gutterBottom>
               Ревизия #{revision.id}
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 {getTypeIcon(revision.type)}
-                <Typography variant="body2" color="#007AFF" fontWeight={500}>
+                <Typography variant="body2" color="#674fb6" fontWeight={500}>
                   {getRevisionTypeText(revision.type)}
                 </Typography>
               </Box>
@@ -354,8 +361,8 @@ const ViewRevisionPage: React.FC = () => {
                   label="Заполнено вами"
                   size="small"
                   sx={{
-                    backgroundColor: '#E6F4EA',
-                    color: '#34C759',
+                    backgroundColor: 'rgba(63, 31, 75, 0.1)',
+                    color: '#3f1f4b',
                     borderRadius: 6,
                     fontSize: '0.7rem',
                   }}
@@ -367,8 +374,8 @@ const ViewRevisionPage: React.FC = () => {
                   label={`${revision.totalFilled}/${revision.totalUsers}`}
                   size="small"
                   sx={{
-                    backgroundColor: '#F2F2F7',
-                    color: '#5AC8FA',
+                    backgroundColor: '#f5f3f6',
+                    color: '#56b8d1',
                     borderRadius: 6,
                     fontSize: '0.7rem',
                   }}
@@ -386,7 +393,7 @@ const ViewRevisionPage: React.FC = () => {
                     sx={{ 
                       width: 36, 
                       height: 36, 
-                      bgcolor: '#007AFF',
+                      bgcolor: '#674fb6',
                       flexShrink: 0,
                       fontSize: '0.9rem',
                     }}
@@ -394,13 +401,13 @@ const ViewRevisionPage: React.FC = () => {
                     {revision.requestedByName?.charAt(0) || 'П'}
                   </Avatar>
                   <Box sx={{ flex: 1 }}>
-                    <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                    <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                       Запросил
                     </Typography>
-                    <Typography variant="body2" color="#000" fontWeight={500}>
+                    <Typography variant="body2" color="#2a0f35" fontWeight={500}>
                       {revision.requestedByName || `Пользователь ${revision.requestedById}`}
                     </Typography>
-                    <Typography variant="caption" color="#8E8E93">
+                    <Typography variant="caption" color="#4c5454">
                       {formatDateTime(revision.requestedAt)}
                     </Typography>
                   </Box>
@@ -425,15 +432,15 @@ const ViewRevisionPage: React.FC = () => {
                     }}>
                       <LocationCity sx={{ 
                         fontSize: 20, 
-                        color: '#8E8E93',
+                        color: '#4c5454',
                         opacity: 0.7 
                       }} />
                     </Box>
                     <Box sx={{ flex: 1 }}>
-                      <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                      <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                         Цель ревизии
                       </Typography>
-                      <Typography variant="body2" color="#000" fontWeight={500}>
+                      <Typography variant="body2" color="#2a0f35" fontWeight={500}>
                         {getTargetName(revision)}
                       </Typography>
                     </Box>
@@ -445,10 +452,10 @@ const ViewRevisionPage: React.FC = () => {
             {/* Комментарий */}
             {revision.comment && (
               <Box>
-                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                   Комментарий
                 </Typography>
-                <Typography variant="body2" color="#000" sx={{ whiteSpace: 'pre-wrap' }}>
+                <Typography variant="body2" color="#2a0f35" sx={{ whiteSpace: 'pre-wrap' }}>
                   {revision.comment}
                 </Typography>
               </Box>
@@ -457,25 +464,25 @@ const ViewRevisionPage: React.FC = () => {
             {/* Комментарий проверки */}
             {revision.verificationComment && (
               <Box>
-                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                   Комментарий проверки
                 </Typography>
-                <Typography variant="body2" color="#000" sx={{ whiteSpace: 'pre-wrap' }}>
+                <Typography variant="body2" color="#2a0f35" sx={{ whiteSpace: 'pre-wrap' }}>
                   {revision.verificationComment}
                 </Typography>
               </Box>
             )}
           </Stack>
-        </Paper>
+        </Card>
 
         {/* Блок статуса ревизии */}
-        <Paper 
+        <Card 
           sx={{ 
             p: { xs: 2, sm: 2.5 },
             mb: 3,
             borderRadius: 8,
-            backgroundColor: '#fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
             textAlign: 'center',
             position: 'relative',
             overflow: 'hidden',
@@ -496,7 +503,7 @@ const ViewRevisionPage: React.FC = () => {
               sx={{
                 width: '100%',
                 height: '100%',
-                backgroundImage: 'radial-gradient(circle, #007AFF 2px, transparent 2px)',
+                backgroundImage: 'radial-gradient(circle, #674fb6 2px, transparent 2px)',
                 backgroundSize: '20px 20px',
               }}
             />
@@ -507,12 +514,12 @@ const ViewRevisionPage: React.FC = () => {
               <Box>
                 {totalDiscrepancy === 0 ? (
                   <>
-                    <Typography variant="body2" color="#8E8E93" gutterBottom>
+                    <Typography variant="body2" color="#4c5454" gutterBottom>
                       Ревизия сбалансирована
                     </Typography>
                     <Typography 
                       variant="h1" 
-                      color="#34C759" 
+                      color="#3f1f4b" 
                       sx={{ 
                         fontWeight: 'bold', 
                         my: 1,
@@ -521,18 +528,18 @@ const ViewRevisionPage: React.FC = () => {
                     >
                       0
                     </Typography>
-                    <Typography variant="caption" color="#8E8E93">
+                    <Typography variant="caption" color="#4c5454">
                       Расхождений не обнаружено
                     </Typography>
                   </>
                 ) : (
                   <>
-                    <Typography variant="body2" color="#8E8E93" gutterBottom>
+                    <Typography variant="body2" color="#4c5454" gutterBottom>
                       {totalDiscrepancy > 0 ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
                     </Typography>
                     <Typography 
                       variant="h1" 
-                      color={totalDiscrepancy > 0 ? '#007AFF' : '#FF3B30'}
+                      color={totalDiscrepancy > 0 ? '#674fb6' : '#ca0ec0'}
                       sx={{ 
                         fontWeight: 'bold', 
                         my: 1,
@@ -541,7 +548,7 @@ const ViewRevisionPage: React.FC = () => {
                     >
                       {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
                     </Typography>
-                    <Typography variant="caption" color="#8E8E93">
+                    <Typography variant="caption" color="#4c5454">
                       {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
                     </Typography>
                   </>
@@ -549,14 +556,14 @@ const ViewRevisionPage: React.FC = () => {
               </Box>
             ) : (
               <Box>
-                <Typography variant="body2" color="#8E8E93" gutterBottom>
+                <Typography variant="body2" color="#4c5454" gutterBottom>
                   {revision.status === RevisionStatus.COMPLETED 
                     ? 'Ревизия заполнена всеми участниками'
                     : 'Статус ревизии'}
                 </Typography>
                 <Typography 
                   variant="h2" 
-                  color="#000" 
+                  color="#2a0f35" 
                   sx={{ 
                     fontWeight: 'bold', 
                     my: 1,
@@ -566,24 +573,24 @@ const ViewRevisionPage: React.FC = () => {
                   {getRevisionStatusText(revision.status)}
                 </Typography>
                 {isOwner && isGroupRev && revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
-                  <Typography variant="caption" color="#8E8E93">
+                  <Typography variant="caption" color="#4c5454">
                     {revision.totalFilled} из {revision.totalUsers} заполнили
                   </Typography>
                 )}
               </Box>
             )}
           </Box>
-        </Paper>
+        </Card>
 
-        {/* Данные участников - переработанный блок */}
+        {/* Данные участников */}
         {completedFillings.length > 0 && (
-          <Paper 
+          <Card 
             sx={{ 
               p: 0,
               mb: 3,
               borderRadius: 8,
-              backgroundColor: '#fff',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
               width: '100%',
               overflow: 'hidden',
             }}
@@ -594,7 +601,7 @@ const ViewRevisionPage: React.FC = () => {
               borderBottom: '1px solid rgba(0,0,0,0.05)',
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="subtitle1" color="#000" fontWeight={600}>
+                <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
                   {isOwner && isGroupRev 
                     ? `Данные участников (${completedFillings.length})` 
                     : 'Ваши данные'}
@@ -603,8 +610,8 @@ const ViewRevisionPage: React.FC = () => {
                   label={`${completedFillings.length}`}
                   size="small"
                   sx={{
-                    backgroundColor: '#F2F2F7',
-                    color: '#8E8E93',
+                    backgroundColor: '#f5f3f6',
+                    color: '#4c5454',
                     fontWeight: 500,
                     borderRadius: 8,
                     fontSize: '0.8rem',
@@ -656,7 +663,7 @@ const ViewRevisionPage: React.FC = () => {
                             sx={{ 
                               width: 44, 
                               height: 44, 
-                              bgcolor: '#007AFF',
+                              bgcolor: '#674fb6',
                               fontSize: '1rem',
                             }}
                           >
@@ -664,19 +671,19 @@ const ViewRevisionPage: React.FC = () => {
                           </Avatar>
                           
                           <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography variant="body2" color="#000" fontWeight={600} noWrap>
+                            <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
                               {filling.userName || `Пользователь ${filling.userId}`}
                             </Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5, flexWrap: 'wrap' }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <InventoryIcon sx={{ fontSize: 14, color: '#8E8E93' }} />
-                                <Typography variant="caption" color="#8E8E93">
+                                <InventoryIcon sx={{ fontSize: 14, color: '#4c5454' }} />
+                                <Typography variant="caption" color="#4c5454">
                                   {filling.items.length} товаров
                                 </Typography>
                               </Box>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <PhotoIcon sx={{ fontSize: 14, color: '#8E8E93' }} />
-                                <Typography variant="caption" color="#8E8E93">
+                                <PhotoIcon sx={{ fontSize: 14, color: '#4c5454' }} />
+                                <Typography variant="caption" color="#4c5454">
                                   {filling.photos.length} фото
                                 </Typography>
                               </Box>
@@ -689,8 +696,8 @@ const ViewRevisionPage: React.FC = () => {
                                 label={`${userTotal > 0 ? '+' : ''}${userTotal}`}
                                 size="small"
                                 sx={{
-                                  backgroundColor: userTotal > 0 ? '#2196f315' : '#f4433615',
-                                  color: userTotal > 0 ? '#2196f3' : '#f44336',
+                                  backgroundColor: userTotal > 0 ? 'rgba(86, 184, 209, 0.15)' : 'rgba(202, 14, 192, 0.15)',
+                                  color: userTotal > 0 ? '#56b8d1' : '#ca0ec0',
                                   fontWeight: 600,
                                   fontSize: '0.85rem',
                                   minWidth: 60,
@@ -705,7 +712,7 @@ const ViewRevisionPage: React.FC = () => {
                         px: 0, 
                         pb: 3, 
                         width: '100%',
-                        backgroundColor: '#F8F9FA',
+                        backgroundColor: '#f5f3f6',
                       }}>
                         <Box sx={{ 
                           px: { xs: 2, sm: 2.5 },
@@ -714,7 +721,7 @@ const ViewRevisionPage: React.FC = () => {
                           <Stack spacing={2} sx={{ width: '100%' }}>
                             {filling.items.length > 0 && (
                               <Box sx={{ width: '100%' }}>
-                                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                                <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                                   Товары ({filling.items.length})
                                 </Typography>
                                 
@@ -725,13 +732,13 @@ const ViewRevisionPage: React.FC = () => {
                                       : null;
                                     
                                     return (
-                                      <Paper
+                                      <Card
                                         key={idx}
                                         sx={{
                                           p: 2,
                                           borderRadius: 8,
-                                          backgroundColor: '#fff',
-                                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                                          backgroundColor: '#ffffff',
+                                          boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
                                           display: 'flex',
                                           alignItems: 'center',
                                           justifyContent: 'space-between',
@@ -739,22 +746,22 @@ const ViewRevisionPage: React.FC = () => {
                                         }}
                                       >
                                         <Box sx={{ minWidth: 0, flex: 1 }}>
-                                          <Typography variant="body2" color="#000" fontWeight={600} noWrap>
+                                          <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
                                             {item.productName || `Товар ${item.productId}`}
                                           </Typography>
-                                          <Typography variant="caption" color="#8E8E93">
+                                          <Typography variant="caption" color="#4c5454">
                                             {item.productSku || `SKU${item.productId}`}
                                           </Typography>
                                         </Box>
                                         
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
                                           <Box sx={{ 
-                                            backgroundColor: '#007AFF15',
+                                            backgroundColor: 'rgba(103, 79, 182, 0.15)',
                                             borderRadius: 6,
                                             px: 1.5,
                                             py: 0.5,
                                           }}>
-                                            <Typography variant="body2" color="#007AFF" fontWeight={600}>
+                                            <Typography variant="body2" color="#674fb6" fontWeight={600}>
                                               {item.quantity} шт.
                                             </Typography>
                                           </Box>
@@ -764,8 +771,10 @@ const ViewRevisionPage: React.FC = () => {
                                               size="small"
                                               label={`${discrepancy.isPositive ? '+' : ''}${discrepancy.discrepancy}`}
                                               sx={{
-                                                backgroundColor: discrepancy.isPositive ? '#2196f315' : '#f4433615',
-                                                color: discrepancy.isPositive ? '#2196f3' : '#f44336',
+                                                backgroundColor: discrepancy.isPositive 
+                                                  ? 'rgba(86, 184, 209, 0.15)' 
+                                                  : 'rgba(202, 14, 192, 0.15)',
+                                                color: discrepancy.isPositive ? '#56b8d1' : '#ca0ec0',
                                                 fontWeight: 600,
                                                 fontSize: '0.8rem',
                                                 minWidth: 45,
@@ -775,7 +784,7 @@ const ViewRevisionPage: React.FC = () => {
                                             />
                                           )}
                                         </Box>
-                                      </Paper>
+                                      </Card>
                                     );
                                   })}
                                 </Stack>
@@ -784,7 +793,7 @@ const ViewRevisionPage: React.FC = () => {
                             
                             {filling.photos.length > 0 && (
                               <Box sx={{ width: '100%' }}>
-                                <Typography variant="caption" color="#8E8E93" display="block" gutterBottom>
+                                <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                                   Фотографии ({filling.photos.length})
                                 </Typography>
                                 
@@ -799,14 +808,14 @@ const ViewRevisionPage: React.FC = () => {
                                           borderRadius: 8,
                                           overflow: 'hidden',
                                           cursor: 'pointer',
-                                          backgroundColor: '#F2F2F7',
+                                          backgroundColor: '#f5f3f6',
                                           backgroundImage: `url(${revisionService.getPhotoUrl(photo)})`,
                                           backgroundSize: 'cover',
                                           backgroundPosition: 'center',
                                           transition: 'transform 0.2s ease',
                                           '&:hover': { 
                                             transform: 'scale(1.02)',
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                                            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
                                           },
                                         }}
                                       >
@@ -815,7 +824,7 @@ const ViewRevisionPage: React.FC = () => {
                                             position: 'absolute',
                                             top: 6,
                                             right: 6,
-                                            backgroundColor: 'rgba(0,0,0,0.5)',
+                                            backgroundColor: 'rgba(42, 15, 53, 0.5)',
                                             borderRadius: '50%',
                                             p: 0.5,
                                             display: 'flex',
@@ -828,7 +837,7 @@ const ViewRevisionPage: React.FC = () => {
                                           <PhotoCameraIcon sx={{ color: 'white', fontSize: 14 }} />
                                         </Box>
                                       </Box>
-                                      <Typography variant="caption" align="center" display="block" sx={{ mt: 0.5, color: '#8E8E93' }}>
+                                      <Typography variant="caption" align="center" display="block" sx={{ mt: 0.5, color: '#4c5454' }}>
                                         Фото {index + 1}
                                       </Typography>
                                     </Grid>
@@ -839,7 +848,7 @@ const ViewRevisionPage: React.FC = () => {
                             
                             {filling.items.length === 0 && filling.photos.length === 0 && (
                               <Box sx={{ textAlign: 'center', py: 3, width: '100%' }}>
-                                <Typography variant="body2" color="#8E8E93">
+                                <Typography variant="body2" color="#4c5454">
                                   Нет данных для отображения
                                 </Typography>
                               </Box>
@@ -852,42 +861,41 @@ const ViewRevisionPage: React.FC = () => {
                 );
               })}
             </Box>
-          </Paper>
+          </Card>
         )}
 
         {/* Сообщение если нет заполненных данных */}
         {completedFillings.length === 0 && (
-          <Paper
+          <Card
             sx={{
               p: 4,
               textAlign: 'center',
               borderRadius: 8,
-              backgroundColor: '#fff',
-              border: 'none',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
               mb: 3,
               width: '100%',
             }}
           >
-            <Typography variant="body1" color="#8E8E93">
+            <Typography variant="body1" color="#4c5454">
               Нет заполненных данных
             </Typography>
-            <Typography variant="body2" color="#8E8E93" sx={{ mt: 0.5 }}>
+            <Typography variant="body2" color="#4c5454" sx={{ mt: 0.5 }}>
               {userHasFilled ? 'Вы еще не заполнили эту ревизию' : 'Участники еще не заполнили ревизию'}
             </Typography>
-          </Paper>
+          </Card>
         )}
 
         {/* Блок с хронологией в конце */}
-        <Paper 
+        <Card 
           sx={{ 
             p: { xs: 2, sm: 2.5 },
             borderRadius: 8,
-            backgroundColor: '#fff',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            backgroundColor: '#ffffff',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
           }}
         >
-          <Typography variant="subtitle1" color="#000" fontWeight={600} gutterBottom>
+          <Typography variant="subtitle1" color="#2a0f35" fontWeight={600} gutterBottom>
             Хронология
           </Typography>
           
@@ -898,19 +906,19 @@ const ViewRevisionPage: React.FC = () => {
                 width: 32, 
                 height: 32, 
                 borderRadius: '50%', 
-                backgroundColor: '#007AFF15',
+                backgroundColor: 'rgba(103, 79, 182, 0.15)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
               }}>
-                <CalendarIcon sx={{ fontSize: 18, color: '#007AFF' }} />
+                <CalendarIcon sx={{ fontSize: 18, color: '#674fb6' }} />
               </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="body2" color="#000" fontWeight={500}>
+                <Typography variant="body2" color="#2a0f35" fontWeight={500}>
                   Создана
                 </Typography>
-                <Typography variant="caption" color="#8E8E93">
+                <Typography variant="caption" color="#4c5454">
                   {formatDateTime(revision.requestedAt)}
                 </Typography>
               </Box>
@@ -923,19 +931,19 @@ const ViewRevisionPage: React.FC = () => {
                   width: 32, 
                   height: 32, 
                   borderRadius: '50%', 
-                  backgroundColor: '#34C75915',
+                  backgroundColor: 'rgba(63, 31, 75, 0.15)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
                 }}>
-                  <CheckCircleOutlineIcon sx={{ fontSize: 18, color: '#34C759' }} />
+                  <CheckCircleOutlineIcon sx={{ fontSize: 18, color: '#3f1f4b' }} />
                 </Box>
                 <Box sx={{ flex: 1 }}>
-                  <Typography variant="body2" color="#000" fontWeight={500}>
+                  <Typography variant="body2" color="#2a0f35" fontWeight={500}>
                     Заполнена
                   </Typography>
-                  <Typography variant="caption" color="#8E8E93">
+                  <Typography variant="caption" color="#4c5454">
                     {formatDateTime(revision.completedAt)}
                   </Typography>
                 </Box>
@@ -949,19 +957,19 @@ const ViewRevisionPage: React.FC = () => {
                   width: 32, 
                   height: 32, 
                   borderRadius: '50%', 
-                  backgroundColor: '#FF950015',
+                  backgroundColor: 'rgba(202, 14, 192, 0.15)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
                 }}>
-                  <VerifiedIcon sx={{ fontSize: 18, color: '#FF9500' }} />
+                  <VerifiedIcon sx={{ fontSize: 18, color: '#ca0ec0' }} />
                 </Box>
                 <Box sx={{ flex: 1 }}>
-                  <Typography variant="body2" color="#000" fontWeight={500}>
+                  <Typography variant="body2" color="#2a0f35" fontWeight={500}>
                     Проверена
                   </Typography>
-                  <Typography variant="caption" color="#8E8E93">
+                  <Typography variant="caption" color="#4c5454">
                     {formatDateTime(revision.verifiedAt)}
                   </Typography>
                 </Box>
@@ -978,8 +986,8 @@ const ViewRevisionPage: React.FC = () => {
                     onClick={() => navigate(`/revisions/${revision.id}/verify`)}
                     sx={{
                       borderRadius: 8,
-                      backgroundColor: '#34C759',
-                      '&:hover': { backgroundColor: '#2AA44F' },
+                      backgroundColor: '#3f1f4b',
+                      '&:hover': { backgroundColor: '#2a0f35' },
                       py: 1,
                       textTransform: 'none',
                       fontSize: '0.9rem',
@@ -995,8 +1003,8 @@ const ViewRevisionPage: React.FC = () => {
                     onClick={() => navigate(`/revisions/${revision.id}/fill`)}
                     sx={{
                       borderRadius: 8,
-                      backgroundColor: '#007AFF',
-                      '&:hover': { backgroundColor: '#0056CC' },
+                      backgroundColor: '#674fb6',
+                      '&:hover': { backgroundColor: '#483399' },
                       py: 1,
                       textTransform: 'none',
                       fontSize: '0.9rem',
@@ -1008,7 +1016,7 @@ const ViewRevisionPage: React.FC = () => {
               </Box>
             )}
           </Stack>
-        </Paper>
+        </Card>
       </Container>
 
       {/* Диалог фото для десктопа */}
@@ -1019,10 +1027,14 @@ const ViewRevisionPage: React.FC = () => {
           maxWidth="lg"
           fullWidth
           PaperProps={{
-            sx: { borderRadius: 8, backgroundColor: '#fff' }
+            sx: { 
+              borderRadius: 8, 
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+            }
           }}
         >
-          <DialogTitle sx={{ px: 3, py: 2, color: '#000', fontWeight: 500 }}>
+          <DialogTitle sx={{ px: 3, py: 2, color: '#2a0f35', fontWeight: 500 }}>
             Просмотр фотографии
           </DialogTitle>
           <DialogContent sx={{ p: 3 }}>
@@ -1058,6 +1070,10 @@ const ViewRevisionPage: React.FC = () => {
                 py: 1,
                 textTransform: 'none',
                 fontSize: '0.9rem',
+                color: '#674fb6',
+                '&:hover': { 
+                  backgroundColor: 'rgba(103, 79, 182, 0.04)',
+                },
               }}
             >
               Закрыть
@@ -1068,14 +1084,14 @@ const ViewRevisionPage: React.FC = () => {
 
       {/* Просмотр фото для мобилок */}
       {isMobile && selectedPhoto && (
-  <MobilePhotoViewer
-    open={showPhotoDialog}
-    photos={selectedPhoto.photos}
-    currentIndex={selectedPhoto.index}
-    onClose={() => setShowPhotoDialog(false)}
-    onIndexChange={(index) => setSelectedPhoto({ ...selectedPhoto, index })}
-    getPhotoUrl={revisionService.getPhotoUrl}
-  />
+        <MobilePhotoViewer
+          open={showPhotoDialog}
+          photos={selectedPhoto.photos}
+          currentIndex={selectedPhoto.index}
+          onClose={() => setShowPhotoDialog(false)}
+          onIndexChange={(index) => setSelectedPhoto({ ...selectedPhoto, index })}
+          getPhotoUrl={revisionService.getPhotoUrl}
+        />
       )}
     </Box>
   );

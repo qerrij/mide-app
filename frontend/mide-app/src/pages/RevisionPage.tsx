@@ -265,13 +265,13 @@ const RevisionsPage: React.FC = () => {
       <Box
         sx={{
           minHeight: '100vh',
-          background: '#f8f9fa',
+          background: '#f5f3f6',
           py: 4,
         }}
       >
         <Container maxWidth="lg">
           <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-            <CircularProgress sx={{ color: '#007AFF' }} />
+            <CircularProgress sx={{ color: '#674fb6' }} />
           </Box>
         </Container>
       </Box>
@@ -283,17 +283,18 @@ const RevisionsPage: React.FC = () => {
       sx={{
         minHeight: '100vh',
         py: 3,
+        backgroundColor: '#f5f3f6',
       }}
     >
-      <Container maxWidth="md" sx={{ px: { xs: 1, sm: 3, md: 4 } }}>
+      <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 3, md: 4 } }}>
         {/* Шапка */}
         <Box sx={{ mb: 3 }}>
           <Grid container spacing={2} alignItems="center">
             <Grid size={{ xs: 12 }}>
-              <Typography variant="h5" component="h1" gutterBottom color="#000" fontWeight={600}>
+              <Typography variant="h5" component="h1" gutterBottom color="#2a0f35" fontWeight={600}>
                 Ревизии
               </Typography>
-              <Typography variant="body2" color="#8E8E93">
+              <Typography variant="body2" color="#4c5454">
                 Полный пересчет товаров и сверка остатков
               </Typography>
             </Grid>
@@ -307,8 +308,8 @@ const RevisionsPage: React.FC = () => {
                     fullWidth
                     sx={{
                       borderRadius: 8,
-                      backgroundColor: '#007AFF',
-                      '&:hover': { backgroundColor: '#0056CC' },
+                      backgroundColor: '#674fb6',
+                      '&:hover': { backgroundColor: '#483399' },
                       py: 1.2,
                       textTransform: 'none',
                       fontSize: '0.95rem',
@@ -324,11 +325,11 @@ const RevisionsPage: React.FC = () => {
                   fullWidth
                   sx={{
                     borderRadius: 8,
-                    borderColor: '#C7C7CC',
-                    color: '#007AFF',
+                    borderColor: '#d8d1e0',
+                    color: '#674fb6',
                     '&:hover': {
-                      borderColor: '#007AFF',
-                      backgroundColor: 'rgba(0, 122, 255, 0.04)',
+                      borderColor: '#674fb6',
+                      backgroundColor: 'rgba(103, 79, 182, 0.04)',
                     },
                     py: 1.2,
                     textTransform: 'none',
@@ -348,7 +349,12 @@ const RevisionsPage: React.FC = () => {
             sx={{ 
               mb: 2, 
               borderRadius: 8,
-              backgroundColor: '#FF3B3015',
+              backgroundColor: 'rgba(202, 14, 192, 0.08)',
+              border: '1px solid rgba(202, 14, 192, 0.2)',
+              color: '#ca0ec0',
+              '& .MuiAlert-icon': {
+                color: '#ca0ec0',
+              }
             }}
           >
             {error}
@@ -361,9 +367,9 @@ const RevisionsPage: React.FC = () => {
             p: 2, 
             mb: 2, 
             borderRadius: 8,
-            backgroundColor: '#fff',
+            backgroundColor: '#ffffff',
             border: 'none',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
           }}
         >
           <Stack spacing={2}>
@@ -380,7 +386,7 @@ const RevisionsPage: React.FC = () => {
                 ),
                 sx: { 
                   borderRadius: 8,
-                  backgroundColor: '#F2F2F7',
+                  backgroundColor: '#f5f3f6',
                   '& fieldset': { border: 'none' }
                 }
               }}
@@ -396,7 +402,7 @@ const RevisionsPage: React.FC = () => {
                     displayEmpty
                     sx={{ 
                       borderRadius: 8,
-                      backgroundColor: '#F2F2F7',
+                      backgroundColor: '#f5f3f6',
                       '& fieldset': { border: 'none' },
                       fontSize: '0.9rem',
                     }}
@@ -418,7 +424,7 @@ const RevisionsPage: React.FC = () => {
                     displayEmpty
                     sx={{ 
                       borderRadius: 8,
-                      backgroundColor: '#F2F2F7',
+                      backgroundColor: '#f5f3f6',
                       '& fieldset': { border: 'none' },
                       fontSize: '0.9rem',
                     }}
@@ -444,7 +450,7 @@ const RevisionsPage: React.FC = () => {
               }}
               sx={{
                 borderRadius: 8,
-                color: '#007AFF',
+                color: '#674fb6',
                 textTransform: 'none',
                 fontSize: '0.9rem',
               }}
@@ -456,15 +462,15 @@ const RevisionsPage: React.FC = () => {
 
         {/* Счетчик ревизий */}
         <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="subtitle1" color="#000" fontWeight={500}>
+          <Typography variant="subtitle1" color="#2a0f35" fontWeight={500}>
             Все ревизии
           </Typography>
           <Chip
             label={`${filteredRevisions.length}`}
             size="small"
             sx={{
-              backgroundColor: '#F2F2F7',
-              color: '#8E8E93',
+              backgroundColor: '#f5f3f6',
+              color: '#4c5454',
               fontWeight: 500,
               borderRadius: 8,
               fontSize: '0.8rem',
@@ -479,15 +485,15 @@ const RevisionsPage: React.FC = () => {
               p: 4,
               textAlign: 'center',
               borderRadius: 8,
-              backgroundColor: '#fff',
+              backgroundColor: '#ffffff',
               border: 'none',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
             }}
           >
-            <Typography variant="body1" color="#8E8E93">
+            <Typography variant="body1" color="#4c5454">
               Ревизии не найдены
             </Typography>
-            <Typography variant="body2" color="#8E8E93" sx={{ mt: 0.5 }}>
+            <Typography variant="body2" color="#4c5454" sx={{ mt: 0.5 }}>
               Попробуйте изменить параметры поиска
             </Typography>
           </Paper>
@@ -504,16 +510,16 @@ const RevisionsPage: React.FC = () => {
                   key={revision.id}
                   sx={{
                     borderRadius: 8,
-                    backgroundColor: '#fff',
+                    backgroundColor: '#ffffff',
                     border: 'none',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                    boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
                     transition: 'all 0.2s ease',
                     '&:hover': {
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                      boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
                     },
                     ...((userCanFill || userCanVerify) && {
-                      border: '1px solid #007AFF',
-                      backgroundColor: '#F0F8FF',
+                      border: '1px solid #674fb6',
+                      backgroundColor: '#f9f8fc',
                     }),
                   }}
                 >
@@ -523,7 +529,7 @@ const RevisionsPage: React.FC = () => {
                       <Box sx={{ flex: 1, mr: 1 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                           {getTypeIcon(revision.type)}
-                          <Typography variant="subtitle2" color="#007AFF" fontWeight={500}>
+                          <Typography variant="subtitle2" color="#674fb6" fontWeight={500}>
                             {getRevisionTypeText(revision.type)}
                           </Typography>
                           <Box sx={{ flex: 1 }} />
@@ -540,13 +546,13 @@ const RevisionsPage: React.FC = () => {
                             }}
                           />
                         </Box>
-                        <Typography variant="h6" color="#000" fontWeight={600} fontSize="1.1rem">
+                        <Typography variant="h6" color="#2a0f35" fontWeight={600} fontSize="1.1rem">
                           Ревизия #{revision.id}
                         </Typography>
                         
                         {(userCanFill || userCanVerify) && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                            <Typography variant="caption" color={userCanFill ? '#FF9500' : '#34C759'} fontWeight={500}>
+                            <Typography variant="caption" color={userCanFill ? '#6d3f57' : '#3f1f4b'} fontWeight={500}>
                               {userCanFill ? 'Требуется заполнить' : 'Требуется проверка'}
                             </Typography>
                           </Box>
@@ -559,35 +565,35 @@ const RevisionsPage: React.FC = () => {
                     {/* Информация */}
                     <Stack spacing={1.5}>
                       <Box>
-                        <Typography variant="caption" color="#8E8E93" display="block">
+                        <Typography variant="caption" color="#4c5454" display="block">
                           Запросил
                         </Typography>
-                        <Typography variant="body2" color="#000" fontWeight={400}>
+                        <Typography variant="body2" color="#2a0f35" fontWeight={400}>
                           {revision.requestedByName}
                         </Typography>
                         {revision.comment && (
-                          <Typography variant="caption" color="#8E8E93" display="block" sx={{ mt: 0.5 }}>
+                          <Typography variant="caption" color="#4c5454" display="block" sx={{ mt: 0.5 }}>
                             {revision.comment}
                           </Typography>
                         )}
                       </Box>
 
                       <Box>
-                        <Typography variant="caption" color="#8E8E93" display="block">
+                        <Typography variant="caption" color="#4c5454" display="block">
                           Назначение
                         </Typography>
-                        <Typography variant="body2" color="#000" fontWeight={400}>
+                        <Typography variant="body2" color="#2a0f35" fontWeight={400}>
                           {getTargetName(revision)}
                         </Typography>
                       </Box>
 
                       <Box>
-                        <Typography variant="caption" color="#8E8E93" display="block">
+                        <Typography variant="caption" color="#4c5454" display="block">
                           Дата запроса
                         </Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <ScheduleIcon sx={{ fontSize: 14, color: '#8E8E93' }} />
-                          <Typography variant="body2" color="#000">
+                          <ScheduleIcon sx={{ fontSize: 14, color: '#4c5454' }} />
+                          <Typography variant="body2" color="#2a0f35">
                             {formatDate(revision.requestedAt)} в {formatTime(revision.requestedAt)}
                           </Typography>
                         </Box>
@@ -601,8 +607,8 @@ const RevisionsPage: React.FC = () => {
                             label={`${revision.totalFilled || 0}/${revision.totalUsers || 0}`}
                             size="small"
                             sx={{
-                              backgroundColor: '#F2F2F7',
-                              color: '#5AC8FA',
+                              backgroundColor: '#f5f3f6',
+                              color: '#56b8d1',
                               borderRadius: 6,
                               fontSize: '0.7rem',
                               height: '20px',
@@ -614,8 +620,8 @@ const RevisionsPage: React.FC = () => {
                             label="Заполнено вами"
                             size="small"
                             sx={{
-                              backgroundColor: '#E6F4EA',
-                              color: '#34C759',
+                              backgroundColor: 'rgba(63, 31, 75, 0.1)',
+                              color: '#3f1f4b',
                               borderRadius: 6,
                               fontSize: '0.7rem',
                               height: '20px',
@@ -639,12 +645,12 @@ const RevisionsPage: React.FC = () => {
                         textTransform: 'none',
                         fontSize: '0.9rem',
                         ...(userCanFill && {
-                          backgroundColor: '#007AFF',
-                          '&:hover': { backgroundColor: '#0056CC' },
+                          backgroundColor: '#674fb6',
+                          '&:hover': { backgroundColor: '#483399' },
                         }),
                         ...(userCanVerify && {
-                          backgroundColor: '#34C759',
-                          '&:hover': { backgroundColor: '#2AA44F' },
+                          backgroundColor: '#3f1f4b',
+                          '&:hover': { backgroundColor: '#2a0f35' },
                         }),
                       }}
                     >
@@ -662,7 +668,7 @@ const RevisionsPage: React.FC = () => {
           user?.role === UserRole.ADMIN || 
           user?.role === UserRole.SENIOR_SELLER) && (
           <Box sx={{ mt: 4 }}>
-            <Typography variant="h6" gutterBottom color="#000" fontWeight={600}>
+            <Typography variant="h6" gutterBottom color="#2a0f35" fontWeight={600}>
               Статистика
             </Typography>
             <Grid container spacing={1.5} sx={{ mt: 1 }}>
@@ -670,26 +676,26 @@ const RevisionsPage: React.FC = () => {
                 { 
                   label: 'Всего', 
                   value: revisions.length,
-                  color: '#007AFF',
-                  bgColor: '#F0F8FF',
+                  color: '#674fb6',
+                  bgColor: '#f9f8fc',
                 },
                 { 
                   label: 'Ожидают заполнения', 
                   value: revisions.filter(r => r.status === RevisionStatus.REQUESTED).length,
-                  color: '#FF9500',
-                  bgColor: '#FFF4E5',
+                  color: '#6d3f57',
+                  bgColor: '#f8f4f7',
                 },
                 { 
                   label: 'Ожидают проверки', 
                   value: revisions.filter(r => r.status === RevisionStatus.COMPLETED).length,
-                  color: '#AF52DE',
-                  bgColor: '#F5E6FF',
+                  color: '#ca0ec0',
+                  bgColor: '#fdf2fc',
                 },
                 { 
                   label: 'Проверены', 
                   value: revisions.filter(r => r.status === RevisionStatus.VERIFIED).length,
-                  color: '#34C759',
-                  bgColor: '#E6F4EA',
+                  color: '#3f1f4b',
+                  bgColor: '#f2edf5',
                 },
               ].map((stat, index) => (
                 <Grid size={{ xs: 6 }} key={index}>
@@ -704,12 +710,13 @@ const RevisionsPage: React.FC = () => {
                       display: 'flex',
                       flexDirection: 'column',
                       justifyContent: 'center',
+                      boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
                     }}
                   >
                     <Typography variant="h5" color={stat.color} fontWeight={600}>
                       {stat.value}
                     </Typography>
-                    <Typography variant="caption" color="#8E8E93" sx={{ mt: 0.5 }}>
+                    <Typography variant="caption" color="#4c5454" sx={{ mt: 0.5 }}>
                       {stat.label}
                     </Typography>
                   </Paper>
