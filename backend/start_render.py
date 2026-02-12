@@ -41,7 +41,7 @@ def init_database():
         from app.core.security import get_password_hash
         from datetime import datetime
         
-        # Явно импортируем все модели для создания таблиц
+        # Явно импортируем все модели
         from app.models.user import User
         from app.models.product import Product
         from app.models.report import Report
@@ -70,30 +70,37 @@ def init_database():
         finally:
             db.close()
         
-        # Получаем список всех таблиц для удаления (кроме users)
-        all_tables = inspector.get_table_names()
-        tables_to_drop = [table for table in all_tables if table != 'users']
-        
-        # Удаляем все таблицы кроме users
-        print(f"Dropping tables: {', '.join(tables_to_drop)}")
+        # УНИВЕРСАЛЬНОЕ РЕШЕНИЕ: удаляем ВСЕ таблицы КРОМЕ users
+        # PostgreSQL сам разберется с зависимостями через CASCADE
+        print("Dropping all tables except 'users'...")
         with engine.connect() as conn:
-            # Отключаем проверки внешних ключей
-            conn.execute(text("SET session_replication_role = 'replica';"))
-            conn.commit()
+            # Получаем список всех таблиц
+            all_tables = inspector.get_table_names()
             
-            # Удаляем таблицы в обратном порядке (с учетом зависимостей)
-            for table in reversed(tables_to_drop):
-                try:
-                    conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE;'))
-                    conn.commit()
-                    print(f"Dropped table: {table}")
-                except Exception as e:
-                    print(f"Error dropping table {table}: {e}")
-                    conn.rollback()
+            # Удаляем каждую таблицу, кроме users
+            for table in all_tables:
+                if table != 'users':
+                    try:
+                        # CASCADE автоматически удалит все зависимости
+                        conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE;'))
+                        conn.commit()
+                        print(f"Dropped table: {table}")
+                    except Exception as e:
+                        # Если не удалось удалить сейчас, откатываем и попробуем позже
+                        conn.rollback()
+                        print(f"Could not drop {table} now, will retry later: {e}")
             
-            # Включаем обратно проверки внешних ключей
-            conn.execute(text("SET session_replication_role = 'origin';"))
-            conn.commit()
+            # ПОВТОРНАЯ ПОПЫТКА: удаляем оставшиеся таблицы
+            remaining_tables = inspector.get_table_names()
+            for table in remaining_tables:
+                if table != 'users':
+                    try:
+                        conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE;'))
+                        conn.commit()
+                        print(f"Dropped table on second attempt: {table}")
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"Warning: Could not drop {table}: {e}")
         
         # Создаем все таблицы заново
         print("Creating all tables...")
@@ -106,18 +113,8 @@ def init_database():
             db = SessionLocal()
             try:
                 for user in existing_users:
-                    # Создаем нового пользователя с теми же данными
-                    restored_user = User(
-                        id=user.id,
-                        username=user.username,
-                        password_hash=user.password_hash,
-                        full_name=user.full_name,
-                        role=user.role,
-                        is_active=user.is_active,
-                        created_at=user.created_at,
-                        updated_at=datetime.utcnow()
-                    )
-                    db.merge(restored_user)
+                    # Используем merge для обновления или вставки
+                    db.merge(user)
                 db.commit()
                 print("Users restored successfully")
             except Exception as e:
@@ -145,7 +142,6 @@ def init_database():
                 print("Owner user created")
             else:
                 print("Owner user already exists")
-                
         except Exception as e:
             db.rollback()
             print(f"Error creating owner: {e}")
