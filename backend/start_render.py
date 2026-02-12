@@ -25,48 +25,29 @@ def wait_for_database():
 def init_database():
     try:
         from app.database import engine, Base, SessionLocal
-        from sqlalchemy import text
         from app.core.security import get_password_hash
         from datetime import datetime
         
-        # Импортируем модели
-        from app.models.user import User
-        from app.models.report import Report
-        from app.models.product import Product
-        from app.models.group import Group
-        from app.models.cluster import Cluster
-        from app.models.inventory import UserInventory
-        from app.models.company import CompanyBalance, CompanySettings
-        from app.models.category import ProductCategory
-        from app.models.transfer import Transfer
-        from app.models.revision import Revision
-        from app.models.notification import Notification
-        from app.models.rejection import Rejection, RejectionItem
-        
-        # Удаляем ВСЁ
-        with engine.connect() as conn:
-            conn.execute(text("DROP SCHEMA public CASCADE;"))
-            conn.execute(text("CREATE SCHEMA public;"))
-            conn.execute(text("GRANT ALL ON SCHEMA public TO public;"))
-            conn.commit()
-        
-        # Создаем таблицы
+        # Создаем таблицы если их нет
         Base.metadata.create_all(bind=engine)
         
-        # Создаем владельца
+        # Создаем владельца если его нет
         db = SessionLocal()
         try:
-            owner = User(
-                username="owner",
-                password_hash=get_password_hash("owner123"),
-                full_name="Владелец системы",
-                role="OWNER",
-                is_active=True,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
-            db.add(owner)
-            db.commit()
+            from app.models.user import User
+            owner = db.query(User).filter(User.username == "owner").first()
+            if not owner:
+                owner = User(
+                    username="owner",
+                    password_hash=get_password_hash("owner123"),
+                    full_name="Владелец системы",
+                    role="OWNER",
+                    is_active=True,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(owner)
+                db.commit()
         except Exception:
             db.rollback()
         finally:
