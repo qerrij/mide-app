@@ -84,7 +84,6 @@ def run_app():
         host="0.0.0.0",
         port=port,
         reload=False,
-        log_level="critical"
     )
 
 if __name__ == "__main__":

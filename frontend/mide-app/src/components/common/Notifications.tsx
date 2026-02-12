@@ -612,6 +612,7 @@ const Notifications: React.FC = () => {
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleClose}
+        disableScrollLock={true}
         PaperProps={{
           sx: {
             width: 420,

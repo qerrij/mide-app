@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AppBar as MuiAppBar,
   Toolbar,
@@ -36,6 +36,21 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
   const location = useLocation();
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
   const [navMenuAnchor, setNavMenuAnchor] = useState<null | HTMLElement>(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const isScrolled = window.scrollY > 20;
+      if (isScrolled !== scrolled) {
+        setScrolled(isScrolled);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+    };
+  }, [scrolled]);
 
   const getRoleName = (role?: string): string => {
     const roles: Record<string, string> = {
@@ -135,93 +150,96 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
   return (
     <>
       <MuiAppBar
-        position="static"
+        position="fixed"
         elevation={0}
         sx={{
-          backgroundColor: 'transparent',
-          backdropFilter: 'none',
-          boxShadow: 'none',
-          mt: 2,
-          px: 2,
+          backgroundColor: scrolled 
+            ? 'rgba(255, 255, 255, 0.9)' 
+            : 'transparent',
+          backdropFilter: scrolled ? 'blur(8px)' : 'none',
+          boxShadow: scrolled 
+            ? '0 4px 20px rgba(106, 61, 122, 0.1)' 
+            : 'none',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          width: '100%',
         }}
       >
-        <Box
+        <Toolbar
           sx={{
-            maxWidth: { xs: '100%', sm: '100%', md: '100%', lg: 1200 },
-            mx: 'auto',
             width: '100%',
+            px: { xs: 2, sm: 3, md: 4 },
+            minHeight: 40,
           }}
         >
-          <Toolbar
+          <Box
             sx={{
-              backgroundColor: '#ffffff',
-              borderRadius: 8,
-              px: 3,
-              minHeight: 60,
-              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.15)',
-              border: '1px solid rgba(106, 61, 122, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              width: '100%',
+              maxWidth: 1200,
+              mx: 'auto',
             }}
           >
-            <IconButton
-              color="inherit"
-              edge="start"
-              onClick={handleNavMenuClick}
-              sx={{ 
-                mr: 2,
-                color: '#2a0f35',
-                position: 'relative',
-                width: 40,
-                height: 40,
-                '&:hover': {
-                  backgroundColor: '#f5f3f6',
-                },
-              }}
-            >
-              {/* Гамбургер меню */}
-              <MenuIcon
-                sx={{
-                  position: 'absolute',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  opacity: navMenuAnchor ? 0 : 1,
-                  transform: navMenuAnchor ? 'rotate(-90deg) scale(0.8)' : 'rotate(0deg) scale(1)',
-                }}
-              />
-              
-              {/* Крестик */}
-              <CloseIcon
-                sx={{
-                  position: 'absolute',
-                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                  opacity: navMenuAnchor ? 1 : 0,
-                  transform: navMenuAnchor ? 'rotate(0deg) scale(1)' : 'rotate(90deg) scale(0.8)',
-                }}
-              />
-            </IconButton>
-
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                cursor: 'pointer',
-                flexGrow: 1,
-              }}
-              onClick={() => navigate('/')}
-            >
-              <Typography 
-                variant="h5" 
-                noWrap 
-                component="div"
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <IconButton
+                color="inherit"
+                edge="start"
+                onClick={handleNavMenuClick}
                 sx={{ 
-                  fontWeight: 600,
-                  letterSpacing: '-0.5px',
-                  background: 'linear-gradient(135deg, #674fb6 0%, #3f1f4b 100%)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
+                  mr: 2,
+                  color: '#2a0f35',
+                  position: 'relative',
+                  width: 40,
+                  height: 40,
+                  '&:hover': {
+                    backgroundColor: 'rgba(106, 61, 122, 0.04)',
+                  },
                 }}
               >
-                Mide
-              </Typography>
+                <MenuIcon
+                  sx={{
+                    position: 'absolute',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    opacity: navMenuAnchor ? 0 : 1,
+                    transform: navMenuAnchor ? 'rotate(-90deg) scale(0.8)' : 'rotate(0deg) scale(1)',
+                  }}
+                />
+                
+                <CloseIcon
+                  sx={{
+                    position: 'absolute',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    opacity: navMenuAnchor ? 1 : 0,
+                    transform: navMenuAnchor ? 'rotate(0deg) scale(1)' : 'rotate(90deg) scale(0.8)',
+                  }}
+                />
+              </IconButton>
+
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  cursor: 'pointer',
+                }}
+                onClick={() => navigate('/')}
+              >
+                <Typography 
+                  variant="h5" 
+                  noWrap 
+                  component="div"
+                  sx={{ 
+                    fontWeight: 600,
+                    letterSpacing: '-0.5px',
+                    background: 'linear-gradient(135deg, #674fb6 0%, #3f1f4b 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                  }}
+                >
+                  Mide
+                </Typography>
+              </Box>
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -235,7 +253,7 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
                   py: 1,
                   borderRadius: 8,
                   '&:hover': {
-                    backgroundColor: '#f5f3f6',
+                    backgroundColor: 'rgba(106, 61, 122, 0.04)',
                   },
                 }}
                 onClick={handleUserMenuClick}
@@ -251,7 +269,7 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
                 >
                   {user?.fullName?.charAt(0).toUpperCase() || user?.username?.charAt(0).toUpperCase()}
                 </Avatar>
-                <Box>
+                <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
                   <Typography 
                     variant="body2" 
                     sx={{ 
@@ -267,148 +285,150 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
               
               <Notifications />
             </Box>
-          </Toolbar>
-        </Box>
-
-        {/* Меню навигации */}
-        <Menu
-          anchorEl={navMenuAnchor}
-          open={Boolean(navMenuAnchor)}
-          onClose={handleMenuClose}
-          anchorOrigin={{
-            vertical: 'bottom',
-            horizontal: 'left',
-          }}
-          transformOrigin={{
-            vertical: 'top',
-            horizontal: 'left',
-          }}
-          PaperProps={{
-            sx: {
-              mt: 2,
-              ml: -1,
-              minWidth: 250,
-              maxHeight: '70vh',
-              overflow: 'auto',
-              borderRadius: 8,
-              boxShadow: '0 8px 32px rgba(106, 61, 122, 0.2)',
-              border: '1px solid rgba(106, 61, 122, 0.1)',
-              backgroundColor: '#ffffff',
-            },
-          }}
-        >
-          <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(106, 61, 122, 0.1)' }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#2a0f35' }}>
-              Навигация
-            </Typography>
           </Box>
-          
-          {filteredMenuItems.map((item) => (
-            <MenuItem
-              key={item.path}
-              onClick={() => handleNavigation(item.path)}
-              selected={location.pathname === item.path}
-              sx={{
-                py: 1.5,
-                px: 2,
-                borderRadius: 2,
-                mx: 1,
-                my: 0.5,
-                '&.Mui-selected': {
-                  backgroundColor: '#674fb615',
-                  '&:hover': {
-                    backgroundColor: '#674fb625',
-                  },
-                  '& .MuiListItemIcon-root': {
-                    color: '#674fb6',
-                  },
-                },
-                '&:hover': {
-                  backgroundColor: '#f5f3f6',
-                },
-              }}
-            >
-              <Box sx={{ 
-                display: 'flex', 
-                alignItems: 'center',
-                color: location.pathname === item.path ? '#674fb6' : '#2a0f35',
-                mr: 2
-              }}>
-                {item.icon}
-              </Box>
-              <Typography 
-                variant="body2"
-                sx={{ 
-                  fontWeight: location.pathname === item.path ? 600 : 400,
-                  color: location.pathname === item.path ? '#674fb6' : '#2a0f35',
-                }}
-              >
-                {item.title}
-              </Typography>
-            </MenuItem>
-          ))}
 
-          {/* Footer с информацией о версии */}
-          <Box sx={{ 
-            px: 2, 
-            py: 1.5, 
-            mt: 1,
-            borderTop: '1px solid rgba(106, 61, 122, 0.1)',
-          }}>
-            <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
-              Система отчетов v1.0
-            </Typography>
-          </Box>
-        </Menu>
-
-        {/* Меню пользователя */}
-        <Menu
-          anchorEl={userMenuAnchor}
-          open={Boolean(userMenuAnchor)}
-          onClose={handleMenuClose}
-          anchorOrigin={{
-            vertical: 'bottom',
-            horizontal: 'right',
-          }}
-          transformOrigin={{
-            vertical: 'top',
-            horizontal: 'right',
-          }}
-          PaperProps={{
-            sx: {
-              mt: 1,
-              minWidth: 200,
-              borderRadius: 8,
-              boxShadow: '0 8px 32px rgba(106, 61, 122, 0.2)',
-              border: '1px solid rgba(106, 61, 122, 0.1)',
-            },
-          }}
-        >
-          <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(106, 61, 122, 0.1)' }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#2a0f35' }}>
-              {user?.fullName || user?.username}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
-              Логин: {user?.username}
-            </Typography>
-          </Box>
-          <MenuItem 
-            onClick={handleLogout}
-            sx={{ 
-              mt: 1,
-              borderRadius: 6,
-              mx: 1,
-              color: '#ca0ec0',
-              '&:hover': {
-                backgroundColor: 'rgba(202, 14, 192, 0.04)',
+          {/* Меню навигации */}
+          <Menu
+            anchorEl={navMenuAnchor}
+            open={Boolean(navMenuAnchor)}
+            onClose={handleMenuClose}
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'left',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'left',
+            }}
+            PaperProps={{
+              sx: {
+                mt: 0,
+                ml: -1,
+                minWidth: 250,
+                maxHeight: '70vh',
+                overflow: 'auto',
+                borderRadius: 4,
+                boxShadow: '0 8px 32px rgba(106, 61, 122, 0.2)',
+                border: '1px solid rgba(106, 61, 122, 0.1)',
+                backgroundColor: '#ffffff',
               },
             }}
           >
-            <LogoutIcon sx={{ mr: 1.5, fontSize: 20 }} />
-            Выйти
-          </MenuItem>
-        </Menu>
+            <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(106, 61, 122, 0.1)' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#2a0f35' }}>
+                Навигация
+              </Typography>
+            </Box>
+            
+            {filteredMenuItems.map((item) => (
+              <MenuItem
+                key={item.path}
+                onClick={() => handleNavigation(item.path)}
+                selected={location.pathname === item.path}
+                sx={{
+                  py: 1.5,
+                  px: 2,
+                  borderRadius: 2,
+                  mx: 1,
+                  my: 0.5,
+                  '&.Mui-selected': {
+                    backgroundColor: '#674fb615',
+                    '&:hover': {
+                      backgroundColor: '#674fb625',
+                    },
+                    '& .MuiListItemIcon-root': {
+                      color: '#674fb6',
+                    },
+                  },
+                  '&:hover': {
+                    backgroundColor: '#f5f3f6',
+                  },
+                }}
+              >
+                <Box sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  color: location.pathname === item.path ? '#674fb6' : '#2a0f35',
+                  mr: 2
+                }}>
+                  {item.icon}
+                </Box>
+                <Typography 
+                  variant="body2"
+                  sx={{ 
+                    fontWeight: location.pathname === item.path ? 600 : 400,
+                    color: location.pathname === item.path ? '#674fb6' : '#2a0f35',
+                  }}
+                >
+                  {item.title}
+                </Typography>
+              </MenuItem>
+            ))}
+
+            <Box sx={{ 
+              px: 2, 
+              py: 1.5, 
+              mt: 1,
+              borderTop: '1px solid rgba(106, 61, 122, 0.1)',
+            }}>
+              <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
+                Система отчетов v1.0
+              </Typography>
+            </Box>
+          </Menu>
+
+          {/* Меню пользователя */}
+          <Menu
+            anchorEl={userMenuAnchor}
+            open={Boolean(userMenuAnchor)}
+            onClose={handleMenuClose}
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+            PaperProps={{
+              sx: {
+                mt: 0,
+                minWidth: 200,
+                borderRadius: 4,
+                boxShadow: '0 8px 32px rgba(106, 61, 122, 0.2)',
+                border: '1px solid rgba(106, 61, 122, 0.1)',
+              },
+            }}
+          >
+            <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(106, 61, 122, 0.1)' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#2a0f35' }}>
+                {user?.fullName || user?.username}
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#8a8a8a' }}>
+                Логин: {user?.username}
+              </Typography>
+            </Box>
+            <MenuItem 
+              onClick={handleLogout}
+              sx={{ 
+                mt: 1,
+                borderRadius: 6,
+                mx: 1,
+                color: '#ca0ec0',
+                '&:hover': {
+                  backgroundColor: 'rgba(202, 14, 192, 0.04)',
+                },
+              }}
+            >
+              <LogoutIcon sx={{ mr: 1.5, fontSize: 20 }} />
+              Выйти
+            </MenuItem>
+          </Menu>
+        </Toolbar>
       </MuiAppBar>
+      
+      {/* Отступ для контента, чтобы он не накладывался на фиксированный AppBar */}
+      <Box sx={{ height: 80 }} />
     </>
   );
 };
