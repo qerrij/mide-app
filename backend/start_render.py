@@ -18,21 +18,21 @@ def wait_for_database():
             )
             conn.close()
             return True
-        except Exception as e:
+        except Exception:
             if i < max_retries - 1:
                 time.sleep(retry_delay)
     
     return False
 
 def init_database():
-    """Инициализация базы данных с сохранением пользователей"""
+    """Полная перезапись базы данных"""
     try:
         from app.database import engine, Base, SessionLocal
-        from sqlalchemy import inspect, text
-        from sqlalchemy.orm import Session
+        from sqlalchemy import text
         from app.core.security import get_password_hash
         from datetime import datetime
         
+        # 1. Явно импортируем ВСЕ модели, чтобы они зарегистрировались в Base.metadata
         from app.models.user import User
         from app.models.product import Product
         from app.models.report import Report
@@ -46,82 +46,65 @@ def init_database():
         from app.models.notification import Notification
         from app.models.rejection import Rejection, RejectionItem
         
-        inspector = inspect(engine)
-        
-        existing_users = []
-        db = SessionLocal()
-        try:
-            if 'users' in inspector.get_table_names():
-                existing_users = db.query(User).all()
-        except Exception:
-            pass
-        finally:
-            db.close()
-        
+        # 2. УНИЧТОЖАЕМ ВСЁ
         with engine.connect() as conn:
+            # Отключаем транзакцию для DDL операций
             conn.execute(text("COMMIT"))
             
-            all_tables = inspector.get_table_names()
-            for table in all_tables:
-                if table != 'users':
-                    try:
-                        conn.execute(text(f'DROP TABLE IF EXISTS "{table}" CASCADE;'))
-                    except Exception:
-                        pass
+            # Получаем список ВСЕХ enum типов
+            enum_result = conn.execute(text("""
+                SELECT typname 
+                FROM pg_type 
+                WHERE typtype = 'e' 
+                AND typname NOT LIKE 'pg_%'
+                AND typname NOT LIKE '_%'
+            """)).fetchall()
             
-            try:
-                enum_types = conn.execute(text("""
-                    SELECT typname 
-                    FROM pg_type 
-                    WHERE typtype = 'e' 
-                    AND typname NOT LIKE 'pg_%'
-                    AND typname NOT LIKE '_%'
-                """)).fetchall()
-                
-                for enum_type in enum_types:
-                    enum_name = enum_type[0]
-                    try:
-                        conn.execute(text(f'DROP TYPE IF EXISTS "{enum_name}" CASCADE;'))
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            # Удаляем все enum типы
+            for enum in enum_result:
+                try:
+                    conn.execute(text(f'DROP TYPE IF EXISTS "{enum[0]}" CASCADE;'))
+                except Exception:
+                    pass
+            
+            # Получаем список ВСЕХ таблиц
+            tables_result = conn.execute(text("""
+                SELECT tablename 
+                FROM pg_tables 
+                WHERE schemaname = 'public'
+            """)).fetchall()
+            
+            # Удаляем все таблицы
+            for table in tables_result:
+                try:
+                    conn.execute(text(f'DROP TABLE IF EXISTS "{table[0]}" CASCADE;'))
+                except Exception:
+                    pass
             
             conn.execute(text("COMMIT"))
         
+        # 3. СОЗДАЕМ ВСЁ ЗАНОВО
         Base.metadata.create_all(bind=engine)
         
-        if existing_users:
-            db = SessionLocal()
-            try:
-                for user in existing_users:
-                    db.merge(user)
-                db.commit()
-            except Exception:
-                db.rollback()
-            finally:
-                db.close()
-        
+        # 4. СОЗДАЕМ ТОЛЬКО ВЛАДЕЛЬЦА
         db = SessionLocal()
         try:
-            owner = db.query(User).filter(User.username == "owner").first()
-            if not owner:
-                owner = User(
-                    username="owner",
-                    password_hash=get_password_hash("owner123"),
-                    full_name="Владелец системы",
-                    role="OWNER",
-                    is_active=True,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(owner)
-                db.commit()
+            owner = User(
+                username="owner",
+                password_hash=get_password_hash("owner123"),
+                full_name="Владелец системы",
+                role="OWNER",
+                is_active=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(owner)
+            db.commit()
         except Exception:
             db.rollback()
         finally:
             db.close()
-            
+        
         return True
         
     except Exception:
