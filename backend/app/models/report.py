@@ -1,14 +1,18 @@
-from sqlalchemy import Column, Integer, String, Float, Enum, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, Float, Enum, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
 from app.database import Base
+from app.core.file_utils import get_file_url
 
 
 class ReportStatus(str, enum.Enum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
+    AWAITING_FIX = "AWAITING_FIX"  # Ожидает исправления продавцом
+    AWAITING_ACCOUNTANT = "AWAITING_ACCOUNTANT"  # Ожидает проверки бухгалтера
+    AWAITING_MANAGER = "AWAITING_MANAGER"  # Ожидает проверки руководителя
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
 
@@ -48,14 +52,18 @@ class Report(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    accountant_amount = Column(Float, nullable=True)  # Сумма, указанная при отправке
-    accountant_reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # Бухгалтер
-    accountant_status = Column(Enum(ReportStatus), nullable=True)  # Статус бухгалтера
-    accountant_comment = Column(Text, nullable=True)  # Комментарий бухгалтера
-    accountant_final_amount = Column(Float, nullable=True)  # Окончательная сумма бухгалтера
+    # Поля для бухгалтерской проверки
+    accountant_amount = Column(Float, nullable=True)
+    accountant_reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    accountant_comment = Column(Text, nullable=True)
+    accountant_final_amount = Column(Float, nullable=True)
     accountant_review_date = Column(DateTime, nullable=True)
+    accountant_status = Column(Enum(ReportStatus), nullable=True)
 
     accountant = relationship("User", foreign_keys=[accountant_reviewed_by])
+    
+    # Поле для отслеживания, был ли отчет уже на бухгалтерской проверке
+    was_with_accountant = Column(Boolean, default=False)
     
     def __init__(self, **kwargs):
         if 'transfer_photos' not in kwargs:
@@ -71,3 +79,23 @@ class Report(Base):
             kwargs['transfer_photos'] = []
         
         super().__init__(**kwargs)
+    
+    @property
+    def transfer_photo_urls(self):
+        """Получить URL для всех фотографий"""
+        return [get_file_url(path) for path in self.transfer_photos]
+    
+    @property
+    def requires_accountant(self):
+        """Требуется ли проверка бухгалтера"""
+        return self.status == ReportStatus.AWAITING_ACCOUNTANT
+    
+    @property
+    def requires_manager(self):
+        """Требуется ли проверка руководителя"""
+        return self.status == ReportStatus.AWAITING_MANAGER
+    
+    @property
+    def requires_fix(self):
+        """Требуется ли исправление продавцом"""
+        return self.status == ReportStatus.AWAITING_FIX

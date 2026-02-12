@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
+from datetime import datetime
+
 from app.database import get_db
 from app.crud.inventory import crud_inventory
 from app.crud.company import crud_company
@@ -16,12 +18,278 @@ from app.schemas.report import (
 from app.schemas.notification import NotificationType
 from app.api.dependencies import get_current_user, require_roles
 from app.models.user import User, UserRole
-from app.models.report import Report, ReportStatus as ReportStatusModel
-from app.core.file_utils import save_uploaded_files, validate_files
-from datetime import datetime
+from app.models.report import Report, ReportProduct, ReportStatus as ReportStatusModel
+from app.models.cluster import Cluster
+from app.core.file_utils import save_uploaded_files, validate_files, delete_file
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
+
+# ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
+    """Парсинг строки даты"""
+    if not date_str:
+        return None
+    
+    try:
+        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+    except:
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%dT%H:%M:%S')
+        except:
+            try:
+                return datetime.strptime(date_str, '%Y-%m-%d')
+            except:
+                return None
+
+
+def _check_manager_access(db: Session, report: Report, user: User) -> bool:
+    """Проверить, имеет ли пользователь права на утверждение отчета"""
+    # Нельзя утверждать свой собственный отчет
+    if report.seller_id == user.id:
+        return False
+    
+    if user.role == UserRole.OWNER:
+        return True
+    
+    seller = db.query(User).filter(User.id == report.seller_id).first()
+    if not seller:
+        return False
+    
+    if user.role == UserRole.ADMIN:
+        if not user.admin_clusters:
+            return False
+        try:
+            admin_clusters = json.loads(user.admin_clusters)
+            return seller.cluster_id in admin_clusters
+        except:
+            return False
+    
+    if user.role == UserRole.SENIOR_SELLER:
+        return seller.cluster_id == user.cluster_id
+    
+    if user.role == UserRole.MENTOR:
+        return seller.mentor_id == user.id
+    
+    return False
+
+
+# ==================== УВЕДОМЛЕНИЯ ====================
+
+def _notify_accountants_about_new_report(db: Session, report: Report, seller: User):
+    """Уведомить бухгалтеров о новом отчете"""
+    accountants = db.query(User).filter(User.role == UserRole.ACCOUNTANT).all()
+    
+    notifications_data = []
+    for accountant in accountants:
+        notifications_data.append({
+            'user_id': accountant.id,
+            'type': NotificationType.REPORT_SUBMITTED,
+            'title': 'Новый отчет на проверку',
+            'message': f'Продавец {seller.full_name} создал отчет №{report.id} на сумму {report.transfer_amount} руб. Требуется проверка.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': seller.id,
+                'seller_name': seller.full_name,
+                'amount': report.transfer_amount,
+                'date': report.date.isoformat() if report.date else None,
+                'requires_action': True
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 4
+        })
+    
+    if notifications_data:
+        crud_notification.create_multiple(
+            db,
+            notifications_data=notifications_data,
+            sender_id=seller.id
+        )
+
+
+def _notify_accountants_about_fixed_report(db: Session, report: Report, seller: User):
+    """Уведомить бухгалтеров об исправленном отчете"""
+    accountants = db.query(User).filter(User.role == UserRole.ACCOUNTANT).all()
+    
+    notifications_data = []
+    for accountant in accountants:
+        notifications_data.append({
+            'user_id': accountant.id,
+            'type': NotificationType.REPORT_SUBMITTED,
+            'title': 'Отчет исправлен и требует проверки',
+            'message': f'Продавец {seller.full_name} исправил отчет №{report.id} и отправил на повторную проверку.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': seller.id,
+                'seller_name': seller.full_name,
+                'amount': report.transfer_amount,
+                'date': datetime.now().isoformat(),
+                'is_fix': True,
+                'requires_action': True
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 4
+        })
+    
+    if notifications_data:
+        crud_notification.create_multiple(
+            db,
+            notifications_data=notifications_data,
+            sender_id=seller.id
+        )
+
+
+def _notify_managers_about_ready_report(db: Session, report: Report, accountant: User):
+    """Уведомить руководителей о том, что отчет готов к проверке"""
+    seller = db.query(User).filter(User.id == report.seller_id).first()
+    if not seller:
+        return
+    
+    notifications_data = []
+    
+    # Наставник
+    if seller.mentor_id:
+        notifications_data.append({
+            'user_id': seller.mentor_id,
+            'type': NotificationType.REPORT_ACCOUNTANT,
+            'title': 'Отчет ожидает вашей проверки',
+            'message': f'Отчет №{report.id} продавца {seller.full_name} проверен бухгалтером и ожидает вашего утверждения.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': seller.id,
+                'seller_name': seller.full_name,
+                'final_amount': report.accountant_final_amount,
+                'requires_action': True
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 4
+        })
+    
+    # Старший продавец
+    if seller.senior_seller_id and seller.senior_seller_id != seller.mentor_id:
+        notifications_data.append({
+            'user_id': seller.senior_seller_id,
+            'type': NotificationType.REPORT_ACCOUNTANT,
+            'title': 'Отчет ожидает вашей проверки',
+            'message': f'Отчет №{report.id} продавца {seller.full_name} проверен бухгалтером и ожидает вашего утверждения.',
+            'data': {
+                'report_id': report.id,
+                'seller_id': seller.id,
+                'seller_name': seller.full_name,
+                'final_amount': report.accountant_final_amount,
+                'requires_action': True
+            },
+            'entity_type': 'report',
+            'entity_id': report.id,
+            'priority': 4
+        })
+    
+    # Администратор куста
+    if seller.cluster_id:
+        cluster = db.query(Cluster).filter(Cluster.id == seller.cluster_id).first()
+        if cluster and cluster.admin_id:
+            notifications_data.append({
+                'user_id': cluster.admin_id,
+                'type': NotificationType.REPORT_ACCOUNTANT,
+                'title': 'Отчет ожидает проверки',
+                'message': f'Отчет №{report.id} продавца {seller.full_name} проверен бухгалтером и ожидает утверждения.',
+                'data': {
+                    'report_id': report.id,
+                    'seller_id': seller.id,
+                    'seller_name': seller.full_name,
+                    'final_amount': report.accountant_final_amount,
+                    'requires_action': True
+                },
+                'entity_type': 'report',
+                'entity_id': report.id,
+                'priority': 3
+            })
+    
+    if notifications_data:
+        crud_notification.create_multiple(
+            db,
+            notifications_data=notifications_data,
+            sender_id=accountant.id
+        )
+
+
+def _notify_seller_about_rejection(db: Session, report: Report, reviewer: User, is_accountant: bool = False):
+    """Уведомить продавца об отклонении отчета"""
+    role = "бухгалтером" if is_accountant else "руководителем"
+    comment = report.accountant_comment if is_accountant else report.comment
+    
+    notification_data = {
+        'user_id': report.seller_id,
+        'type': NotificationType.REPORT_REJECTED,
+        'title': 'Отчет требует исправления' if is_accountant else 'Отчет отклонен',
+        'message': f'Ваш отчет №{report.id} отклонен {role}. {"Требуется исправить отчет." if is_accountant else ""}',
+        'data': {
+            'report_id': report.id,
+            'action': 'reject',
+            'comment': comment,
+            'reviewed_by': reviewer.full_name,
+            'requires_fix': is_accountant
+        },
+        'entity_type': 'report',
+        'entity_id': report.id,
+        'priority': 4 if is_accountant else 3
+    }
+    
+    crud_notification.create(db, notification_in=notification_data, sender_id=reviewer.id)
+
+
+def _notify_seller_about_approval(db: Session, report: Report, reviewer: User):
+    """Уведомить продавца об утверждении отчета"""
+    notification_data = {
+        'user_id': report.seller_id,
+        'type': NotificationType.REPORT_APPROVED,
+        'title': 'Отчет утвержден',
+        'message': f'Ваш отчет №{report.id} утвержден руководителем {reviewer.full_name}.',
+        'data': {
+            'report_id': report.id,
+            'action': 'approve',
+            'comment': report.comment,
+            'reviewed_by': reviewer.full_name,
+            'final_amount': report.accountant_final_amount
+        },
+        'entity_type': 'report',
+        'entity_id': report.id,
+        'priority': 3
+    }
+    
+    crud_notification.create(db, notification_in=notification_data, sender_id=reviewer.id)
+
+def enrich_report_response(report):
+    """Обогащает отчет данными о продавце, бухгалтере и продуктах"""
+    if report:
+        # Продавец
+        if report.seller and not hasattr(report, 'seller_name'):
+            report.seller_name = report.seller.full_name
+        
+        # Бухгалтер
+        if report.accountant and not hasattr(report, 'accountant_name'):
+            report.accountant_name = report.accountant.full_name
+        
+        # Продукты
+        if report.products:
+            for product_report in report.products:
+                if product_report.product:
+                    if hasattr(product_report.product, 'category') and product_report.product.category:
+                        product_report.product.category_name = product_report.product.category.name
+    return report
+
+def enrich_reports_response(reports):
+    """Обогащает список отчетов"""
+    for report in reports:
+        enrich_report_response(report)
+    return reports
+
+
+# ==================== ОСНОВНЫЕ ЭНДПОИНТЫ ====================
 
 @router.get("/", response_model=List[ReportResponse])
 def get_reports(
@@ -31,36 +299,20 @@ def get_reports(
     status: Optional[ReportStatus] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    sort_by: str = Query("priority", description="Сортировка: priority, date, amount"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """
-    Получить отчеты с простыми фильтрами
+    Получить отчеты с фильтрацией и сортировкой по приоритету
+    
+    Для продавца: сначала отчеты, требующие исправления (AWAITING_FIX), потом остальные по дате
+    Для бухгалтера: сначала отчеты, требующие проверки (AWAITING_ACCOUNTANT), потом остальные
+    Для руководителя: сначала отчеты, требующие утверждения (AWAITING_MANAGER), потом остальные
     """
-    # Преобразуем строки дат в datetime
-    date_from_dt = None
-    date_to_dt = None
+    date_from_dt = _parse_date(date_from)
+    date_to_dt = _parse_date(date_to)
     
-    if date_from:
-        try:
-            date_from_dt = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
-        except:
-            try:
-                date_from_dt = datetime.strptime(date_from, '%Y-%m-%dT%H:%M:%S')
-            except:
-                pass
-    
-    if date_to:
-        try:
-            date_to_dt = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
-        except:
-            try:
-                date_to_dt = datetime.strptime(date_to, '%Y-%m-%dT%H:%M:%S')
-            except:
-                pass
-    
-    # Создаем фильтр
-    from app.schemas.report import ReportFilter
     filters = ReportFilter(
         skip=skip,
         limit=limit,
@@ -68,10 +320,11 @@ def get_reports(
         status=status,
         date_from=date_from_dt,
         date_to=date_to_dt,
+        sort_by=sort_by
     )
     
     reports = crud_report.get_all_with_filters(db, filters=filters, current_user=current_user)
-    return reports
+    return enrich_reports_response(reports)
 
 
 @router.get("/{report_id}", response_model=ReportResponse)
@@ -80,302 +333,262 @@ def get_report(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """
-    Получить отчет по ID
-    """
+    """Получить отчет по ID"""
     report = crud_report.get(db, report_id=report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     
     # Проверка доступа
-    if current_user.role != UserRole.OWNER:
-        if current_user.role == UserRole.SELLER and report.seller_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not enough permissions")
-        # Здесь можно добавить проверки для других ролей
+    if current_user.role == UserRole.SELLER and report.seller_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
     
-    return report
+    return enrich_report_response(report)
 
 
 @router.post("/", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def create_report(
     products_data: str = Form(...),
-    accountant_amount: float = Form(...),  # Новая сумма
+    accountant_amount: float = Form(...),
     comment: str = Form(None),
     photos: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """
-    Создать новый отчет (все кроме OWNER)
+    Создать новый отчет
+    Доступно: SELLER, MENTOR, SENIOR_SELLER, ADMIN
     """
-    # Разрешаем всем кроме OWNER создавать отчеты
-    if current_user.role == UserRole.OWNER:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="Owner cannot create reports"
-        )
+    if current_user.role == UserRole.OWNER or current_user.role == UserRole.ACCOUNTANT:
+        raise HTTPException(status_code=403, detail="Эта роль не может создавать отчеты")
     
     try:
-        # Парсим JSON с товарами
-        import json
+        # Парсим товары
         products_json = json.loads(products_data)
-        
-        # Проверяем что все товары существуют
         report_products = []
         total_amount = 0
+        
+        # Получаем ставку продавца
+        seller_rate = current_user.rate or 0.0
         
         for product_item in products_json:
             product_id = product_item.get('productId') or product_item.get('product_id')
             quantity = product_item.get('quantity', 1)
             sold_amount = product_item.get('soldAmount') or product_item.get('sold_amount')
             
-            # Проверяем существование товара
             db_product = crud_product.get(db, product_id)
             if not db_product:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Product with ID {product_id} not found"
-                )
+                raise HTTPException(status_code=400, detail=f"Product {product_id} not found")
             
-            # Если цена не указана, используем цену товара
             if not sold_amount or sold_amount == 0:
                 sold_amount = db_product.price
             
-            # Создаем объект продукта отчета
-            report_product = ReportProductCreate(
+            # Вычитаем ставку продавца из каждой единицы товара
+            amount_after_rate = max(0, sold_amount - seller_rate)
+            
+            report_products.append(ReportProductCreate(
                 product_id=product_id,
                 quantity=quantity,
-                sold_amount=sold_amount
-            )
-            
-            report_products.append(report_product)
-            total_amount += sold_amount * quantity
+                sold_amount=amount_after_rate
+            ))
+            total_amount += amount_after_rate * quantity
         
         # Проверяем фото
         if not photos:
-            raise HTTPException(
-                status_code=400,
-                detail="At least one photo is required"
-            )
+            raise HTTPException(status_code=400, detail="At least one photo is required")
         
-        # Валидируем файлы
         errors = validate_files(photos)
         if errors:
-            raise HTTPException(
-                status_code=400,
-                detail="; ".join(errors)
+            raise HTTPException(status_code=400, detail="; ".join(errors))
+        
+        # Создаем отчет
+        report_in = ReportCreate(
+            transfer_amount=total_amount,
+            comment=comment,
+            accountant_amount=accountant_amount,
+            products=report_products
+        )
+        
+        # Сохраняем фото (сначала создаем отчет, чтобы получить ID)
+        db_report = Report(
+            seller_id=current_user.id,
+            transfer_amount=total_amount,
+            comment=comment,
+            status=ReportStatus.AWAITING_ACCOUNTANT,
+            transfer_photos=[],
+            accountant_amount=accountant_amount,
+            was_with_accountant=False
+        )
+        db.add(db_report)
+        db.commit()
+        db.refresh(db_report)
+        
+        # Сохраняем фото с ID отчета
+        photo_paths = save_uploaded_files(photos, f"reports/{db_report.id}")
+        db_report.transfer_photos = photo_paths
+        db.commit()
+        
+        # Добавляем товары
+        for product_in in report_products:
+            db_product_report = ReportProduct(
+                report_id=db_report.id,
+                product_id=product_in.product_id,
+                quantity=product_in.quantity,
+                sold_amount=product_in.sold_amount
             )
+            db.add(db_product_report)
         
-        # Создаем временный ID для папки
-        import uuid
-        temp_report_id = str(uuid.uuid4().hex)[:8]
+        db.commit()
         
-        # Сохраняем фото
-        photo_paths = save_uploaded_files(photos, f"reports/{temp_report_id}")
+        # Резервируем товары
         try:
             crud_inventory.reserve_products_for_report(db, current_user.id, products_json)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         
-        # Создаем DTO для отчета
-        report_in = ReportCreate(
-            transfer_amount=total_amount,
-            comment=comment,
-            accountant_amount=accountant_amount,  # Сохраняем сумму бухгалтера
-            products=report_products
-        )
-                
-        # Создаем отчет через CRUD
-        db_report = crud_report.create(
-            db, 
-            report_in=report_in, 
-            seller_id=current_user.id,
-            photo_paths=photo_paths  # Передаем список строк
-        )
+        # Уведомляем бухгалтеров
+        _notify_accountants_about_new_report(db, db_report, current_user)
         
-        # Переименовываем папку с фото на реальный ID отчета
-        import os
-        temp_dir = Path(f"uploads/reports/{temp_report_id}")
-        real_dir = Path(f"uploads/reports/{db_report.id}")
+        db_report = crud_report.get(db, db_report.id)
+        return enrich_report_response(db_report)
         
-        if temp_dir.exists():
-            # Обновляем пути в БД
-            new_photo_paths = []
-            for old_path in photo_paths:
-                new_path = old_path.replace(temp_report_id, str(db_report.id))
-                new_photo_paths.append(new_path)
-            
-            # Обновляем фото в БД (перезаписываем список)
-            db_report.transfer_photos = new_photo_paths
-            db.commit()
-            
-            # Переименовываем папку
-            try:
-                os.rename(str(temp_dir), str(real_dir))
-            except Exception as e:
-                print(f"Не удалось переименовать папку: {e}")
-        
-        # Создаем уведомления
-        # self._create_report_notifications(db, db_report, current_user)
-        
-        # Загружаем связанные данные для ответа
-        db.refresh(db_report)
-                
-        return db_report
-        
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
     except HTTPException:
         raise
     except Exception as e:
+        db.rollback()
+        print(f"Error creating report: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
-    
-def _create_report_notifications(self, db: Session, report, current_user):
-    """Создать уведомления о новом отчете"""
-    notifications_data = []
-        
-    # Уведомляем наставника (если есть)
-    if current_user.mentor_id:
-        notifications_data.append({
-            'user_id': current_user.mentor_id,
-            'type': NotificationType.REPORT_SUBMITTED,
-            'title': 'Новый отчет',
-            'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
-            'data': {
-                'report_id': report.id,
-                'seller_id': current_user.id,
-                'seller_name': current_user.full_name,
-                'amount': report.transfer_amount,
-                'date': report.date.isoformat() if report.date else None
-            },
-            'entity_type': 'report',
-            'entity_id': report.id,
-            'priority': 3
-        })
-        
-    # Уведомляем старшего продавца (если есть и не совпадает с наставником)
-    if current_user.senior_seller_id and current_user.senior_seller_id != current_user.mentor_id:
-        notifications_data.append({
-            'user_id': current_user.senior_seller_id,
-            'type': NotificationType.REPORT_SUBMITTED,
-            'title': 'Новый отчет в кусте',
-            'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
-            'data': {
-                'report_id': report.id,
-                'seller_id': current_user.id,
-                'seller_name': current_user.full_name,
-                'amount': report.transfer_amount,
-                'date': report.date.isoformat() if report.date else None
-            },
-            'entity_type': 'report',
-            'entity_id': report.id,
-            'priority': 3
-        })
-        
-    # Уведомляем администратора куста (если есть)
-    if current_user.cluster_id:
-        from app.models.cluster import Cluster
-        cluster = db.query(Cluster).filter(Cluster.id == current_user.cluster_id).first()
-        if cluster and cluster.admin_id and cluster.admin_id not in [current_user.mentor_id, current_user.senior_seller_id]:
-            notifications_data.append({
-                'user_id': cluster.admin_id,
-                'type': NotificationType.REPORT_SUBMITTED,
-                'title': 'Новый отчет в кусте',
-                'message': f'{current_user.full_name} отправил новый отчет на сумму {report.transfer_amount} руб.',
-                'data': {
-                    'report_id': report.id,
-                    'seller_id': current_user.id,
-                    'seller_name': current_user.full_name,
-                    'amount': report.transfer_amount,
-                    'date': report.date.isoformat() if report.date else None
-                },
-                'entity_type': 'report',
-                'entity_id': report.id,
-                'priority': 3
-            })
-        
-    # Создаем уведомления
-    if notifications_data:
-        crud_notification.create_multiple(
-            db,
-            notifications_data=notifications_data,
-            sender_id=current_user.id
-        )
 
-@router.put("/{report_id}", response_model=ReportResponse)
-def update_report(
+
+@router.post("/{report_id}/fix", response_model=ReportResponse)
+async def fix_report(
     report_id: int,
-    report_in: ReportUpdate,
+    products_data: str = Form(...),
+    accountant_amount: float = Form(...),
+    comment: str = Form(None),
+    photos: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
-    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]))
+    current_user = Depends(get_current_user)
 ):
     """
-    Обновить отчет (изменить статус, добавить комментарий)
-    Только OWNER, ADMIN, SENIOR_SELLER
+    Исправить отклоненный бухгалтером отчет
+    Доступно только продавцу, которому принадлежит отчет
     """
-    report = crud_report.update(db, report_id=report_id, report_in=report_in)
+    report = crud_report.get(db, report_id=report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-    return report
-
-
-@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_report(
-    report_id: int,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_roles([UserRole.OWNER]))
-):
-    """
-    Удалить отчет (только OWNER)
-    """
-    if not crud_report.delete(db, report_id=report_id):
-        raise HTTPException(status_code=404, detail="Report not found")
-    return None
-
-
-@router.get("/stats/my", response_model=dict)
-def get_my_stats(
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """
-    Получить статистику по своим отчетам
-    """
-    return crud_report.get_stats(db, user_id=current_user.id)
-
-
-@router.get("/stats/seller/{seller_id}", response_model=dict)
-def get_seller_stats(
-    seller_id: int,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]))
-):
-    """
-    Получить статистику по отчетам продавца
-    Только для руководителей
-    """
-    return crud_report.get_stats(db, user_id=seller_id)
-
-
-@router.get("/accountant/pending", response_model=List[ReportResponse])
-def get_pending_accountant_reports(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """Получить отчеты, ожидающие проверки бухгалтером"""
-    if current_user.role != UserRole.ACCOUNTANT:
-        raise HTTPException(status_code=403, detail="Только для бухгалтера")
     
-    reports = db.query(Report).filter(
-        Report.accountant_status == None,  # Еще не проверял бухгалтер
-        Report.status == ReportStatus.SUBMITTED  # Отчет отправлен
-    ).offset(skip).limit(limit).all()
+    # Проверяем, что отчет принадлежит текущему пользователю
+    if report.seller_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Вы не можете исправлять чужие отчеты")
     
-    return reports
+    # Проверяем, что отчет требует исправления
+    if report.status != ReportStatus.AWAITING_FIX:
+        raise HTTPException(status_code=400, detail="Этот отчет не требует исправления")
+    
+    try:
+        # Парсим товары
+        products_json = json.loads(products_data)
+        report_products = []
+        total_amount = 0
+        
+        # Получаем ставку продавца
+        seller_rate = current_user.rate or 0.0
+        
+        for product_item in products_json:
+            product_id = product_item.get('productId') or product_item.get('product_id')
+            quantity = product_item.get('quantity', 1)
+            sold_amount = product_item.get('soldAmount') or product_item.get('sold_amount')
+            
+            db_product = crud_product.get(db, product_id)
+            if not db_product:
+                raise HTTPException(status_code=400, detail=f"Product {product_id} not found")
+            
+            if not sold_amount or sold_amount == 0:
+                sold_amount = db_product.price
+            
+            # Вычитаем ставку продавца
+            amount_after_rate = max(0, sold_amount - seller_rate)
+            
+            report_products.append(ReportProductCreate(
+                product_id=product_id,
+                quantity=quantity,
+                sold_amount=amount_after_rate
+            ))
+            total_amount += amount_after_rate * quantity
+        
+        # Проверяем фото
+        if not photos:
+            raise HTTPException(status_code=400, detail="Требуется прикрепить хотя бы одно фото")
+        
+        errors = validate_files(photos)
+        if errors:
+            raise HTTPException(status_code=400, detail="; ".join(errors))
+        
+        # Удаляем старые фото
+        for old_photo_path in report.transfer_photos:
+            delete_file(old_photo_path)
+        
+        # Сохраняем новые фото
+        photo_paths = save_uploaded_files(photos, f"reports/{report_id}")
+        
+        # Удаляем старые товары
+        for product in report.products:
+            db.delete(product)
+        db.commit()
+        
+        # Обновляем отчет
+        report.transfer_amount = total_amount
+        report.transfer_photos = photo_paths
+        report.comment = comment
+        report.accountant_amount = accountant_amount
+        report.status = ReportStatus.AWAITING_ACCOUNTANT
+        report.accountant_status = None
+        report.accountant_comment = None
+        report.accountant_final_amount = None
+        report.accountant_reviewed_by = None
+        report.accountant_review_date = None
+        report.was_with_accountant = True
+        
+        db.commit()
+        
+        # Добавляем новые товары
+        for product_in in report_products:
+            db_product_report = ReportProduct(
+                report_id=report.id,
+                product_id=product_in.product_id,
+                quantity=product_in.quantity,
+                sold_amount=product_in.sold_amount
+            )
+            db.add(db_product_report)
+        
+        db.commit()
+        
+        # Резервируем товары заново
+        try:
+            crud_inventory.reserve_products_for_report(db, current_user.id, products_json)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        # Уведомляем бухгалтеров об исправленном отчете
+        _notify_accountants_about_fixed_report(db, report, current_user)
+        
+        db.refresh(report)
+        return enrich_report_response(report)
+        
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Error fixing report: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 @router.post("/{report_id}/accountant-review", response_model=ReportResponse)
@@ -395,21 +608,51 @@ def accountant_review_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     
+    # Проверяем, что отчет ожидает проверки бухгалтера
+    if report.status != ReportStatus.AWAITING_ACCOUNTANT:
+        raise HTTPException(status_code=400, detail="Отчет не ожидает проверки бухгалтера")
+    
+    if report.accountant_reviewed_by is not None:
+        raise HTTPException(status_code=400, detail="Отчет уже проверен бухгалтером")
+    
     if action == "approve":
         if not final_amount:
             raise HTTPException(status_code=400, detail="Требуется указать окончательную сумму")
         
+        # Обновляем поля бухгалтерской проверки
         report.accountant_status = ReportStatus.APPROVED
         report.accountant_final_amount = final_amount
         report.accountant_comment = comment
         report.accountant_reviewed_by = current_user.id
         report.accountant_review_date = datetime.now()
+        report.was_with_accountant = True
+        
+        # Меняем статус отчета на ожидание руководителя
+        report.status = ReportStatus.AWAITING_MANAGER
+        
+        db.commit()
+        
+        # Перезагружаем отчет со всеми связанными объектами
+        report = crud_report.get(db, report_id=report_id)
+        
+        # Уведомляем руководителей
+        _notify_managers_about_ready_report(db, report, current_user)
         
     elif action == "reject":
+        # Обновляем поля бухгалтерской проверки
         report.accountant_status = ReportStatus.REJECTED
         report.accountant_comment = comment
         report.accountant_reviewed_by = current_user.id
         report.accountant_review_date = datetime.now()
+        report.was_with_accountant = True
+        
+        # Меняем статус на ожидание исправления
+        report.status = ReportStatus.AWAITING_FIX
+        
+        db.commit()
+        
+        # Перезагружаем отчет со всеми связанными объектами
+        report = crud_report.get(db, report_id=report_id)
         
         # Освобождаем зарезервированные товары
         products_data = [
@@ -420,80 +663,15 @@ def accountant_review_report(
             for rp in report.products
         ]
         crud_inventory.release_reserved_products(db, report.seller_id, products_data)
+        
+        # Уведомляем ТОЛЬКО продавца об отклонении
+        _notify_seller_about_rejection(db, report, current_user, is_accountant=True)
     
     else:
         raise HTTPException(status_code=400, detail="Неверное действие")
     
-    # Создаем уведомление для продавца
-    notification_data = {
-        'user_id': report.seller_id,
-        'type': NotificationType.REPORT_ACCOUNTANT,
-        'title': 'Отчет проверен бухгалтером',
-        'message': f'Ваш отчет #{report_id} {"утвержден" if action == "approve" else "отклонен"} бухгалтером.',
-        'data': {
-            'report_id': report_id,
-            'action': action,
-            'final_amount': final_amount if action == "approve" else None,
-            'comment': comment
-        },
-        'entity_type': 'report',
-        'entity_id': report_id,
-        'priority': 3
-    }
-    
-    crud_notification.create(db, notification_in=notification_data, sender_id=current_user.id)
-    
-    # Уведомляем наставника и старшего продавца
-    seller = db.query(User).filter(User.id == report.seller_id).first()
-    if seller:
-        notifications_data = []
-        
-        if seller.mentor_id:
-            notifications_data.append({
-                'user_id': seller.mentor_id,
-                'type': NotificationType.REPORT_ACCOUNTANT,
-                'title': 'Отчет проверен бухгалтером',
-                'message': f'Отчет #{report_id} продавца {seller.full_name} {"утвержден" if action == "approve" else "отклонен"} бухгалтером.',
-                'data': {
-                    'report_id': report_id,
-                    'seller_id': seller.id,
-                    'seller_name': seller.full_name,
-                    'action': action,
-                    'final_amount': final_amount if action == "approve" else None
-                },
-                'entity_type': 'report',
-                'entity_id': report_id,
-                'priority': 3
-            })
-        
-        if seller.senior_seller_id and seller.senior_seller_id != seller.mentor_id:
-            notifications_data.append({
-                'user_id': seller.senior_seller_id,
-                'type': NotificationType.REPORT_ACCOUNTANT,
-                'title': 'Отчет проверен бухгалтером',
-                'message': f'Отчет #{report_id} продавца {seller.full_name} {"утвержден" if action == "approve" else "отклонен"} бухгалтером.',
-                'data': {
-                    'report_id': report_id,
-                    'seller_id': seller.id,
-                    'seller_name': seller.full_name,
-                    'action': action,
-                    'final_amount': final_amount if action == "approve" else None
-                },
-                'entity_type': 'report',
-                'entity_id': report_id,
-                'priority': 3
-            })
-        
-        if notifications_data:
-            crud_notification.create_multiple(
-                db,
-                notifications_data=notifications_data,
-                sender_id=current_user.id
-            )
-    
-    db.commit()
-    db.refresh(report)
-    return report
+    # Обогащаем ответ данными
+    return enrich_report_response(report)
 
 
 @router.post("/{report_id}/final-approval", response_model=ReportResponse)
@@ -505,49 +683,33 @@ def final_approve_report(
     current_user = Depends(get_current_user)
 ):
     """Финальное утверждение отчета руководителем"""
-    from app.models.user import User
-    
     report = crud_report.get(db, report_id=report_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     
-    # Проверяем права доступа
-    has_access = False
-    if current_user.role == UserRole.OWNER:
-        has_access = True
-    elif current_user.role == UserRole.ADMIN:
-        # Проверяем, относится ли продавец к кустам админа
-        seller = db.query(User).filter(User.id == report.seller_id).first()
-        if seller and current_user.admin_clusters:
-            try:
-                admin_clusters = json.loads(current_user.admin_clusters)
-                if seller.cluster_id in admin_clusters:
-                    has_access = True
-            except:
-                pass
-    elif current_user.role == UserRole.SENIOR_SELLER:
-        seller = db.query(User).filter(User.id == report.seller_id).first()
-        if seller and seller.cluster_id == current_user.cluster_id:
-            has_access = True
-    elif current_user.role == UserRole.MENTOR:
-        seller = db.query(User).filter(User.id == report.seller_id).first()
-        if seller and seller.mentor_id == current_user.id:
-            has_access = True
+    # Проверяем, что отчет ожидает проверки руководителя
+    if report.status != ReportStatus.AWAITING_MANAGER:
+        raise HTTPException(status_code=400, detail="Отчет не ожидает проверки руководителя")
     
+    # Проверяем, что бухгалтер утвердил отчет
+    if report.accountant_status != ReportStatus.APPROVED:
+        raise HTTPException(status_code=400, detail="Отчет должен быть сначала утвержден бухгалтером")
+    
+    # Проверяем права доступа
+    has_access = _check_manager_access(db, report, current_user)
     if not has_access:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
     if action == "approve":
-        if report.accountant_status != ReportStatus.APPROVED:
-            raise HTTPException(status_code=400, detail="Отчет должен быть сначала утвержден бухгалтером")
-        
-        if not report.accountant_final_amount:
-            raise HTTPException(status_code=400, detail="Бухгалтер должен указать окончательную сумму")
-        
         report.status = ReportStatus.APPROVED
         report.reviewed_by = current_user.id
         report.review_date = datetime.now()
         report.comment = comment
+        
+        db.commit()
+        
+        # Перезагружаем отчет со всеми связанными объектами
+        report = crud_report.get(db, report_id=report_id)
         
         # Списываем товары окончательно
         products_data = [
@@ -560,7 +722,7 @@ def final_approve_report(
         crud_inventory.finalize_report_products(db, report.seller_id, products_data)
         
         # Добавляем деньги в общий банк
-        description = f"Отчет #{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
+        description = f"Отчет №{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
         crud_company.add_income(
             db,
             amount=report.accountant_final_amount,
@@ -570,11 +732,19 @@ def final_approve_report(
             created_by=current_user.id
         )
         
+        # Уведомляем продавца об утверждении
+        _notify_seller_about_approval(db, report, current_user)
+        
     elif action == "reject":
         report.status = ReportStatus.REJECTED
         report.reviewed_by = current_user.id
         report.review_date = datetime.now()
         report.comment = comment
+        
+        db.commit()
+        
+        # Перезагружаем отчет со всеми связанными объектами
+        report = crud_report.get(db, report_id=report_id)
         
         # Освобождаем зарезервированные товары
         products_data = [
@@ -585,30 +755,46 @@ def final_approve_report(
             for rp in report.products
         ]
         crud_inventory.release_reserved_products(db, report.seller_id, products_data)
+        
+        # Уведомляем продавца об отклонении
+        _notify_seller_about_rejection(db, report, current_user, is_accountant=False)
     
     else:
         raise HTTPException(status_code=400, detail="Неверное действие")
     
-    # Создаем уведомление для продавца
-    notification_type = NotificationType.REPORT_APPROVED if action == "approve" else NotificationType.REPORT_REJECTED
-    notification_data = {
-        'user_id': report.seller_id,
-        'type': notification_type,
-        'title': f'Отчет {"" if action == "approve" else "не "}утвержден',
-        'message': f'Ваш отчет #{report_id} {"утвержден" if action == "approve" else "отклонен"} руководителем.',
-        'data': {
-            'report_id': report_id,
-            'action': action,
-            'comment': comment,
-            'reviewed_by': current_user.full_name
-        },
-        'entity_type': 'report',
-        'entity_id': report_id,
-        'priority': 3
-    }
-    
-    crud_notification.create(db, notification_in=notification_data, sender_id=current_user.id)
-    
-    db.commit()
-    db.refresh(report)
-    return report
+    # Обогащаем ответ данными
+    return enrich_report_response(report)
+
+@router.put("/{report_id}", response_model=ReportResponse)
+def update_report(
+    report_id: int,
+    report_in: ReportUpdate,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]))
+):
+    """Обновить отчет (изменить статус, добавить комментарий)"""
+    report = crud_report.update(db, report_id=report_id, report_in=report_in)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    enrich_report_response(report)
+
+
+@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_roles([UserRole.OWNER]))
+):
+    """Удалить отчет (только OWNER)"""
+    if not crud_report.delete(db, report_id=report_id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    return None
+
+
+@router.get("/stats/my", response_model=dict)
+def get_my_stats(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить статистику по своим отчетам"""
+    return crud_report.get_stats(db, user_id=current_user.id)

@@ -10,7 +10,14 @@ import { RoleBasedRoute } from './components/auth/RoleBasedRoute';
 import AppBar from './components/layout/AppBar';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+
 import ReportsPage from './pages/ReportsPage';
+import CreateReportPage from './pages/CreateReportPage';
+import ViewReportPage from './pages/ViewReportPage';
+import FixReportPage from './pages/FixReportPage';
+import AccountantReviewPage from './pages/AccountantReviewPage';
+import FinalApprovalPage from './pages/FinalApprovalPage';
+
 import ProductsPage from './pages/ProductsPage'; 
 import RevisionsPage from './pages/RevisionPage';
 import RequestRevisionPage from './pages/RequestRevisionPage';
@@ -72,6 +79,57 @@ function App() {
                           UserRole.ACCOUNTANT
                         ]}>
                           <ReportsPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/reports/create" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER
+                        ]}>
+                          <CreateReportPage />
+                        </RoleBasedRoute>
+                      } />
+                      
+                      <Route path="/reports/:id" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,
+                          UserRole.ACCOUNTANT
+                        ]}>
+                          <ViewReportPage />
+                        </RoleBasedRoute>
+                      } />
+                      
+                      <Route path="/reports/:id/fix" element={
+                        <RoleBasedRoute allowedRoles={[                          
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER,]}>
+                          <FixReportPage />
+                        </RoleBasedRoute>
+                      } />
+                      
+                      <Route path="/reports/:id/accountant-review" element={
+                        <RoleBasedRoute allowedRoles={[UserRole.ACCOUNTANT]}>
+                          <AccountantReviewPage />
+                        </RoleBasedRoute>
+                      } />
+                      
+                      <Route path="/reports/:id/final-approval" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR
+                        ]}>
+                          <FinalApprovalPage />
                         </RoleBasedRoute>
                       } />
                       

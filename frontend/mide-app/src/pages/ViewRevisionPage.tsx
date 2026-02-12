@@ -49,7 +49,7 @@ import {
   LocationCity,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { MobilePhotoViewer } from '../components/MobilePhotoViewer';
+import { PhotoViewer  } from '../components/PhotoViewer';
 import { useAuth } from '../contexts/AuthContext';
 import { revisionService } from '../api/revisionService';
 import {
@@ -1020,77 +1020,18 @@ const ViewRevisionPage: React.FC = () => {
       </Container>
 
       {/* Диалог фото для десктопа */}
-      {!isMobile && (
-        <Dialog
-          open={showPhotoDialog}
-          onClose={() => setShowPhotoDialog(false)}
-          maxWidth="lg"
-          fullWidth
-          PaperProps={{
-            sx: { 
-              borderRadius: 8, 
-              backgroundColor: '#ffffff',
-              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-            }
-          }}
-        >
-          <DialogTitle sx={{ px: 3, py: 2, color: '#2a0f35', fontWeight: 500 }}>
-            Просмотр фотографии
-          </DialogTitle>
-          <DialogContent sx={{ p: 3 }}>
-            {selectedPhoto && selectedPhoto.photos[selectedPhoto.index] && (
-              <Box
-                sx={{
-                  width: '100%',
-                  maxHeight: '70vh',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  borderRadius: 6,
-                  overflow: 'hidden',
-                }}
-              >
-                <img
-                  src={revisionService.getPhotoUrl(selectedPhoto.photos[selectedPhoto.index])}
-                  alt={`Фото ${selectedPhoto.index + 1}`}
-                  style={{
-                    maxWidth: '100%',
-                    maxHeight: '70vh',
-                    objectFit: 'contain',
-                  }}
-                />
-              </Box>
-            )}
-          </DialogContent>
-          <DialogActions sx={{ px: 3, py: 2 }}>
-            <Button 
-              onClick={() => setShowPhotoDialog(false)}
-              sx={{
-                borderRadius: 8,
-                px: 3,
-                py: 1,
-                textTransform: 'none',
-                fontSize: '0.9rem',
-                color: '#674fb6',
-                '&:hover': { 
-                  backgroundColor: 'rgba(103, 79, 182, 0.04)',
-                },
-              }}
-            >
-              Закрыть
-            </Button>
-          </DialogActions>
-        </Dialog>
-      )}
-
-      {/* Просмотр фото для мобилок */}
-      {isMobile && selectedPhoto && (
-        <MobilePhotoViewer
+      {selectedPhoto && (
+        <PhotoViewer
           open={showPhotoDialog}
           photos={selectedPhoto.photos}
           currentIndex={selectedPhoto.index}
           onClose={() => setShowPhotoDialog(false)}
           onIndexChange={(index) => setSelectedPhoto({ ...selectedPhoto, index })}
           getPhotoUrl={revisionService.getPhotoUrl}
+          // Опционально: можно принудительно включить мобильный режим
+          // forceMobile={isMobile}
+          // Опционально: отключить миниатюры для определенных случаев
+          // disableThumbnails={false}
         />
       )}
     </Box>

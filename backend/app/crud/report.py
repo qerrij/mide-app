@@ -1,37 +1,26 @@
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, case
 from typing import List, Optional
 from app.models.report import Report, ReportProduct, ReportStatus
 from app.models.user import User, UserRole
 from app.models.product import Product
 from app.schemas.report import ReportCreate, ReportUpdate, ReportFilter
 from datetime import datetime
+from app.core.file_utils import save_uploaded_files, delete_file
+import json
 
 
 class CRUDReport:
     def get(self, db: Session, report_id: int) -> Optional[Report]:
+        """Получить отчет по ID"""
         return db.query(Report)\
             .options(
                 joinedload(Report.products).joinedload(ReportProduct.product),
-                joinedload(Report.seller)
+                joinedload(Report.seller),
+                joinedload(Report.accountant)
             )\
             .filter(Report.id == report_id)\
             .first()
-    
-    def get_all(
-        self, 
-        db: Session, 
-        skip: int = 0, 
-        limit: int = 100
-    ) -> List[Report]:
-        return db.query(Report)\
-            .options(
-                joinedload(Report.products).joinedload(ReportProduct.product),
-                joinedload(Report.seller)
-            )\
-            .offset(skip)\
-            .limit(limit)\
-            .all()
     
     def get_all_with_filters(
         self, 
@@ -39,35 +28,19 @@ class CRUDReport:
         filters: ReportFilter,
         current_user: User
     ) -> List[Report]:
+        """Получить отчеты с фильтрацией и сортировкой по роли"""
         query = db.query(Report)\
             .options(
                 joinedload(Report.products).joinedload(ReportProduct.product),
-                joinedload(Report.seller)
+                joinedload(Report.seller),
+                joinedload(Report.accountant)
             )
         
         # Фильтрация по роли пользователя
-        if current_user.role == UserRole.SELLER:
-            query = query.filter(Report.seller_id == current_user.id)
-        elif current_user.role == UserRole.MENTOR:
-            # Ментор видит отчеты своих подопечных
-            subquery = db.query(User.id).filter(User.mentor_id == current_user.id).subquery()
-            query = query.filter(Report.seller_id.in_(subquery))
-        elif current_user.role == UserRole.SENIOR_SELLER:
-            # Старший продавец видит отчеты своего куста
-            subquery = db.query(User.id).filter(User.cluster_id == current_user.cluster_id).subquery()
-            query = query.filter(Report.seller_id.in_(subquery))
-        elif current_user.role == UserRole.ADMIN:
-            # Администратор видит отчеты своих кустов
-            if current_user.admin_clusters:
-                import json
-                try:
-                    admin_clusters = json.loads(current_user.admin_clusters)
-                    subquery = db.query(User.id).filter(User.cluster_id.in_(admin_clusters)).subquery()
-                    query = query.filter(Report.seller_id.in_(subquery))
-                except:
-                    pass
+        query = self._apply_role_filters(db, query, current_user)
         
-        if filters.seller_id:
+        # Дополнительные фильтры
+        if filters.seller_id and current_user.role != UserRole.SELLER:
             query = query.filter(Report.seller_id == filters.seller_id)
         
         if filters.status:
@@ -97,9 +70,98 @@ class CRUDReport:
                 except:
                     pass
         
-        query = query.order_by(Report.date.desc())
+        # Применяем сортировку по приоритету для роли
+        query = self._apply_priority_sorting(query, current_user.role, filters.sort_by)
         
         return query.offset(filters.skip).limit(filters.limit).all()
+    
+    def _apply_role_filters(self, db: Session, query, current_user: User):
+        """Применить фильтры в зависимости от роли"""
+        if current_user.role == UserRole.SELLER:
+            # Продавец видит только свои отчеты
+            return query.filter(Report.seller_id == current_user.id)
+        
+        elif current_user.role == UserRole.MENTOR:
+            # Наставник видит:
+            # 1. Свои собственные отчеты (как продавец)
+            # 2. Отчеты своих подопечных
+            subquery = db.query(User.id).filter(User.mentor_id == current_user.id).subquery()
+            return query.filter(
+                (Report.seller_id == current_user.id) |  # Свои отчеты
+                (Report.seller_id.in_(subquery))         # Отчеты подопечных
+            )
+        
+        elif current_user.role == UserRole.SENIOR_SELLER:
+            # Старший продавец видит:
+            # 1. Свои собственные отчеты (как продавец)
+            # 2. Отчеты продавцов своего куста
+            subquery = db.query(User.id).filter(User.cluster_id == current_user.cluster_id).subquery()
+            return query.filter(
+                (Report.seller_id == current_user.id) |  # Свои отчеты
+                (Report.seller_id.in_(subquery))         # Отчеты куста
+            )
+        
+        elif current_user.role == UserRole.ADMIN:
+            # Администратор видит:
+            # 1. Свои собственные отчеты (если он также продавец)
+            # 2. Отчеты продавцов своих кустов
+            if current_user.admin_clusters:
+                try:
+                    admin_clusters = json.loads(current_user.admin_clusters)
+                    subquery = db.query(User.id).filter(User.cluster_id.in_(admin_clusters)).subquery()
+                    return query.filter(
+                        (Report.seller_id == current_user.id) |  # Свои отчеты
+                        (Report.seller_id.in_(subquery))         # Отчеты из кустов
+                    )
+                except:
+                    pass
+            # Если нет кустов, показываем только свои отчеты
+            return query.filter(Report.seller_id == current_user.id)
+        
+        elif current_user.role == UserRole.ACCOUNTANT:
+            # Бухгалтер видит все отчеты
+            return query
+        
+        # OWNER видит все
+        return query
+    
+    def _apply_priority_sorting(self, query, role: UserRole, sort_by: str):
+        """Применить сортировку по приоритету для конкретной роли"""
+        from sqlalchemy import case
+        
+        if role == UserRole.SELLER:
+            # Для продавца: сначала AWAITING_FIX, потом по дате
+            priority_case = case(
+                (Report.status == ReportStatus.AWAITING_FIX, 1),
+                else_=2
+            )
+            return query.order_by(priority_case, Report.date.desc())
+        
+        elif role == UserRole.ACCOUNTANT:
+            # Для бухгалтера: сначала AWAITING_ACCOUNTANT, потом остальные
+            priority_case = case(
+                (Report.status == ReportStatus.AWAITING_ACCOUNTANT, 1),
+                else_=2
+            )
+            return query.order_by(priority_case, Report.date.desc())
+        
+        elif role in [UserRole.MENTOR, UserRole.SENIOR_SELLER, UserRole.ADMIN, UserRole.OWNER]:
+            # Для руководителей: сначала AWAITING_MANAGER, потом AWAITING_FIX, потом остальные
+            priority_case = case(
+                (Report.status == ReportStatus.AWAITING_MANAGER, 1),
+                (Report.status == ReportStatus.AWAITING_FIX, 2),
+                else_=3
+            )
+            return query.order_by(priority_case, Report.date.desc())
+        
+        else:
+            # По умолчанию по дате
+            if sort_by == "date":
+                return query.order_by(Report.date.desc())
+            elif sort_by == "amount":
+                return query.order_by(Report.transfer_amount.desc())
+            else:
+                return query.order_by(Report.date.desc())
     
     def create(
         self, 
@@ -107,17 +169,18 @@ class CRUDReport:
         *, 
         report_in: ReportCreate, 
         seller_id: int,
-        photo_paths: List[str]  
+        photo_paths: List[str],
+        status: ReportStatus = ReportStatus.AWAITING_ACCOUNTANT
     ) -> Report:
         """Создать новый отчет"""
-        
         db_report = Report(
             seller_id=seller_id,
             transfer_amount=report_in.transfer_amount,
             comment=report_in.comment,
-            status=ReportStatus.SUBMITTED,
+            status=status,
             transfer_photos=photo_paths,
-            accountant_amount=report_in.accountant_amount  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
+            accountant_amount=report_in.accountant_amount,
+            was_with_accountant=False
         )
         
         db.add(db_report)
@@ -145,6 +208,7 @@ class CRUDReport:
         report_id: int, 
         report_in: ReportUpdate
     ) -> Optional[Report]:
+        """Обновить отчет"""
         db_report = self.get(db, report_id)
         if not db_report:
             return None
@@ -161,10 +225,64 @@ class CRUDReport:
         db.refresh(db_report)
         return db_report
     
+    def fix_report(
+        self,
+        db: Session,
+        *,
+        report_id: int,
+        report_in: ReportCreate,
+        photo_paths: List[str],
+        seller_id: int
+    ) -> Optional[Report]:
+        """Исправить отклоненный отчет"""
+        db_report = self.get(db, report_id)
+        if not db_report:
+            return None
+        
+        # Удаляем старые товары
+        for product in db_report.products:
+            db.delete(product)
+        db.commit()
+        
+        # Обновляем отчет
+        db_report.transfer_amount = report_in.transfer_amount
+        db_report.transfer_photos = photo_paths
+        db_report.comment = report_in.comment
+        db_report.accountant_amount = report_in.accountant_amount
+        db_report.status = ReportStatus.AWAITING_ACCOUNTANT
+        db_report.accountant_status = None
+        db_report.accountant_comment = None
+        db_report.accountant_final_amount = None
+        db_report.accountant_reviewed_by = None
+        db_report.accountant_review_date = None
+        db_report.was_with_accountant = True
+        
+        db.commit()
+        
+        # Добавляем новые товары
+        for product_in in report_in.products:
+            db_product_report = ReportProduct(
+                report_id=db_report.id,
+                product_id=product_in.product_id,
+                quantity=product_in.quantity,
+                sold_amount=product_in.sold_amount
+            )
+            db.add(db_product_report)
+        
+        db.commit()
+        
+        return self.get(db, db_report.id)
+    
     def delete(self, db: Session, report_id: int) -> bool:
+        """Удалить отчет и все связанные файлы"""
         db_report = self.get(db, report_id)
         if not db_report:
             return False
+        
+        # Удаляем файлы
+        if db_report.transfer_photos:
+            for photo_path in db_report.transfer_photos:
+                delete_file(photo_path)
         
         db.delete(db_report)
         db.commit()
@@ -174,7 +292,9 @@ class CRUDReport:
         """Получить статистику по отчетам пользователя"""
         stats = {
             "total_reports": 0,
-            "submitted": 0,
+            "awaiting_fix": 0,
+            "awaiting_accountant": 0,
+            "awaiting_manager": 0,
             "approved": 0,
             "rejected": 0,
             "total_amount": 0.0
@@ -188,11 +308,15 @@ class CRUDReport:
         stats["total_reports"] = len(reports)
         
         for report in reports:
-            if report.status == ReportStatus.SUBMITTED:
-                stats["submitted"] += 1
+            if report.status == ReportStatus.AWAITING_FIX:
+                stats["awaiting_fix"] += 1
+            elif report.status == ReportStatus.AWAITING_ACCOUNTANT:
+                stats["awaiting_accountant"] += 1
+            elif report.status == ReportStatus.AWAITING_MANAGER:
+                stats["awaiting_manager"] += 1
             elif report.status == ReportStatus.APPROVED:
                 stats["approved"] += 1
-                stats["total_amount"] += report.transfer_amount
+                stats["total_amount"] += report.accountant_final_amount or 0
             elif report.status == ReportStatus.REJECTED:
                 stats["rejected"] += 1
         

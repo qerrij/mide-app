@@ -21,16 +21,14 @@ export interface ProductCategory {
 export enum ReportStatus {
   DRAFT = 'DRAFT',
   SUBMITTED = 'SUBMITTED',
+  AWAITING_FIX = 'AWAITING_FIX',          // Ожидает исправления продавцом
+  AWAITING_ACCOUNTANT = 'AWAITING_ACCOUNTANT', // Ожидает проверки бухгалтера
+  AWAITING_MANAGER = 'AWAITING_MANAGER',   // Ожидает проверки руководителя
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED'
 }
 
 // Добавляем статусы для бухгалтера
-export enum AccountantReportStatus {
-  PENDING = 'PENDING',        // Ожидает проверки бухгалтером
-  APPROVED = 'APPROVED',      // Одобрено бухгалтером
-  REJECTED = 'REJECTED'       // Отклонено бухгалтером
-}
 
 // ================ ПОЛЬЗОВАТЕЛИ ================
 export interface User {
@@ -131,14 +129,17 @@ export interface Report {
   reviewedBy?: number;
   reviewDate?: Date;
   
-  // Новые поля для бухгалтера
-  accountantAmount?: number;  // Сумма указанная пользователем
-  accountantStatus?: AccountantReportStatus;
+  // Поля для бухгалтера
+  accountantAmount?: number;
+  accountantStatus?: ReportStatus;
   accountantComment?: string;
-  accountantFinalAmount?: number;  // Окончательная сумма указанная бухгалтером
+  accountantFinalAmount?: number;
   accountantReviewedBy?: number;
   accountantReviewDate?: Date;
   accountantName?: string;
+  
+  // Поле для отслеживания исправлений
+  wasWithAccountant: boolean;
   
   createdAt: Date;
   updatedAt?: Date;
@@ -146,7 +147,13 @@ export interface Report {
 
 export interface ReportCreateDto {
   products: ReportProduct[];
-  accountantAmount: number;  // Добавляем обязательное поле для суммы бухгалтера
+  accountantAmount: number;
+  comment?: string;
+}
+
+export interface ReportFixDto {
+  products: ReportProduct[];
+  accountantAmount: number;
   comment?: string;
 }
 
@@ -164,18 +171,21 @@ export interface ReportFilter {
   mentorId?: number;
   adminId?: number;
   status?: ReportStatus;
-  dateFrom?: string;
-  dateTo?: string;
+  date_from?: string;
+  date_to?: string;
+  sort_by?: string;
 }
 
 export interface ReportStats {
   totalReports: number;
-  submitted: number;
+  awaitingFix: number;
+  awaitingAccountant: number;
+  awaitingManager: number;
   approved: number;
   rejected: number;
   totalAmount: number;
-  lastReportDate?: Date;
 }
+
 
 // ================ АВТОРИЗАЦИЯ ================
 export interface LoginResponse {
@@ -622,41 +632,45 @@ export const getRoleName = (role: UserRole): string => {
   return names[role];
 };
 
-export const getStatusColor = (status: ReportStatus | AccountantReportStatus): string => {
-  if (status === ReportStatus.APPROVED || status === AccountantReportStatus.APPROVED) {
-    return '#4caf50';
-  }
-  if (status === ReportStatus.REJECTED || status === AccountantReportStatus.REJECTED) {
-    return '#f44336';
-  }
-  if (status === ReportStatus.SUBMITTED) {
-    return '#ff9800';
-  }
-  if (status === AccountantReportStatus.PENDING) {
-    return '#ff9800';
-  }
-  return '#9e9e9e';
-};
-
 export const getReportStatusText = (status: ReportStatus): string => {
   const texts = {
     [ReportStatus.DRAFT]: 'Черновик',
     [ReportStatus.SUBMITTED]: 'Отправлен',
+    [ReportStatus.AWAITING_FIX]: 'Требует исправления',
+    [ReportStatus.AWAITING_ACCOUNTANT]: 'Ожидает бухгалтера',
+    [ReportStatus.AWAITING_MANAGER]: 'Ожидает руководителя',
     [ReportStatus.APPROVED]: 'Утвержден',
     [ReportStatus.REJECTED]: 'Отклонен',
   };
   return texts[status];
 };
 
-export const getAccountantStatusText = (status: AccountantReportStatus): string => {
-  const texts = {
-    [AccountantReportStatus.PENDING]: 'На проверке у бухгалтера',
-    [AccountantReportStatus.APPROVED]: 'Проверен бухгалтером',
-    [AccountantReportStatus.REJECTED]: 'Отклонен бухгалтером',
+export const getReportStatusColor = (status: ReportStatus): string => {
+  const colors = {
+    [ReportStatus.DRAFT]: '#9e9e9e',
+    [ReportStatus.SUBMITTED]: '#ff9800',
+    [ReportStatus.AWAITING_FIX]: '#f44336',
+    [ReportStatus.AWAITING_ACCOUNTANT]: '#ff9800',
+    [ReportStatus.AWAITING_MANAGER]: '#2196f3',
+    [ReportStatus.APPROVED]: '#4caf50',
+    [ReportStatus.REJECTED]: '#f44336',
   };
-  return texts[status];
+  return colors[status];
 };
 
+export const getReportActionText = (status: ReportStatus, role?: UserRole): string => {
+  if (role === UserRole.ACCOUNTANT && status === ReportStatus.AWAITING_ACCOUNTANT) {
+    return 'Проверить';
+  }
+  if ([UserRole.MENTOR, UserRole.SENIOR_SELLER, UserRole.ADMIN, UserRole.OWNER].includes(role as UserRole) 
+      && status === ReportStatus.AWAITING_MANAGER) {
+    return 'Утвердить';
+  }
+  if (role === UserRole.SELLER && status === ReportStatus.AWAITING_FIX) {
+    return 'Исправить';
+  }
+  return 'Просмотреть';
+};
 
 // ==== ОСТАТКИ ==== //
 

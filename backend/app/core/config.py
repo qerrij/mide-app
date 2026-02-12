@@ -22,11 +22,16 @@ class Settings(BaseSettings):
     ALLOWED_IMAGE_TYPES: list = ["image/jpeg", "image/png", "image/gif"]
     MAX_PHOTOS_PER_REPORT: int = 5
     
+    # Yandex Cloud Storage
+    YC_ENDPOINT_URL: str = "https://storage.yandexcloud.net"
+    YC_ACCESS_KEY_ID: str = ""  # Добавить в .env
+    YC_SECRET_ACCESS_KEY: str = ""  # Добавить в .env
+    YC_BUCKET_NAME: str = ""  # Добавить в .env
+    YC_PUBLIC_URL: Optional[str] = None  # Публичный URL бакета (если настроен)
+    
     class Config:
-        # ВАЖНО: удаляем кастомный __init__ и используем только env_file
         env_file = ".env"
         case_sensitive = True
 
 
-# Простая инициализация без кастомного __init__
 settings = Settings()
