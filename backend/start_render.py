@@ -3,7 +3,6 @@ import os
 import time
 
 def wait_for_database():
-    """Ждем, пока база данных станет доступной"""
     import psycopg2
     from app.core.config import settings
     
@@ -21,21 +20,19 @@ def wait_for_database():
         except Exception:
             if i < max_retries - 1:
                 time.sleep(retry_delay)
-    
     return False
 
 def init_database():
-    """Полная перезапись базы данных"""
     try:
         from app.database import engine, Base, SessionLocal
         from sqlalchemy import text
         from app.core.security import get_password_hash
         from datetime import datetime
         
-        # 1. Явно импортируем ВСЕ модели, чтобы они зарегистрировались в Base.metadata
+        # Импортируем модели
         from app.models.user import User
-        from app.models.product import Product
         from app.models.report import Report
+        from app.models.product import Product
         from app.models.group import Group
         from app.models.cluster import Cluster
         from app.models.inventory import UserInventory
@@ -46,47 +43,17 @@ def init_database():
         from app.models.notification import Notification
         from app.models.rejection import Rejection, RejectionItem
         
-        # 2. УНИЧТОЖАЕМ ВСЁ
+        # Удаляем ВСЁ
         with engine.connect() as conn:
-            # Отключаем транзакцию для DDL операций
-            conn.execute(text("COMMIT"))
-            
-            # Получаем список ВСЕХ enum типов
-            enum_result = conn.execute(text("""
-                SELECT typname 
-                FROM pg_type 
-                WHERE typtype = 'e' 
-                AND typname NOT LIKE 'pg_%'
-                AND typname NOT LIKE '_%'
-            """)).fetchall()
-            
-            # Удаляем все enum типы
-            for enum in enum_result:
-                try:
-                    conn.execute(text(f'DROP TYPE IF EXISTS "{enum[0]}" CASCADE;'))
-                except Exception:
-                    pass
-            
-            # Получаем список ВСЕХ таблиц
-            tables_result = conn.execute(text("""
-                SELECT tablename 
-                FROM pg_tables 
-                WHERE schemaname = 'public'
-            """)).fetchall()
-            
-            # Удаляем все таблицы
-            for table in tables_result:
-                try:
-                    conn.execute(text(f'DROP TABLE IF EXISTS "{table[0]}" CASCADE;'))
-                except Exception:
-                    pass
-            
-            conn.execute(text("COMMIT"))
+            conn.execute(text("DROP SCHEMA public CASCADE;"))
+            conn.execute(text("CREATE SCHEMA public;"))
+            conn.execute(text("GRANT ALL ON SCHEMA public TO public;"))
+            conn.commit()
         
-        # 3. СОЗДАЕМ ВСЁ ЗАНОВО
+        # Создаем таблицы
         Base.metadata.create_all(bind=engine)
         
-        # 4. СОЗДАЕМ ТОЛЬКО ВЛАДЕЛЬЦА
+        # Создаем владельца
         db = SessionLocal()
         try:
             owner = User(
@@ -106,12 +73,10 @@ def init_database():
             db.close()
         
         return True
-        
     except Exception:
         return False
 
 def run_app():
-    """Запуск FastAPI приложения"""
     import uvicorn
     port = int(os.getenv("PORT", "10000"))
     uvicorn.run(
