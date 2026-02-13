@@ -38,11 +38,11 @@ import {
   Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { transferService } from '../api/transferService';
-import { userService } from '../api/userService';
-import { productService } from '../api/productService';
-import { inventoryService } from '../api/inventoryService';
+import { useAuth } from '../../contexts/AuthContext';
+import { transferService } from '../../api/transferService';
+import { userService } from '../../api/userService';
+import { productService } from '../../api/productService';
+import { inventoryService } from '../../api/inventoryService';
 import {
   TransferDetail,
   TransferItem,
@@ -54,7 +54,7 @@ import {
   getTransferStatusColor,
   getTransferItemStatusText,
   getRoleName,
-} from '../types';
+} from '../../types';
 
 const ExecuteManagerRequestPage: React.FC = () => {
   // ИСПРАВЛЕНО: используем id вместо transferId

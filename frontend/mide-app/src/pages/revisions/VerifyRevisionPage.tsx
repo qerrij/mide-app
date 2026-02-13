@@ -42,9 +42,9 @@ import {
   Language,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { revisionService } from '../api/revisionService';
-import { userService } from '../api/userService';
+import { useAuth } from '../../contexts/AuthContext';
+import { revisionService } from '../../api/revisionService';
+import { userService } from '../../api/userService';
 import {
   Revision,
   RevisionStatus,
@@ -53,7 +53,7 @@ import {
   getRevisionStatusColor,
   UserDiscrepancySummary,
   getTargetName,
-} from '../types';
+} from '../../types';
 
 const VerifyRevisionPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

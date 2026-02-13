@@ -47,10 +47,10 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { reportService } from '../api/reportService';
-import { productService } from '../api/productService';
-import { InventoryItem } from '../types';
+import { useAuth } from '../../contexts/AuthContext';
+import { reportService } from '../../api/reportService';
+import { productService } from '../../api/productService';
+import { InventoryItem } from '../../types';
 import {
   Report,
   ReportStatus,
@@ -58,7 +58,7 @@ import {
   getReportStatusText,
   getReportStatusColor,
   getReportActionText,
-} from '../types';
+} from '../../types';
 
 const ReportsPage: React.FC = () => {
   const navigate = useNavigate();

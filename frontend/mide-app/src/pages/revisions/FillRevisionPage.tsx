@@ -43,9 +43,9 @@ import {
   CheckCircle,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { revisionService } from '../api/revisionService';
-import { productService } from '../api/productService';
+import { useAuth } from '../../contexts/AuthContext';
+import { revisionService } from '../../api/revisionService';
+import { productService } from '../../api/productService';
 import {
   Revision,
   RevisionStatus,
@@ -57,7 +57,7 @@ import {
   getRevisionStatusColor,
   canFillRevision,
   getTargetName,
-} from '../types';
+} from '../../types';
 
 const FillRevisionPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

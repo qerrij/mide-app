@@ -21,11 +21,11 @@ import {
 } from '@mui/material';
 import { ArrowBack, ArrowForward, Send } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { revisionService } from '../api/revisionService';
-import { userService } from '../api/userService';
-import { groupService } from '../api/groupService';
-import { clusterService } from '../api/clusterService';
+import { useAuth } from '../../contexts/AuthContext';
+import { revisionService } from '../../api/revisionService';
+import { userService } from '../../api/userService';
+import { groupService } from '../../api/groupService';
+import { clusterService } from '../../api/clusterService';
 import {
   RevisionType,
   User,
@@ -33,8 +33,8 @@ import {
   Group,
   Cluster,
   getRevisionTypeText,
-} from '../types';
-import { assignmentsService } from '../api/assignmentsService';
+} from '../../types';
+import { assignmentsService } from '../../api/assignmentsService';
 
 const RequestRevisionPage: React.FC = () => {
   const navigate = useNavigate();

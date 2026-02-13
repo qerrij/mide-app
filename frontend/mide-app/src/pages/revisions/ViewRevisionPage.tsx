@@ -49,9 +49,9 @@ import {
   LocationCity,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { PhotoViewer  } from '../components/PhotoViewer';
-import { useAuth } from '../contexts/AuthContext';
-import { revisionService } from '../api/revisionService';
+import { PhotoViewer  } from '../../components/PhotoViewer';
+import { useAuth } from '../../contexts/AuthContext';
+import { revisionService } from '../../api/revisionService';
 import {
   Revision,
   RevisionStatus,
@@ -61,7 +61,7 @@ import {
   RevisionFilling,
   isGroupRevision,
   getTargetName as getTargetNameHelper,
-} from '../types';
+} from '../../types';
 
 const ViewRevisionPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

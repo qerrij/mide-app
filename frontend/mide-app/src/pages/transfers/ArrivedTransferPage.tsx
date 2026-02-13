@@ -51,8 +51,8 @@ import {
   PhotoLibrary as PhotoLibraryIcon,
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-import { transferService } from '../api/transferService';
-import { productService } from '../api/productService';
+import { transferService } from '../../api/transferService';
+import { productService } from '../../api/productService';
 import {
   TransferDetail,
   TransferItem,
@@ -60,7 +60,7 @@ import {
   getTransferItemStatusText,
   getTransferItemStatusColor,
   Product,
-} from '../types';
+} from '../../types';
 
 const ArrivedTransferPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

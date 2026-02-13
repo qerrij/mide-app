@@ -41,8 +41,8 @@ import {
   Assignment as AssignmentIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { revisionService } from '../api/revisionService';
+import { useAuth } from '../../contexts/AuthContext';
+import { revisionService } from '../../api/revisionService';
 import {
   Revision,
   RevisionStatus,
@@ -52,7 +52,7 @@ import {
   getRevisionTypeText,
   getRevisionStatusColor,
   getTargetName as getTargetNameHelper,
-} from '../types';
+} from '../../types';
 
 const RevisionsPage: React.FC = () => {
   const navigate = useNavigate();

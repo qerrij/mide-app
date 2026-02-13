@@ -42,13 +42,13 @@ import {
   CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-import { transferService } from '../api/transferService';
+import { transferService } from '../../api/transferService';
 import {
   TransferDetail,
   TransferDiscrepancyItem,
   getTransferStatusText,
   getTransferStatusColor,
-} from '../types';
+} from '../../types';
 
 const VerifyDiscrepancyPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

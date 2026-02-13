@@ -70,10 +70,10 @@ import {
   PlayArrow,
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { transferService } from '../api/transferService';
-import { userService } from '../api/userService';
-import { productService } from '../api/productService';
+import { useAuth } from '../../contexts/AuthContext';
+import { transferService } from '../../api/transferService';
+import { userService } from '../../api/userService';
+import { productService } from '../../api/productService';
 import {
   TransferDetail,
   TransferStatus,
@@ -85,7 +85,7 @@ import {
   getRequestTypeText,
   TransferRequestType,
   Product,
-} from '../types';
+} from '../../types';
 
 const TransferDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

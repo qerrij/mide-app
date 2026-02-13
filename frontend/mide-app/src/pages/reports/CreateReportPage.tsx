@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Paper,
@@ -24,8 +24,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  AppBar,
-  Toolbar,
   useTheme,
   useMediaQuery,
   SelectChangeEvent,
@@ -39,13 +37,14 @@ import {
   CheckCircle as CheckCircleIcon,
   PhotoCamera as PhotoCameraIcon,
   Info as InfoIcon,
+  ExitToApp as ExitToAppIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { productService } from '../api/productService';
-import { reportService } from '../api/reportService';
-import { Product, ProductCategory, InventoryItem } from '../types';
-import { PhotoViewer } from '../components/PhotoViewer';
+import { useAuth } from '../../contexts/AuthContext';
+import { productService } from '../../api/productService';
+import { reportService } from '../../api/reportService';
+import { Product, ProductCategory, InventoryItem } from '../../types';
+import { PhotoViewer } from '../../components/PhotoViewer';
 
 interface SelectedProduct {
   productId: number;
@@ -97,7 +96,14 @@ const CreateReportPage: React.FC = () => {
   // Загрузка данных
   useEffect(() => {
     loadData();
+    // Скроллим к верху страницы при загрузке
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
+
+  // Скролл к верху страницы при смене шага
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step]);
 
   const loadData = async () => {
     try {
@@ -366,7 +372,7 @@ const CreateReportPage: React.FC = () => {
   };
 
   // Обработчик выхода
-  const handleExit = () => {
+  const handleExitClick = () => {
     const hasData = selectedProducts.length > 0 || photos.length > 0 || comment || accountantAmount !== '';
     if (hasData) {
       setExitDialog(true);
@@ -383,31 +389,16 @@ const CreateReportPage: React.FC = () => {
   // Валидация суммы перевода
   const isAmountValid = accountantAmount !== '' && !isNaN(parseFloat(accountantAmount)) && parseFloat(accountantAmount) > 0;
 
-  return (
-    <Box sx={{ minHeight: '100vh', backgroundColor: '#f5f3f6', pt: 8 }}>
-      {/* Простая кнопка назад над формой слева */}
-      <Container maxWidth="md" sx={{ px: { xs: 1, sm: 2, md: 3 }, mb: 2 }}>
-        <Button
-          startIcon={<ArrowBackIcon />}
-          onClick={handleExit}
-          sx={{
-            borderRadius: 4,
-            color: '#674fb6',
-            textTransform: 'none',
-            fontSize: '0.95rem',
-            px: 2,
-            py: 1,
-            border: '1px solid rgba(103, 79, 182, 0.2)',
-            '&:hover': {
-              backgroundColor: 'rgba(103, 79, 182, 0.04)',
-              border: '1px solid rgba(103, 79, 182, 0.3)',
-            },
-          }}
-        >
-          К отчетам
-        </Button>
-      </Container>
+  // Показываем блок добавления товара только когда выбрана категория
+  const showProductSelect = selectedCategoryId !== 'all';
+  const showQuantityAndAdd = showProductSelect && selectedProductId !== '';
 
+  return (
+    <Box sx={{ 
+      minHeight: '100vh', 
+      backgroundColor: '#f5f3f6', 
+      pt: { xs: 4, md: 8 } // Уменьшен отступ сверху на мобилках
+    }}>
       <Container 
         maxWidth="md" 
         sx={{ 
@@ -461,16 +452,21 @@ const CreateReportPage: React.FC = () => {
                     </Alert>
                   ) : (
                     <>
-                      {/* Выбор категории */}
+                      {/* Выбор категории - всегда отображается */}
                       <FormControl fullWidth sx={{ mb: 3 }}>
                         <InputLabel id="category-label">Категория</InputLabel>
                         <Select
                           labelId="category-label"
                           value={selectedCategoryId}
                           label="Категория"
-                          onChange={(e: SelectChangeEvent<number | 'all'>) => 
-                            setSelectedCategoryId(e.target.value as number | 'all')
-                          }
+                          onChange={(e: SelectChangeEvent<number | 'all'>) => {
+                            setSelectedCategoryId(e.target.value as number | 'all');
+                            setSelectedProductId(''); // Сбрасываем выбранный товар при смене категории
+                            setQuantity(''); // Сбрасываем количество
+                          }}
+                          MenuProps={{
+                            disableScrollLock: true, // Отключаем блокировку скролла при открытии меню
+                          }}
                           sx={{
                             borderRadius: 4,
                             backgroundColor: '#f8f7fa',
@@ -485,72 +481,88 @@ const CreateReportPage: React.FC = () => {
                         </Select>
                       </FormControl>
 
-                      {/* Выбор товара и количество */}
-                      <Grid container spacing={2} sx={{ mb: 4 }}>
-                        <Grid size={{ xs: 12, md: 7 }}>
-                          <FormControl fullWidth>
-                            <InputLabel id="product-label">Товар</InputLabel>
-                            <Select
-                              labelId="product-label"
-                              value={selectedProductId}
-                              label="Товар"
-                              onChange={(e: SelectChangeEvent<number>) => 
-                                setSelectedProductId(e.target.value as number)
-                              }
-                              sx={{
-                                borderRadius: 4,
-                                backgroundColor: '#f8f7fa',
-                              }}
-                            >
-                              <MenuItem value="">
-                                <em>Выберите товар</em>
-                              </MenuItem>
-                              {filteredProducts.map(product => {
-                                const available = getAvailableQuantity(product.id);
-                                return (
-                                  <MenuItem key={product.id} value={product.id}>
-                                    {product.name} (SKU: {product.sku}) - {available} шт.
-                                  </MenuItem>
-                                );
-                              })}
-                            </Select>
-                          </FormControl>
-                        </Grid>
-                        <Grid size={{ xs: 8, md: 3 }}>
-                          <TextField
-                            fullWidth
-                            label="Количество"
-                            type="number"
-                            value={quantity}
-                            onChange={(e) => setQuantity(e.target.value)}
-                            disabled={!selectedProductId}
-                            inputProps={{ min: 1 }}
-                            sx={{
-                              '& .MuiOutlinedInput-root': {
-                                borderRadius: 4,
-                                backgroundColor: '#f8f7fa',
-                              },
+                      {/* Выбор товара - появляется после выбора категории */}
+                      {showProductSelect && (
+                        <FormControl fullWidth sx={{ mb: 3 }}>
+                          <InputLabel id="product-label">Товар</InputLabel>
+                          <Select
+                            labelId="product-label"
+                            value={selectedProductId}
+                            label="Товар"
+                            onChange={(e: SelectChangeEvent<number>) => {
+                              setSelectedProductId(e.target.value as number);
+                              setQuantity(''); // Сбрасываем количество при смене товара
                             }}
-                          />
-                        </Grid>
-                        <Grid size={{ xs: 4, md: 2 }}>
-                          <Button
-                            fullWidth
-                            variant="contained"
-                            startIcon={<AddIcon />}
-                            onClick={handleAddProduct}
-                            disabled={!selectedProductId || !quantity || parseInt(quantity) <= 0}
+                            MenuProps={{
+                              disableScrollLock: true, // Отключаем блокировку скролла при открытии меню
+                            }}
                             sx={{
                               borderRadius: 4,
-                              backgroundColor: '#674fb6',
-                              '&:hover': { backgroundColor: '#483399' },
-                              height: '56px',
+                              backgroundColor: '#f8f7fa',
                             }}
                           >
-                            Добавить
-                          </Button>
+                            <MenuItem value="">
+                              <em>Выберите товар</em>
+                            </MenuItem>
+                            {filteredProducts.map(product => {
+                              const available = getAvailableQuantity(product.id);
+                              return (
+                                <MenuItem key={product.id} value={product.id}>
+                                  {product.name} - {available} шт.
+                                </MenuItem>
+                              );
+                            })}
+                          </Select>
+                        </FormControl>
+                      )}
+
+                      {/* Количество и кнопка добавления - появляются после выбора товара */}
+                      {showQuantityAndAdd && (
+                        <Grid container spacing={2} sx={{ mb: 4 }}>
+                          <Grid size={{ xs: 8, sm: 9, md: 10 }}>
+                            <TextField
+                              fullWidth
+                              label="Количество"
+                              type="number"
+                              value={quantity}
+                              onChange={(e) => setQuantity(e.target.value)}
+                              inputProps={{ min: 1 }}
+                              sx={{
+                                '& .MuiOutlinedInput-root': {
+                                  borderRadius: 4,
+                                  backgroundColor: '#f8f7fa',
+                                },
+                              }}
+                            />
+                          </Grid>
+                          <Grid size={{ xs: 4, sm: 3, md: 2 }}>
+                            <Button
+                              fullWidth
+                              variant="contained"
+                              onClick={handleAddProduct}
+                              disabled={!quantity || parseInt(quantity) <= 0}
+                              sx={{
+                                borderRadius: 4,
+                                backgroundColor: '#674fb6',
+                                '&:hover': { backgroundColor: '#483399' },
+                                height: '56px',
+                                minWidth: { xs: 'auto', sm: '100px' },
+                                px: { xs: 1, sm: 2 }, // Увеличиваем отступы на мобилках
+                                fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <AddIcon sx={{ 
+                                mr: { xs: 0.5, sm: 1 },
+                                fontSize: { xs: 18, sm: 20 }
+                              }} />
+                              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                                Добавить
+                              </Box>
+                            </Button>
+                          </Grid>
                         </Grid>
-                      </Grid>
+                      )}
 
                       {/* Список добавленных товаров */}
                       {selectedProducts.length > 0 && (
@@ -661,7 +673,7 @@ const CreateReportPage: React.FC = () => {
             </>
           )}
 
-          {/* Шаг 2: Фотографии - без фона и подписей */}
+          {/* Шаг 2: Фотографии */}
           {step === 1 && (
             <>
               <input
@@ -886,7 +898,7 @@ const CreateReportPage: React.FC = () => {
 
           {/* Кнопки навигации */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
-            {step > 0 && (
+            {step > 0 ? (
               <Button
                 variant="outlined"
                 onClick={handleBack}
@@ -901,6 +913,23 @@ const CreateReportPage: React.FC = () => {
                 }}
               >
                 Назад
+              </Button>
+            ) : (
+              // Кнопка "Выйти" на первом шаге без иконки
+              <Button
+                variant="outlined"
+                onClick={handleExitClick}
+                sx={{
+                  borderRadius: 4,
+                  borderColor: '#d8d1e0',
+                  color: '#ca0ec0',
+                  '&:hover': {
+                    borderColor: '#ca0ec0',
+                    backgroundColor: 'rgba(202, 14, 192, 0.04)',
+                  },
+                }}
+              >
+                Выйти
               </Button>
             )}
             

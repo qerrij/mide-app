@@ -38,10 +38,10 @@ import {
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { reportService } from '../api/reportService';
-import { PhotoViewer } from '../components/PhotoViewer';
-import { Report, ReportStatus, UserRole, getReportStatusText, getReportStatusColor } from '../types';
+import { useAuth } from '../../contexts/AuthContext';
+import { reportService } from '../../api/reportService';
+import { PhotoViewer } from '../../components/PhotoViewer';
+import { Report, ReportStatus, UserRole, getReportStatusText, getReportStatusColor } from '../../types';
 
 const ViewReportPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();

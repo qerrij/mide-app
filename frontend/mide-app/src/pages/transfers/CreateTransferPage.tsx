@@ -52,11 +52,11 @@ import {
   CheckCircle as CheckCircleIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { transferService } from '../api/transferService';
-import { userService } from '../api/userService';
-import { productService } from '../api/productService';
-import { inventoryService } from '../api/inventoryService';
+import { useAuth } from '../../contexts/AuthContext';
+import { transferService } from '../../api/transferService';
+import { userService } from '../../api/userService';
+import { productService } from '../../api/productService';
+import { inventoryService } from '../../api/inventoryService';
 import {
   TransferItemBase,
   User,
@@ -65,7 +65,7 @@ import {
   TransferRequestType,
   InventoryItem,
   getRoleName,
-} from '../types';
+} from '../../types';
 
 const CreateTransferPage: React.FC = () => {
   const navigate = useNavigate();
