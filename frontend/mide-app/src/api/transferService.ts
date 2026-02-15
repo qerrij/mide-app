@@ -24,10 +24,9 @@ const transformTransferFromApi = (transfer: any): Transfer => {
     createdById: transfer.created_by_id,
     status: transfer.status,
     files: transfer.files || [],
-    arrivalFiles: transfer.arrival_files || [], // 🔴 НОВОЕ ПОЛЕ
+    arrivalFiles: transfer.arrival_files || [], 
     discrepancyFiles: transfer.discrepancy_files || [],
     
-    // 🔴 ДОБАВЛЯЕМ НОВЫЕ ПОЛЯ ДЛЯ РАСХОЖДЕНИЙ
     discrepancyAcceptedById: transfer.discrepancy_accepted_by_id,
     discrepancyAcceptedAt: transfer.discrepancy_accepted_at ? new Date(transfer.discrepancy_accepted_at) : undefined,
     discrepancyApprovedById: transfer.discrepancy_approved_by_id,
@@ -269,7 +268,6 @@ export const transferService = {
     
     formData.append('action', data.action);
     
-    // 🔴 ИЗМЕНЕНИЕ: Для reject НЕ отправляем items
     if (data.action !== 'reject') {
       if (!data.items || data.items.length === 0) {
         throw new Error('Необходимо указать полученное количество для каждого товара');
@@ -281,7 +279,6 @@ export const transferService = {
         notes: item.notes
       }))));
     } else {
-      // 🔴 Для reject отправляем пустой массив
       formData.append('items_json', JSON.stringify([]));
     }
     
@@ -289,12 +286,10 @@ export const transferService = {
       formData.append('notes', data.notes);
     }
     
-    // 🔴 ИЗМЕНЕНИЕ: Файлы обязательны только для accept и discrepancy
     if (data.action !== 'reject' && (!files || files.length === 0)) {
       throw new Error('Для приема товара необходимо прикрепить фотографии');
     }
     
-    // Добавляем файлы только если они есть
     if (files && files.length > 0) {
       files.forEach(file => {
         formData.append('files', file);

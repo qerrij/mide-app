@@ -42,7 +42,7 @@ class CRUDTransfer:
         # Сначала сбрасываем флаги
         transfer.can_approve = False
         transfer.can_execute = False
-        transfer.can_approve_discrepancy = False  # 🔴 НОВЫЙ флаг
+        transfer.can_approve_discrepancy = False 
         
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -60,7 +60,6 @@ class CRUDTransfer:
         
         # Для проверки расхождений
         elif transfer.status == TransferStatus.CHECKING:
-            # 🔴 ИЗМЕНЕНИЕ: Проверяем может ли пользователь подтверждать расхождения
             # Только определенные роли могут подтверждать расхождения
             allowed_roles = [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]
             if user.role in allowed_roles:
