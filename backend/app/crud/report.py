@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func, case
 from typing import List, Optional
+from app.models.cluster import Cluster
 from app.models.report import Report, ReportProduct, ReportStatus
 from app.models.user import User, UserRole
 from app.models.product import Product
@@ -95,28 +96,52 @@ class CRUDReport:
             # Старший продавец видит:
             # 1. Свои собственные отчеты (как продавец)
             # 2. Отчеты продавцов своего куста
-            subquery = db.query(User.id).filter(User.cluster_id == current_user.cluster_id).subquery()
-            return query.filter(
-                (Report.seller_id == current_user.id) |  # Свои отчеты
-                (Report.seller_id.in_(subquery))         # Отчеты куста
-            )
+            if current_user.cluster_id:
+                subquery = db.query(User.id).filter(User.cluster_id == current_user.cluster_id).subquery()
+                return query.filter(
+                    (Report.seller_id == current_user.id) |  # Свои отчеты
+                    (Report.seller_id.in_(subquery))         # Отчеты куста
+                )
+            # Если нет куста, только свои отчеты
+            return query.filter(Report.seller_id == current_user.id)
         
         elif current_user.role == UserRole.ADMIN:
             # Администратор видит:
             # 1. Свои собственные отчеты (если он также продавец)
-            # 2. Отчеты продавцов своих кустов
+            # 2. Отчеты продавцов из своих кустов (admin_clusters)
+            # 3. Отчеты продавцов из кустов, где он admin_id (Cluster.admin_id)
+            
+            admin_cluster_ids = []
+            
+            # Получаем кусты из admin_clusters (JSON поле)
             if current_user.admin_clusters:
                 try:
                     admin_clusters = json.loads(current_user.admin_clusters)
-                    subquery = db.query(User.id).filter(User.cluster_id.in_(admin_clusters)).subquery()
-                    return query.filter(
-                        (Report.seller_id == current_user.id) |  # Свои отчеты
-                        (Report.seller_id.in_(subquery))         # Отчеты из кустов
-                    )
+                    if isinstance(admin_clusters, list):
+                        admin_cluster_ids.extend(admin_clusters)
                 except:
                     pass
-            # Если нет кустов, показываем только свои отчеты
-            return query.filter(Report.seller_id == current_user.id)
+            
+            # Получаем кусты, где пользователь является admin_id
+            cluster_as_admin = db.query(Cluster.id).filter(Cluster.admin_id == current_user.id).all()
+            admin_cluster_ids.extend([c[0] for c in cluster_as_admin])
+            
+            # Убираем дубликаты
+            admin_cluster_ids = list(set(admin_cluster_ids))
+            
+            if admin_cluster_ids:
+                # Получаем всех продавцов из этих кустов
+                subquery = db.query(User.id).filter(
+                    User.cluster_id.in_(admin_cluster_ids)
+                ).subquery()
+                
+                return query.filter(
+                    (Report.seller_id == current_user.id) |  # Свои отчеты
+                    (Report.seller_id.in_(subquery))         # Отчеты из кустов
+                )
+            else:
+                # Если нет кустов, показываем только свои отчеты
+                return query.filter(Report.seller_id == current_user.id)
         
         elif current_user.role == UserRole.ACCOUNTANT:
             # Бухгалтер видит все отчеты
@@ -234,7 +259,7 @@ class CRUDReport:
         photo_paths: List[str],
         seller_id: int
     ) -> Optional[Report]:
-        """Исправить отклоненный отчет"""
+        """Исправить отклоненный отчет, сохраняя старые фотографии и добавляя новые"""
         db_report = self.get(db, report_id)
         if not db_report:
             return None
@@ -244,9 +269,13 @@ class CRUDReport:
             db.delete(product)
         db.commit()
         
+        # Сохраняем старые фотографии и добавляем новые (НЕ удаляем старые)
+        existing_photos = db_report.transfer_photos or []
+        all_photos = existing_photos + photo_paths  # Объединяем старые и новые фото
+        
         # Обновляем отчет
         db_report.transfer_amount = report_in.transfer_amount
-        db_report.transfer_photos = photo_paths
+        db_report.transfer_photos = all_photos  # Сохраняем все фото
         db_report.comment = report_in.comment
         db_report.accountant_amount = report_in.accountant_amount
         db_report.status = ReportStatus.AWAITING_ACCOUNTANT

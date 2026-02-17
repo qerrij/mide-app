@@ -158,7 +158,6 @@ export const transferService = {
   createUserRequest: async (data: TransferCreateDto, files?: File[]): Promise<Transfer> => {
     const formData = new FormData();
     
-    // Добавляем текстовые поля
     formData.append('title', data.title);
     if (data.description) formData.append('description', data.description);
     formData.append('from_user_id', data.fromUserId.toString());

@@ -42,7 +42,7 @@ export const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Inter","Roboto", "Helvetica", "Arial", sans-serif',
     h1: {
       color: '#2a0f35',
       fontWeight: 600,

@@ -10,25 +10,17 @@ import {
   CircularProgress,
   Chip,
   Stack,
-  Divider,
   Card,
   Avatar,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  IconButton,
   Fab,
-  Fade,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
-  CheckCircle as CheckCircleIcon,
   PhotoCamera as PhotoCameraIcon,
   Person as PersonIcon,
   Group as GroupIcon,
@@ -36,20 +28,19 @@ import {
   Home as ClusterIcon,
   Public as PublicIcon,
   People as PeopleIcon,
-  Schedule as ScheduleIcon,
   ExpandMore as ExpandMoreIcon,
   Photo as PhotoIcon,
   Inventory as InventoryIcon,
   Edit as EditIcon,
-  Close as CloseIcon,
   CalendarToday as CalendarIcon,
   CheckCircleOutline as CheckCircleOutlineIcon,
   Verified as VerifiedIcon,
-  AddCircleOutline as AddCircleOutlineIcon,
   LocationCity,
+  ArrowUpward as ArrowUpwardIcon,
+  ArrowDownward as ArrowDownwardIcon,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
-import { PhotoViewer  } from '../../components/PhotoViewer';
+import { PhotoViewer } from '../../components/PhotoViewer';
 import { useAuth } from '../../contexts/AuthContext';
 import { revisionService } from '../../api/revisionService';
 import {
@@ -186,6 +177,15 @@ const ViewRevisionPage: React.FC = () => {
     return revision.fillings?.some(f => f.userId === user.id && f.isCompleted) || false;
   };
 
+  // Получение ожидаемого количества из расхождений
+  const getExpectedQuantity = (userId: number, productId: number): number => {
+    if (!revision?.discrepancies) return 0;
+    const discrepancy = revision.discrepancies.find(
+      d => d.userId === userId && d.productId === productId
+    );
+    return discrepancy?.expectedQuantity || 0;
+  };
+
   if (loading) {
     return (
       <Box
@@ -246,6 +246,8 @@ const ViewRevisionPage: React.FC = () => {
   };
 
   const totalDiscrepancy = calculateTotalDiscrepancy();
+  const isPositiveTotal = totalDiscrepancy > 0;
+  const isNegativeTotal = totalDiscrepancy < 0;
 
   return (
     <Box sx={{ minHeight: '100vh', py: 3, position: 'relative'}}>
@@ -476,111 +478,116 @@ const ViewRevisionPage: React.FC = () => {
         </Card>
 
         {/* Блок статуса ревизии */}
-        <Card 
+        {/* Блок статуса ревизии */}
+<Card 
+  sx={{ 
+    p: { xs: 2, sm: 2.5 },
+    mb: 3,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+    textAlign: 'center',
+    position: 'relative',
+    overflow: 'hidden',
+  }}
+>
+  {/* Фоновый слой для проверенных ревизий */}
+  {isRevisionVerified && (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: isPositiveTotal 
+          ? 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)'
+          : isNegativeTotal
+            ? 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)'
+            : 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+        opacity: 0.7,
+        zIndex: 0,
+      }}
+    />
+  )}
+
+  <Box sx={{ 
+    position: 'relative', 
+    zIndex: 1, 
+    py: { xs: 2, sm: 3 },
+    px: { xs: 2, sm: 4 },
+  }}>
+    {isRevisionVerified ? (
+      <Box>
+        {totalDiscrepancy === 0 ? (
+          <>
+            <Typography variant="body2" color="#4c5454" gutterBottom>
+              Ревизия сбалансирована
+            </Typography>
+            <Typography 
+              variant="h1" 
+              color="#2e7d32"
+              sx={{ 
+                fontWeight: 'bold', 
+                my: 1,
+                fontSize: { xs: '3rem', sm: '4rem' }
+              }}
+            >
+              0
+            </Typography>
+            <Typography variant="caption" color="#4c5454">
+              Расхождений не обнаружено
+            </Typography>
+          </>
+        ) : (
+          <>
+            <Typography variant="body2" color="#4c5454" gutterBottom>
+              {totalDiscrepancy > 0 ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
+            </Typography>
+            <Typography 
+              variant="h1" 
+              color={totalDiscrepancy > 0 ? '#1976d2' : '#d32f2f'}
+              sx={{ 
+                fontWeight: 'bold', 
+                my: 1,
+                fontSize: { xs: '3rem', sm: '4rem' }
+              }}
+            >
+              {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
+            </Typography>
+            <Typography variant="caption" color="#4c5454">
+              {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
+            </Typography>
+          </>
+        )}
+      </Box>
+    ) : (
+      <Box>
+        <Typography variant="body2" color="#4c5454" gutterBottom>
+          {revision.status === RevisionStatus.COMPLETED 
+            ? 'Ревизия заполнена всеми участниками'
+            : 'Статус ревизии'}
+        </Typography>
+        <Typography 
+          variant="h2" 
+          color="#2a0f35" 
           sx={{ 
-            p: { xs: 2, sm: 2.5 },
-            mb: 3,
-            borderRadius: 8,
-            backgroundColor: '#ffffff',
-            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-            textAlign: 'center',
-            position: 'relative',
-            overflow: 'hidden',
+            fontWeight: 'bold', 
+            my: 1,
+            fontSize: { xs: '2rem', sm: '2.5rem' }
           }}
         >
-          <Box 
-            sx={{ 
-              position: 'absolute', 
-              top: 0, 
-              right: 0, 
-              width: 120, 
-              height: 120, 
-              opacity: 0.05,
-              zIndex: 0,
-            }}
-          >
-            <Box
-              sx={{
-                width: '100%',
-                height: '100%',
-                backgroundImage: 'radial-gradient(circle, #674fb6 2px, transparent 2px)',
-                backgroundSize: '20px 20px',
-              }}
-            />
-          </Box>
-          
-          <Box sx={{ position: 'relative', zIndex: 1, py: { xs: 2, sm: 3 } }}>
-            {isRevisionVerified ? (
-              <Box>
-                {totalDiscrepancy === 0 ? (
-                  <>
-                    <Typography variant="body2" color="#4c5454" gutterBottom>
-                      Ревизия сбалансирована
-                    </Typography>
-                    <Typography 
-                      variant="h1" 
-                      color="#3f1f4b" 
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        my: 1,
-                        fontSize: { xs: '3rem', sm: '4rem' }
-                      }}
-                    >
-                      0
-                    </Typography>
-                    <Typography variant="caption" color="#4c5454">
-                      Расхождений не обнаружено
-                    </Typography>
-                  </>
-                ) : (
-                  <>
-                    <Typography variant="body2" color="#4c5454" gutterBottom>
-                      {totalDiscrepancy > 0 ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
-                    </Typography>
-                    <Typography 
-                      variant="h1" 
-                      color={totalDiscrepancy > 0 ? '#674fb6' : '#ca0ec0'}
-                      sx={{ 
-                        fontWeight: 'bold', 
-                        my: 1,
-                        fontSize: { xs: '3rem', sm: '4rem' }
-                      }}
-                    >
-                      {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
-                    </Typography>
-                    <Typography variant="caption" color="#4c5454">
-                      {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
-                    </Typography>
-                  </>
-                )}
-              </Box>
-            ) : (
-              <Box>
-                <Typography variant="body2" color="#4c5454" gutterBottom>
-                  {revision.status === RevisionStatus.COMPLETED 
-                    ? 'Ревизия заполнена всеми участниками'
-                    : 'Статус ревизии'}
-                </Typography>
-                <Typography 
-                  variant="h2" 
-                  color="#2a0f35" 
-                  sx={{ 
-                    fontWeight: 'bold', 
-                    my: 1,
-                    fontSize: { xs: '2rem', sm: '2.5rem' }
-                  }}
-                >
-                  {getRevisionStatusText(revision.status)}
-                </Typography>
-                {isOwner && isGroupRev && revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
-                  <Typography variant="caption" color="#4c5454">
-                    {revision.totalFilled} из {revision.totalUsers} заполнили
-                  </Typography>
-                )}
-              </Box>
-            )}
-          </Box>
-        </Card>
+          {getRevisionStatusText(revision.status)}
+        </Typography>
+        {isOwner && isGroupRev && revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
+          <Typography variant="caption" color="#4c5454">
+            {revision.totalFilled} из {revision.totalUsers} заполнили
+          </Typography>
+        )}
+      </Box>
+    )}
+  </Box>
+</Card>
 
         {/* Данные участников */}
         {completedFillings.length > 0 && (
@@ -627,6 +634,8 @@ const ViewRevisionPage: React.FC = () => {
                   ? revision.discrepancies?.filter(d => d.userId === filling.userId) || []
                   : [];
                 const userTotal = userDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0);
+                const userIsPositive = userTotal > 0;
+                const userIsNegative = userTotal < 0;
                 
                 return (
                   <Box
@@ -693,14 +702,15 @@ const ViewRevisionPage: React.FC = () => {
                           {isRevisionVerified && userTotal !== 0 && (
                             <Box sx={{ flexShrink: 0 }}>
                               <Chip
-                                label={`${userTotal > 0 ? '+' : ''}${userTotal}`}
+                                icon={userIsPositive ? <ArrowUpwardIcon /> : <ArrowDownwardIcon />}
+                                label={`${userIsPositive ? '+' : ''}${userTotal}`}
                                 size="small"
                                 sx={{
-                                  backgroundColor: userTotal > 0 ? 'rgba(86, 184, 209, 0.15)' : 'rgba(202, 14, 192, 0.15)',
-                                  color: userTotal > 0 ? '#56b8d1' : '#ca0ec0',
+                                  backgroundColor: userIsPositive ? '#2196f315' : '#f4433615',
+                                  color: userIsPositive ? '#2196f3' : '#f44336',
                                   fontWeight: 600,
                                   fontSize: '0.85rem',
-                                  minWidth: 60,
+                                  minWidth: 70,
                                 }}
                               />
                             </Box>
@@ -725,69 +735,157 @@ const ViewRevisionPage: React.FC = () => {
                                   Товары ({filling.items.length})
                                 </Typography>
                                 
-                                <Stack spacing={1.5} sx={{ width: '100%' }}>
+                                <Grid container spacing={2} sx={{ width: '100%', mt: 0.5 }}>
                                   {filling.items.map((item, idx) => {
                                     const discrepancy = isRevisionVerified
                                       ? userDiscrepancies.find(d => d.productId === item.productId)
                                       : null;
                                     
+                                    const expectedQuantity = isRevisionVerified && discrepancy
+                                      ? discrepancy.expectedQuantity
+                                      : 0;
+                                    
+                                    const receivedQuantity = item.quantity;
+                                    const difference = discrepancy?.discrepancy || 0;
+                                    const isPositive = difference > 0;
+                                    const isNegative = difference < 0;
+                                    
+                                    // Для непроверенных ревизий показываем только полученное количество
+                                    if (!isRevisionVerified) {
+                                      return (
+                                        <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
+                                          <Card
+                                            sx={{
+                                              p: 2,
+                                              borderRadius: 8,
+                                              backgroundColor: '#ffffff',
+                                              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+                                              height: '100%',
+                                              transition: 'transform 0.2s ease',
+                                              '&:hover': {
+                                                transform: 'translateY(-2px)',
+                                                boxShadow: '0 6px 16px rgba(106, 61, 122, 0.15)',
+                                              },
+                                            }}
+                                          >
+                                            <Box sx={{ mb: 1.5 }}>
+                                              <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
+                                                {item.productName || `Товар ${item.productId}`}
+                                              </Typography>
+                                              <Typography variant="caption" color="#4c5454" display="block" noWrap>
+                                                {item.productSku || `SKU${item.productId}`}
+                                              </Typography>
+                                            </Box>
+                                            
+                                            <Box sx={{ 
+                                              display: 'flex', 
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              mt: 1.5,
+                                              pt: 1.5,
+                                              borderTop: '1px dashed rgba(0,0,0,0.1)'
+                                            }}>
+                                              <Box sx={{ textAlign: 'center' }}>
+                                                <Typography variant="caption" color="#4c5454" display="block">
+                                                  Заполнено
+                                                </Typography>
+                                                <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                  {receivedQuantity} шт.
+                                                </Typography>
+                                              </Box>
+                                            </Box>
+                                          </Card>
+                                        </Grid>
+                                      );
+                                    }
+                                    
+                                    // Для проверенных ревизий показываем полную информацию
                                     return (
-                                      <Card
-                                        key={idx}
-                                        sx={{
-                                          p: 2,
-                                          borderRadius: 8,
-                                          backgroundColor: '#ffffff',
-                                          boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          justifyContent: 'space-between',
-                                          width: '100%',
-                                        }}
-                                      >
-                                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                                          <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
-                                            {item.productName || `Товар ${item.productId}`}
-                                          </Typography>
-                                          <Typography variant="caption" color="#4c5454">
-                                            {item.productSku || `SKU${item.productId}`}
-                                          </Typography>
-                                        </Box>
-                                        
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-                                          <Box sx={{ 
-                                            backgroundColor: 'rgba(103, 79, 182, 0.15)',
-                                            borderRadius: 6,
-                                            px: 1.5,
-                                            py: 0.5,
-                                          }}>
-                                            <Typography variant="body2" color="#674fb6" fontWeight={600}>
-                                              {item.quantity} шт.
+                                      <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
+                                        <Card
+                                          sx={{
+                                            p: 2,
+                                            borderRadius: 8,
+                                            backgroundColor: '#ffffff',
+                                            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+                                            height: '100%',
+                                            transition: 'transform 0.2s ease',
+                                            '&:hover': {
+                                              transform: 'translateY(-2px)',
+                                              boxShadow: '0 6px 16px rgba(106, 61, 122, 0.15)',
+                                            },
+                                          }}
+                                        >
+                                          <Box sx={{ mb: 1.5 }}>
+                                            <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
+                                              {item.productName || `Товар ${item.productId}`}
+                                            </Typography>
+                                            <Typography variant="caption" color="#4c5454" display="block" noWrap>
+                                              {item.productSku || `SKU${item.productId}`}
                                             </Typography>
                                           </Box>
                                           
-                                          {isRevisionVerified && discrepancy && (
-                                            <Chip
-                                              size="small"
-                                              label={`${discrepancy.isPositive ? '+' : ''}${discrepancy.discrepancy}`}
-                                              sx={{
-                                                backgroundColor: discrepancy.isPositive 
-                                                  ? 'rgba(86, 184, 209, 0.15)' 
-                                                  : 'rgba(202, 14, 192, 0.15)',
-                                                color: discrepancy.isPositive ? '#56b8d1' : '#ca0ec0',
-                                                fontWeight: 600,
-                                                fontSize: '0.8rem',
-                                                minWidth: 45,
-                                                borderRadius: 4,
-                                                height: 26,
-                                              }}
-                                            />
-                                          )}
-                                        </Box>
-                                      </Card>
+                                          <Box sx={{ 
+                                            display: 'flex', 
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            mt: 1.5,
+                                            pt: 1.5,
+                                            borderTop: '1px dashed rgba(0,0,0,0.1)'
+                                          }}>
+                                            <Box sx={{ textAlign: 'center', flex: 1 }}>
+                                              <Typography variant="caption" color="#4c5454" display="block">
+                                                Ожидалось
+                                              </Typography>
+                                              <Typography variant="body2" fontWeight={600}>
+                                                {expectedQuantity}
+                                              </Typography>
+                                            </Box>
+                                            
+                                            <Box sx={{ textAlign: 'center', flex: 1 }}>
+                                              <Typography variant="caption" color="#4c5454" display="block">
+                                                Получено
+                                              </Typography>
+                                              <Typography 
+                                                variant="body2" 
+                                                fontWeight={600}
+                                                color={isNegative ? '#f44336' : isPositive ? '#2196f3' : '#4caf50'}
+                                              >
+                                                {receivedQuantity}
+                                              </Typography>
+                                            </Box>
+                                            
+                                            <Box sx={{ textAlign: 'center', flex: 1 }}>
+                                              <Typography variant="caption" color="#4c5454" display="block">
+                                                Расхождение
+                                              </Typography>
+                                              {difference !== 0 ? (
+                                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                  {isPositive ? (
+                                                    <ArrowUpwardIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5 }} />
+                                                  ) : (
+                                                    <ArrowDownwardIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5 }} />
+                                                  )}
+                                                  <Typography 
+                                                    variant="body2" 
+                                                    fontWeight={600}
+                                                    color={isPositive ? '#2196f3' : '#f44336'}
+                                                  >
+                                                    {isPositive ? '+' : ''}{difference}
+                                                  </Typography>
+                                                </Box>
+                                              ) : (
+                                                <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                  0
+                                                </Typography>
+                                              )}
+                                            </Box>
+                                          </Box>
+                                        </Card>
+                                      </Grid>
                                     );
                                   })}
-                                </Stack>
+                                </Grid>
                               </Box>
                             )}
                             
@@ -1028,10 +1126,6 @@ const ViewRevisionPage: React.FC = () => {
           onClose={() => setShowPhotoDialog(false)}
           onIndexChange={(index) => setSelectedPhoto({ ...selectedPhoto, index })}
           getPhotoUrl={revisionService.getPhotoUrl}
-          // Опционально: можно принудительно включить мобильный режим
-          // forceMobile={isMobile}
-          // Опционально: отключить миниатюры для определенных случаев
-          // disableThumbnails={false}
         />
       )}
     </Box>

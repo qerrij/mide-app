@@ -109,13 +109,13 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
       title: 'Отчеты',
       icon: <Assessment />,
       path: '/reports',
-      roles: ['OWNER', 'ADMIN', 'SENIOR_SELLER', 'MENTOR', 'SELLER'],
+      roles: ['OWNER', 'ADMIN', 'SENIOR_SELLER', 'MENTOR', 'SELLER', 'ACCOUNTANT'],
     },
     {
       title: 'Ревизии',
       icon: <Inventory />,
       path: '/revisions',
-      roles: ['OWNER', 'ADMIN', 'SENIOR_SELLER', 'MENTOR'],
+      roles: ['OWNER', 'ADMIN', 'SENIOR_SELLER', 'MENTOR', 'SELLER'],
     },
     {
       title: 'Перемещения',
@@ -128,12 +128,6 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
       icon: <Warning />,
       path: '/defects',
       roles: ['OWNER', 'ADMIN', 'SENIOR_SELLER', 'MENTOR', 'SELLER'],
-    },
-    {
-      title: 'Остатки',
-      icon: <Warehouse />,
-      path: '/stock',
-      roles: ['OWNER', 'ADMIN', 'SENIOR_SELLER', 'MENTOR'],
     },
     {
       title: 'Товары',
@@ -184,7 +178,7 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
   return (
     <>
       <MuiAppBar
-        position="fixed"
+        position="sticky"
         elevation={0}
         sx={{
           backgroundColor: scrolled 
@@ -474,7 +468,6 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
         </Container>
       </MuiAppBar>
       
-      {/* Отступ для контента, чтобы он не накладывался на фиксированный AppBar */}
       <Box sx={{ height: 80 }} />
     </>
   );

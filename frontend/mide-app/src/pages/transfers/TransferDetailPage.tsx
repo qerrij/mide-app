@@ -100,6 +100,11 @@ const TransferDetailPage: React.FC = () => {
   const [expandedDiscrepancies, setExpandedDiscrepancies] = useState<number[]>([]);
   const [expandedItems, setExpandedItems] = useState(true);
 
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   useEffect(() => {
     if (id) {
       loadTransfer();

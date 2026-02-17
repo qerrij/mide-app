@@ -166,9 +166,15 @@ def get_revision(
     
     revision = result['revision']
     
+    # Определяем, может ли пользователь видеть все заполнения
+    can_see_all_fillings = (
+        revision.requested_by_id == current_user.id or  # владелец ревизии
+        current_user.role in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]  # руководители
+    )
+    
     # Для обычного пользователя показываем только его заполнение
-    if revision.type != RevisionType.USER and revision.requested_by_id != current_user.id:
-        # Это не владелец ревизии, показываем только его данные
+    if not can_see_all_fillings:
+        # Это не владелец и не руководитель, показываем только его данные
         user_filling = result['user_filling']
         
         # Создаем копию ревизии с обновленными данными
@@ -181,7 +187,7 @@ def get_revision(
         
         return revision
     
-    # Для владельца ревизии показываем все
+    # Для владельца ревизии и руководителей показываем все
     revision.total_filled = result['total_filled']
     revision.total_users = result['total_users']
     revision.is_group_revision = revision.type in [

@@ -36,6 +36,7 @@ import {
   CheckCircle as CheckCircleIcon,
   PhotoCamera as PhotoCameraIcon,
   ExitToApp as ExitToAppIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -134,21 +135,20 @@ const FixReportPage: React.FC = () => {
       setCategories(categoriesData);
       setUserInventory(inventoryData.items || []);
       
-      // Загружаем существующие товары из отчета, НО СТАВИМ ЦЕНУ ТОВАРА ИЗ КАТАЛОГА
+      // Загружаем существующие товары из отчета
       const existingProducts: SelectedProduct[] = reportData.products.map(p => {
         const inventoryItem = inventoryData.items?.find(i => i.productId === p.productId);
         const availableQuantity = inventoryItem 
           ? inventoryItem.quantity - (inventoryItem.reservedQuantity || 0) 
           : 0;
         
-        // Берем цену из каталога товаров
         const product = productsData.find(prod => prod.id === p.productId);
         const catalogPrice = product?.price || 0;
         
         return {
           productId: p.productId,
           quantity: p.quantity,
-          soldAmount: catalogPrice, // СТАВИМ ЦЕНУ ИЗ КАТАЛОГА, а не сохраненную в отчете
+          soldAmount: catalogPrice,
           availableQuantity,
           productName: product?.name || `Товар ${p.productId}`,
           productPrice: catalogPrice,
@@ -292,7 +292,7 @@ const FixReportPage: React.FC = () => {
     }
   };
 
-  // Удалить фото
+  // Удалить фото (только новые)
   const handleRemovePhoto = (index: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== index));
   };
@@ -368,7 +368,7 @@ const FixReportPage: React.FC = () => {
 
       case 1:
         if (photos.length === 0) {
-          setError('Прикрепите фотографии перевода');
+          setError('Прикрепите новые фотографии перевода');
           return false;
         }
         return true;
@@ -452,7 +452,7 @@ const FixReportPage: React.FC = () => {
       <Box sx={{ 
         minHeight: '100vh', 
         backgroundColor: '#f5f3f6', 
-        pt: { xs: 4, md: 8 } // Уменьшен отступ сверху на мобилках
+        pt: { xs: 4, md: 8 }
       }}>
         <Container maxWidth="md">
           <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
@@ -467,7 +467,7 @@ const FixReportPage: React.FC = () => {
     <Box sx={{ 
       minHeight: '100vh', 
       backgroundColor: '#f5f3f6', 
-      pt: { xs: 4, md: 8 } // Уменьшен отступ сверху на мобилках
+      pt: { xs: 4, md: 8 }
     }}>
       <Container 
         maxWidth="md" 
@@ -546,11 +546,11 @@ const FixReportPage: React.FC = () => {
                       label="Категория"
                       onChange={(e: SelectChangeEvent<number | 'all'>) => {
                         setSelectedCategoryId(e.target.value as number | 'all');
-                        setSelectedProductId(''); // Сбрасываем выбранный товар при смене категории
-                        setQuantity(''); // Сбрасываем количество
+                        setSelectedProductId('');
+                        setQuantity('');
                       }}
                       MenuProps={{
-                        disableScrollLock: true, // Отключаем блокировку скролла при открытии меню
+                        disableScrollLock: true,
                       }}
                       sx={{
                         borderRadius: 4,
@@ -576,10 +576,10 @@ const FixReportPage: React.FC = () => {
                         label="Товар"
                         onChange={(e: SelectChangeEvent<number>) => {
                           setSelectedProductId(e.target.value as number);
-                          setQuantity(''); // Сбрасываем количество при смене товара
+                          setQuantity('');
                         }}
                         MenuProps={{
-                          disableScrollLock: true, // Отключаем блокировку скролла при открытии меню
+                          disableScrollLock: true,
                         }}
                         sx={{
                           borderRadius: 4,
@@ -632,7 +632,7 @@ const FixReportPage: React.FC = () => {
                             '&:hover': { backgroundColor: '#483399' },
                             height: '56px',
                             minWidth: { xs: 'auto', sm: '100px' },
-                            px: { xs: 1, sm: 2 }, // Увеличиваем отступы на мобилках
+                            px: { xs: 1, sm: 2 },
                             fontSize: { xs: '0.8rem', sm: '0.875rem' },
                             whiteSpace: 'nowrap',
                           }}
@@ -759,6 +759,75 @@ const FixReportPage: React.FC = () => {
           {/* Шаг 2: Фотографии */}
           {step === 1 && (
             <>
+              {/* СТАРЫЕ ФОТОГРАФИИ - только для просмотра, нельзя удалить */}
+              {report && report.transferPhotos && report.transferPhotos.length > 0 && (
+                <Box sx={{ mb: 4 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <HistoryIcon sx={{ color: '#674fb6', fontSize: 20 }} />
+                    <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
+                      Предыдущие фотографии (из первоначального отчета)
+                    </Typography>
+                  </Box>
+                  
+                  <Grid container spacing={1.5}>
+                    {report.transferPhotos.map((photoUrl, index) => (
+                      <Grid size={{ xs: 6, sm: 4, md: 3 }} key={`old-${index}`}>
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            width: '100%',
+                            paddingBottom: '100%',
+                            borderRadius: 4,
+                            overflow: 'hidden',
+                            cursor: 'pointer',
+                            backgroundImage: `url(${reportService.getPhotoUrl(photoUrl)})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            transition: 'transform 0.2s ease',
+                            border: '2px solid rgba(103, 79, 182, 0.2)',
+                            '&:hover': {
+                              transform: { xs: 'none', md: 'scale(1.02)' },
+                            },
+                            '&::after': {
+                              content: '"История"',
+                              position: 'absolute',
+                              bottom: 0,
+                              left: 0,
+                              right: 0,
+                              backgroundColor: 'rgba(103, 79, 182, 0.8)',
+                              color: 'white',
+                              fontSize: '0.7rem',
+                              textAlign: 'center',
+                              padding: '2px',
+                              backdropFilter: 'blur(2px)',
+                            }
+                          }}
+                          onClick={() => handleViewPhoto(
+                            report.transferPhotos.map(p => reportService.getPhotoUrl(p)),
+                            index
+                          )}
+                        >
+                          {/* Нет кнопки удаления - нельзя удалить старые фото */}
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                  
+                  <Divider sx={{ my: 4 }}>
+                    <Chip 
+                      label="Добавьте новые фотографии" 
+                      size="small"
+                      sx={{ 
+                        backgroundColor: '#f0e9f5',
+                        color: '#674fb6',
+                        fontWeight: 500,
+                      }}
+                    />
+                  </Divider>
+                </Box>
+              )}
+
+              {/* Загрузка новых фотографий */}
               <input
                 accept="image/*"
                 style={{ display: 'none' }}
@@ -792,10 +861,10 @@ const FixReportPage: React.FC = () => {
               >
                 <PhotoCameraIcon sx={{ fontSize: 48, color: '#674fb6', mb: 1 }} />
                 <Typography variant="body1" color="#2a0f35" fontWeight={500}>
-                  {photos.length > 0 ? 'Добавить еще фотографии' : 'Прикрепить фотографии перевода'}
+                  Прикрепить новые фотографии перевода
                 </Typography>
                 <Typography variant="caption" color="#4c5454" display="block" sx={{ mt: 1 }}>
-                  {photos.length}/5 фотографий • Нажмите для загрузки
+                  {photos.length}/5 фотографий • Обязательно прикрепите новые фото
                 </Typography>
               </Box>
 
@@ -819,6 +888,7 @@ const FixReportPage: React.FC = () => {
                             backgroundSize: 'cover',
                             backgroundPosition: 'center',
                             transition: 'transform 0.2s ease',
+                            border: '2px solid #674fb6',
                             '&:hover': {
                               transform: { xs: 'none', md: 'scale(1.02)' },
                             },
@@ -947,10 +1017,10 @@ const FixReportPage: React.FC = () => {
                         Фотографии
                       </Typography>
                       <Typography variant="h6" color="#2a0f35" fontWeight={600}>
-                        {photos.length}
+                        {(report?.transferPhotos?.length || 0) + photos.length}
                       </Typography>
                       <Typography variant="caption" color="#4c5454">
-                        шт.
+                        всего ({photos.length} новых)
                       </Typography>
                     </Grid>
                   </Grid>
@@ -999,7 +1069,6 @@ const FixReportPage: React.FC = () => {
                 Назад
               </Button>
             ) : (
-              // Кнопка "Выйти" на первом шаге без иконки
               <Button
                 variant="outlined"
                 onClick={handleExitClick}
@@ -1197,7 +1266,10 @@ const FixReportPage: React.FC = () => {
                     Фотографии
                   </Typography>
                   <Typography variant="body1" color="#2a0f35" fontWeight={600}>
-                    {photos.length} шт.
+                    {(report?.transferPhotos?.length || 0) + photos.length} шт.
+                  </Typography>
+                  <Typography variant="caption" color="#4c5454">
+                    ({photos.length} новых)
                   </Typography>
                 </Grid>
               </Grid>

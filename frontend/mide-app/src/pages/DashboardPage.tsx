@@ -86,14 +86,6 @@ const DashboardPage: React.FC = () => {
       color: '#ca0ec0',
     },
     {
-      title: 'Остатки',
-      icon: <BarChart sx={{ fontSize: 40, color: '#3f1f4b' }} />,
-      path: '/stock',
-      roles: [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER],
-      description: 'Остатки продукции по разным группам',
-      color: '#3f1f4b',
-    },
-    {
       title: 'Персонал',
       icon: <Person sx={{ fontSize: 40, color: '#6d3f57' }} />,
       path: '/staff',

@@ -56,6 +56,7 @@ const AccountantReviewPage: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState('');
   
   const [finalAmount, setFinalAmount] = useState<string>('');
+  const [finalAmountTouched, setFinalAmountTouched] = useState(false);
   const [comment, setComment] = useState<string>('');
   const [expandedPhotos, setExpandedPhotos] = useState(true);
   
@@ -88,7 +89,8 @@ const AccountantReviewPage: React.FC = () => {
         }
         
         setReport(reportData);
-        setFinalAmount(reportData.accountantAmount?.toString() || '');
+        // НЕ устанавливаем предзаполненную сумму, чтобы бухгалтер ввел её сам
+        setFinalAmount('');
       } catch (err: any) {
         setError(err.message || 'Ошибка при загрузке отчета');
       } finally {
@@ -166,6 +168,10 @@ const AccountantReviewPage: React.FC = () => {
     }
   };
 
+  const handleAmountBlur = () => {
+    setFinalAmountTouched(true);
+  };
+
   const formatDate = (date: Date): string => {
     return new Date(date).toLocaleDateString('ru-RU', {
       day: '2-digit',
@@ -180,6 +186,10 @@ const AccountantReviewPage: React.FC = () => {
       minute: '2-digit',
     });
   };
+
+  // Валидация суммы
+  const isAmountValid = finalAmount !== '' && !isNaN(parseFloat(finalAmount)) && parseFloat(finalAmount) > 0;
+  const showAmountError = finalAmountTouched && !isAmountValid;
 
   if (loading) {
     return (
@@ -207,7 +217,6 @@ const AccountantReviewPage: React.FC = () => {
 
   const totalQuantity = report.products.reduce((sum, p) => sum + p.quantity, 0);
   const totalAmount = report.products.reduce((sum, p) => sum + (p.quantity * p.soldAmount), 0);
-  const isAmountValid = finalAmount !== '' && !isNaN(parseFloat(finalAmount)) && parseFloat(finalAmount) > 0;
 
   return (
     <Box sx={{ minHeight: '100vh', py: 3, backgroundColor: '#f5f3f6' }}>
@@ -591,7 +600,10 @@ const AccountantReviewPage: React.FC = () => {
             <Button
               variant="contained"
               startIcon={<CheckCircleIcon />}
-              onClick={() => setApproveDialog(true)}
+              onClick={() => {
+                setApproveDialog(true);
+                setFinalAmountTouched(false);
+              }}
               sx={{
                 borderRadius: 4,
                 backgroundColor: '#3f1f4b',
@@ -615,6 +627,8 @@ const AccountantReviewPage: React.FC = () => {
         onClose={() => {
           setApproveDialog(false);
           setComment('');
+          setFinalAmount('');
+          setFinalAmountTouched(false);
         }}
         PaperProps={{ 
           sx: { 
@@ -638,7 +652,7 @@ const AccountantReviewPage: React.FC = () => {
           <Stack spacing={3}>
             <Box>
               <Typography variant="caption" color="#4c5454" sx={{ mb: 0.5, display: 'block', fontWeight: 600, fontSize: '0.75rem' }}>
-                ОКОНЧАТЕЛЬНАЯ СУММА ПЕРЕВОДА
+                ОКОНЧАТЕЛЬНАЯ СУММА ПЕРЕВОДА <Box component="span" sx={{ color: '#ca0ec0' }}>*</Box>
               </Typography>
               <TextField
                 fullWidth
@@ -646,6 +660,7 @@ const AccountantReviewPage: React.FC = () => {
                 type="text"
                 value={finalAmount}
                 onChange={handleAmountChange}
+                onBlur={handleAmountBlur}
                 InputProps={{
                   endAdornment: <InputAdornment position="end">₽</InputAdornment>,
                 }}
@@ -654,18 +669,19 @@ const AccountantReviewPage: React.FC = () => {
                     borderRadius: 4,
                     backgroundColor: '#f8f7fa',
                     '& fieldset': {
-                      borderColor: 'rgba(103, 79, 182, 0.2)',
+                      borderColor: showAmountError ? '#ca0ec0' : 'rgba(103, 79, 182, 0.2)',
                     },
                     '&:hover fieldset': {
-                      borderColor: 'rgba(103, 79, 182, 0.4)',
+                      borderColor: showAmountError ? '#ca0ec0' : 'rgba(103, 79, 182, 0.4)',
                     },
                     '&.Mui-focused fieldset': {
-                      borderColor: '#674fb6',
+                      borderColor: showAmountError ? '#ca0ec0' : '#674fb6',
                     },
                   },
                 }}
-                error={finalAmount !== '' && !isAmountValid}
-                helperText={finalAmount !== '' && !isAmountValid ? 'Введите корректную сумму' : ''}
+                error={showAmountError}
+                helperText={showAmountError ? 'Укажите сумму перевода' : ''}
+                required
               />
             </Box>
             <Box>
@@ -694,6 +710,8 @@ const AccountantReviewPage: React.FC = () => {
             onClick={() => {
               setApproveDialog(false);
               setComment('');
+              setFinalAmount('');
+              setFinalAmountTouched(false);
             }}
             sx={{ 
               borderRadius: 4, 
@@ -755,7 +773,7 @@ const AccountantReviewPage: React.FC = () => {
         <DialogContent sx={{ p: 3, pt: 2 }}>
           <Box>
             <Typography variant="caption" color="#4c5454" sx={{ mb: 0.5, display: 'block', fontWeight: 600, fontSize: '0.75rem' }}>
-              ПРИЧИНА ОТКЛОНЕНИЯ
+              ПРИЧИНА ОТКЛОНЕНИЯ <Box component="span" sx={{ color: '#ca0ec0' }}>*</Box>
             </Typography>
             <TextField
               fullWidth
@@ -765,7 +783,7 @@ const AccountantReviewPage: React.FC = () => {
               multiline
               rows={4}
               error={!comment.trim()}
-              helperText={!comment.trim() ? 'Обязательное поле' : ''}
+              helperText={!comment.trim() ? 'Укажите причину отклонения' : ''}
               sx={{ 
                 '& .MuiOutlinedInput-root': { 
                   borderRadius: 4,
@@ -773,6 +791,7 @@ const AccountantReviewPage: React.FC = () => {
                 },
               }}
               autoFocus
+              required
             />
           </Box>
         </DialogContent>

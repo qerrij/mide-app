@@ -520,29 +520,28 @@ async def fix_report(
             ))
             total_amount += amount_after_rate * quantity
         
-        # Проверяем фото
+        # Проверяем фото - теперь они ОБЯЗАТЕЛЬНЫ при исправлении
         if not photos:
-            raise HTTPException(status_code=400, detail="Требуется прикрепить хотя бы одно фото")
+            raise HTTPException(status_code=400, detail="Требуется прикрепить фотографии при исправлении отчета")
         
         errors = validate_files(photos)
         if errors:
             raise HTTPException(status_code=400, detail="; ".join(errors))
         
-        # Удаляем старые фото
-        for old_photo_path in report.transfer_photos:
-            delete_file(old_photo_path)
-        
         # Сохраняем новые фото
-        photo_paths = save_uploaded_files(photos, f"reports/{report_id}")
+        new_photo_paths = save_uploaded_files(photos, f"reports/{report_id}")
         
         # Удаляем старые товары
         for product in report.products:
             db.delete(product)
         db.commit()
         
-        # Обновляем отчет
+        # Обновляем отчет, СОХРАНЯЯ старые фото и ДОБАВЛЯЯ новые
+        existing_photos = report.transfer_photos or []
+        all_photos = existing_photos + new_photo_paths  # Объединяем, но НЕ удаляем старые
+        
         report.transfer_amount = total_amount
-        report.transfer_photos = photo_paths
+        report.transfer_photos = all_photos  # Сохраняем все фото (старые + новые)
         report.comment = comment
         report.accountant_amount = accountant_amount
         report.status = ReportStatus.AWAITING_ACCOUNTANT
