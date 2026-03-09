@@ -29,9 +29,6 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Монтируем статические файлы
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-
 # Подключаем роутеры
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(users.router, prefix="/api")
