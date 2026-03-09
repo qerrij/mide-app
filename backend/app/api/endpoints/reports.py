@@ -291,7 +291,7 @@ def enrich_reports_response(reports):
 
 # ==================== ОСНОВНЫЕ ЭНДПОИНТЫ ====================
 
-@router.get("/", response_model=List[ReportResponse])
+@router.get("", response_model=List[ReportResponse])
 def get_reports(
     skip: int = 0,
     limit: int = 100,
@@ -345,7 +345,7 @@ def get_report(
     return enrich_report_response(report)
 
 
-@router.post("/", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def create_report(
     products_data: str = Form(...),
     accountant_amount: float = Form(...),

@@ -9,7 +9,7 @@ from app.api.dependencies import get_current_user, require_role, require_roles
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-@router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     user_in: UserCreate,
     db: Session = Depends(get_db),
@@ -147,7 +147,7 @@ def read_current_user(
     return current_user
 
 
-@router.get("/", response_model=List[UserResponse])
+@router.get("", response_model=List[UserResponse])
 def read_users(
     skip: int = 0,
     limit: int = 100,
