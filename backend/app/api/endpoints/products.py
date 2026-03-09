@@ -11,7 +11,7 @@ from app.models.user import UserRole
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-@router.post("/", 
+@router.post("", 
             response_model=ProductResponse,
             status_code=status.HTTP_201_CREATED,
             dependencies=[Depends(require_roles([UserRole.OWNER]))])
@@ -105,7 +105,7 @@ def delete_product(
         raise HTTPException(status_code=404, detail="Product not found")
     return None
 
-@router.get("/", response_model=List[ProductResponse])
+@router.get("", response_model=List[ProductResponse])
 def get_products(
     skip: int = 0,
     limit: int = 100,

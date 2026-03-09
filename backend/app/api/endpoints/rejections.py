@@ -29,7 +29,7 @@ def get_available_products_for_rejection(
     return crud_rejection.get_user_available_products(db, current_user.id)
 
 
-@router.post("/", response_model=RejectionResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=RejectionResponse, status_code=status.HTTP_201_CREATED)
 def create_rejection(
     rejection_in_str: str = Form(..., description="Данные брака в JSON формате"),
     photos: List[UploadFile] = File(None, description="Фото брака"),
@@ -211,7 +211,7 @@ def get_my_rejections(
     return [_prepare_rejection_response(rejection, db) for rejection in rejections]
 
 
-@router.get("/", response_model=List[RejectionResponse])
+@router.get("", response_model=List[RejectionResponse])
 def get_all_rejections(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),

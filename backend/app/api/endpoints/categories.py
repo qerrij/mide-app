@@ -10,7 +10,7 @@ from app.models.user import UserRole
 router = APIRouter(prefix="/categories", tags=["categories"])
 
 
-@router.get("/", response_model=List[ProductCategoryResponse])
+@router.get("", response_model=List[ProductCategoryResponse])
 def get_categories(
     skip: int = 0,
     limit: int = 100,
@@ -39,7 +39,7 @@ def get_category(
     return category
 
 
-@router.post("/", response_model=ProductCategoryResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ProductCategoryResponse, status_code=status.HTTP_201_CREATED)
 def create_category(
     category_in: ProductCategoryCreate,
     db: Session = Depends(get_db),

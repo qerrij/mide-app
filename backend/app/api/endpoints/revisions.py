@@ -23,7 +23,7 @@ from sqlalchemy import func
 router = APIRouter(prefix="/revisions", tags=["revisions"])
 
 
-@router.get("/", response_model=List[RevisionResponse])
+@router.get("", response_model=List[RevisionResponse])
 def get_revisions(
     skip: int = 0,
     limit: int = 100,

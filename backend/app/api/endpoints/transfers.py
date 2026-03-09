@@ -406,7 +406,7 @@ def approve_discrepancy(
     return {"message": "Решение сохранено"}
 
 
-@router.get("/", response_model=List[TransferResponse])
+@router.get("", response_model=List[TransferResponse])
 def get_transfers(
     skip: int = 0,
     limit: int = 100,

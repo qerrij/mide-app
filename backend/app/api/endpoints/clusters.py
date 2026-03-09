@@ -11,7 +11,7 @@ from app.api.dependencies import get_current_user, require_role, require_roles
 router = APIRouter(prefix="/clusters", tags=["clusters"])
 
 
-@router.post("/", response_model=ClusterResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ClusterResponse, status_code=status.HTTP_201_CREATED)
 def create_cluster(
     cluster_in: ClusterCreate,
     db: Session = Depends(get_db),
@@ -24,7 +24,7 @@ def create_cluster(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/", response_model=List[ClusterResponse])
+@router.get("", response_model=List[ClusterResponse])
 def read_clusters(
     skip: int = 0,
     limit: int = 100,

@@ -13,7 +13,7 @@ from app.api.dependencies import get_current_user
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-@router.get("/", response_model=List[NotificationResponse])
+@router.get("", response_model=List[NotificationResponse])
 def get_notifications(
     skip: int = 0,
     limit: int = 50,

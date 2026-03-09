@@ -11,7 +11,7 @@ from app.api.dependencies import get_current_user, require_role, require_roles
 router = APIRouter(prefix="/groups", tags=["groups"])
 
 
-@router.post("/", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
 def create_group(
     group_in: GroupCreate,
     db: Session = Depends(get_db),
@@ -24,7 +24,7 @@ def create_group(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/", response_model=List[GroupResponse])
+@router.get("", response_model=List[GroupResponse])
 def read_groups(
     skip: int = 0,
     limit: int = 100,
