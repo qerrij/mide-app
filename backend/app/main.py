@@ -18,9 +18,6 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# Создаем директорию для загрузок
-uploads_dir = Path("uploads")
-uploads_dir.mkdir(exist_ok=True)
 
 # CORS middleware
 app.add_middleware(
