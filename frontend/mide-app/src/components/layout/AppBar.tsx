@@ -21,7 +21,9 @@ import {
   Warehouse,
   People,
   Close as CloseIcon,
+  
 } from '@mui/icons-material';
+import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import Notifications from '../common/Notifications';
@@ -135,6 +137,13 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
       path: '/products',
       roles: ['OWNER']
     },
+    {
+      title: 'Бухгалтерия',
+      icon: <AccountBalanceIcon />,
+      path: '/company',
+      roles: ['OWNER', 'ACCOUNTANT']
+    },
+
   ];
 
   // Добавляем персонал только для владельца

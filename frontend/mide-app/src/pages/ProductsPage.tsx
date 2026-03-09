@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Container,
   Paper,
@@ -25,11 +25,21 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Tab,
-  Tabs,
   CircularProgress,
   Alert,
   Snackbar,
+  InputAdornment,
+  Badge,
+  alpha,
+  useTheme,
+  useMediaQuery,
+  Skeleton,
+  Divider,
+  Tooltip,
+  Collapse,
+  Zoom,
+  Fade,
+  Stack,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,32 +48,684 @@ import {
   Refresh as RefreshIcon,
   Inventory as InventoryIcon,
   Category as CategoryIcon,
+  Search as SearchIcon,
+  FilterList as FilterIcon,
+  Clear as ClearIcon,
+  Sort as SortIcon,
+  ArrowUpward as ArrowUpIcon,
+  ArrowDownward as ArrowDownIcon,
+  Close as CloseIcon,
+  Person as PersonIcon,
+  ShoppingBag as ShoppingBagIcon,
+  PriceChange as PriceIcon,
+  Numbers as QuantityIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { productService } from '../api/productService';
 import { userService } from '../api/userService';
 import { Product, ProductCategory, UserRole, InventoryItem, User } from '../types';
 
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
+// iOS стили с уменьшенными закруглениями
+const iOSStyles = {
+  paper: {
+    borderRadius: 8,
+    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.05)',
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+  },
+  card: {
+    borderRadius: 8,
+    boxShadow: '0 1px 4px rgba(0, 0, 0, 0.05)',
+    transition: 'transform 0.15s, box-shadow 0.15s',
+    '&:hover': {
+      transform: 'translateY(-1px)',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+    },
+  },
+  chip: {
+    borderRadius: 4,
+    height: 24,
+    fontWeight: 500,
+    fontSize: '0.75rem',
+  },
+  button: {
+    borderRadius: 6,
+    textTransform: 'none',
+    fontWeight: 600,
+    padding: '6px 12px',
+  },
+  dialog: {
+    borderRadius: 4, // Изменено с 16 на 4
+    '& .MuiDialog-paper': {
+      borderRadius: 4, // Изменено с 16 на 4
+      padding: 0,
+    },
+  },
+  input: {
+    borderRadius: 4,
+    '& .MuiOutlinedInput-root': {
+      borderRadius: 4,
+    },
+  },
+  tableHeader: {
+    fontWeight: 600,
+    backgroundColor: '#f8f9fa',
+    borderBottom: '2px solid #e9ecef',
+  },
+};
+
+// Компонент бейджей-табов
+interface TabBadgeProps {
   value: number;
+  onChange: (newValue: number) => void;
+  tabs: Array<{
+    label: string;
+    icon: React.ReactNode;
+    value: number;
+  }>;
 }
 
-const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
+const TabBadges: React.FC<TabBadgeProps> = ({ value, onChange, tabs }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`products-tabpanel-${index}`}
-      aria-labelledby={`products-tab-${index}`}
+    <Box 
+      sx={{ 
+        display: 'flex', 
+        gap: 1, 
+        p: 1.5,
+        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        flexWrap: 'wrap',
+      }}
     >
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
-    </div>
+      {tabs.map((tab) => (
+        <Button
+          key={tab.value}
+          onClick={() => onChange(tab.value)}
+          variant={value === tab.value ? 'contained' : 'outlined'}
+          startIcon={tab.icon}
+          sx={{
+            ...iOSStyles.button,
+            borderRadius: 4,
+            flex: isMobile ? 1 : '0 1 auto',
+            backgroundColor: value === tab.value ? theme.palette.primary.main : 'transparent',
+            borderColor: value === tab.value ? 'transparent' : alpha(theme.palette.primary.main, 0.3),
+            color: value === tab.value ? 'white' : theme.palette.text.primary,
+            '&:hover': {
+              backgroundColor: value === tab.value 
+                ? theme.palette.primary.dark 
+                : alpha(theme.palette.primary.main, 0.08),
+            },
+          }}
+        >
+          {tab.label}
+        </Button>
+      ))}
+    </Box>
+  );
+};
+
+// Компонент фильтров (без иконок)
+interface FilterSectionProps {
+  users: User[];
+  categories: ProductCategory[];
+  products: Product[];
+  filters: {
+    userId: number | 'all';
+    categoryId: number | 'all';
+    productId: number | 'all';
+  };
+  onFilterChange: (filters: any) => void;
+  onClearFilters: () => void;
+}
+
+const FilterSection: React.FC<FilterSectionProps> = ({
+  users,
+  categories,
+  products,
+  filters,
+  onFilterChange,
+  onClearFilters,
+}) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const [showFilters, setShowFilters] = useState(!isMobile);
+  const [userSearch, setUserSearch] = useState('');
+  const [productSearch, setProductSearch] = useState('');
+  const [isProductSearching, setIsProductSearching] = useState(false);
+
+  // Фильтруем пользователей по поиску
+  const filteredUsers = users.filter(user => 
+    user.fullName.toLowerCase().includes(userSearch.toLowerCase()) ||
+    user.username?.toLowerCase().includes(userSearch.toLowerCase())
+  );
+
+  // Фильтруем товары по поиску с debounce
+  const filteredProducts = useMemo(() => {
+    let filtered = products;
+    
+    // Если выбрана категория, фильтруем по ней
+    if (filters.categoryId !== 'all') {
+      filtered = filtered.filter(product => product.categoryId === filters.categoryId);
+    }
+    
+    // Фильтруем по поиску
+    if (productSearch) {
+      filtered = filtered.filter(product => 
+        product.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+        product.sku?.toLowerCase().includes(productSearch.toLowerCase())
+      );
+    }
+    
+    return filtered;
+  }, [products, filters.categoryId, productSearch]);
+
+  // Получаем выбранный товар
+  const selectedProduct = useMemo(() => {
+    if (filters.productId === 'all') return null;
+    return products.find(p => p.id === filters.productId);
+  }, [products, filters.productId]);
+
+  // Обработчик изменения товара
+  const handleProductChange = (productId: number | 'all') => {
+    if (productId === 'all') {
+      onFilterChange({ productId: 'all' });
+    } else {
+      const product = products.find(p => p.id === productId);
+      if (product) {
+        // Устанавливаем товар и его категорию, но категория не блокируется
+        onFilterChange({ 
+          productId: productId,
+          categoryId: product.categoryId // Устанавливаем категорию выбранного товара
+        });
+      }
+    }
+  };
+
+  // Обработчик изменения категории
+  const handleCategoryChange = (categoryId: number | 'all') => {
+    // При изменении категории сбрасываем выбранный товар
+    onFilterChange({ 
+      categoryId: categoryId,
+      productId: 'all' // Сбрасываем товар при смене категории
+    });
+    // Сбрасываем поиск по товарам
+    setProductSearch('');
+  };
+
+  const activeFiltersCount = [
+    filters.userId !== 'all',
+    filters.categoryId !== 'all',
+    filters.productId !== 'all',
+  ].filter(Boolean).length;
+
+  return (
+    <Paper 
+      elevation={0} 
+      sx={{ 
+        p: { xs: 1.5, sm: 2 }, 
+        mb: 2, 
+        borderRadius: 1,
+        backgroundColor: alpha(theme.palette.primary.light, 0.02),
+        border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: showFilters ? 2 : 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <FilterIcon sx={{ color: theme.palette.text.secondary, fontSize: 20 }} />
+          <Typography variant="subtitle2" fontWeight={600}>
+            Фильтры {activeFiltersCount > 0 && `(${activeFiltersCount})`}
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {activeFiltersCount > 0 && (
+            <Button 
+              size="small" 
+              onClick={onClearFilters}
+              sx={{ ...iOSStyles.button, fontSize: '0.75rem', py: 0.5 }}
+            >
+              Сбросить
+            </Button>
+          )}
+          {isMobile && (
+            <IconButton size="small" onClick={() => setShowFilters(!showFilters)}>
+              <FilterIcon fontSize="small" />
+            </IconButton>
+          )}
+        </Box>
+      </Box>
+
+      <Collapse in={showFilters}>
+        <Grid container spacing={2}>
+          {/* Фильтр по пользователям */}
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <FormControl fullWidth size="small" sx={iOSStyles.input}>
+              <InputLabel id="user-filter-label">Пользователь</InputLabel>
+              <Select
+                labelId="user-filter-label"
+                value={filters.userId}
+                label="Пользователь"
+                onChange={(e) => onFilterChange({ userId: e.target.value })}
+                MenuProps={{
+                  PaperProps: {
+                    sx: { borderRadius: 2, maxHeight: 400 },
+                  },
+                }}
+              >
+                <MenuItem value="all">Все пользователи</MenuItem>
+                <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
+                  <TextField
+                    size="small"
+                    placeholder="Поиск пользователя..."
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    fullWidth
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    sx={iOSStyles.input}
+                  />
+                </Box>
+                {filteredUsers.map(user => (
+                  <MenuItem key={user.id} value={user.id}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="body2" fontWeight={500}>
+                        {user.fullName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {user.username}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+                {filteredUsers.length === 0 && (
+                  <MenuItem disabled>
+                    <Typography variant="body2" color="text.secondary">
+                      Пользователи не найдены
+                    </Typography>
+                  </MenuItem>
+                )}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {/* Фильтр по категориям */}
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <FormControl fullWidth size="small" sx={iOSStyles.input}>
+              <InputLabel id="category-filter-label">Категория</InputLabel>
+              <Select
+                labelId="category-filter-label"
+                value={filters.categoryId}
+                label="Категория"
+                onChange={(e) => handleCategoryChange(e.target.value as number | 'all')}
+                // Убрано disabled - категория всегда доступна для выбора
+                MenuProps={{
+                  PaperProps: { sx: { borderRadius: 2 } },
+                }}
+              >
+                <MenuItem value="all">Все категории</MenuItem>
+                {categories.map(category => (
+                  <MenuItem key={category.id} value={category.id}>
+                    {category.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {/* Фильтр по товарам */}
+          <Grid size={{ xs: 12, sm: 4 }}>
+            <FormControl fullWidth size="small" sx={iOSStyles.input}>
+              <InputLabel id="product-filter-label">Товар</InputLabel>
+              <Select
+                labelId="product-filter-label"
+                value={filters.productId}
+                label="Товар"
+                onChange={(e) => handleProductChange(e.target.value as number | 'all')}
+                MenuProps={{
+                  PaperProps: { sx: { borderRadius: 2, maxHeight: 400 } },
+                }}
+              >
+                <MenuItem value="all">Все товары</MenuItem>
+                <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
+                  <TextField
+                    size="small"
+                    placeholder="Поиск товара..."
+                    value={productSearch}
+                    onChange={(e) => {
+                      setProductSearch(e.target.value);
+                      setIsProductSearching(true);
+                    }}
+                    onBlur={() => setTimeout(() => setIsProductSearching(false), 200)}
+                    fullWidth
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    sx={iOSStyles.input}
+                  />
+                </Box>
+                {filteredProducts.map(product => (
+                  <MenuItem key={product.id} value={product.id}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="body2" fontWeight={500}>
+                        {product.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {product.sku} • {product.price} ₽ • {categories.find(c => c.id === product.categoryId)?.name}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+                {filteredProducts.length === 0 && !isProductSearching && (
+                  <MenuItem disabled>
+                    <Typography variant="body2" color="text.secondary">
+                      {filters.categoryId !== 'all' ? 'Нет товаров в этой категории' : 'Товары не найдены'}
+                    </Typography>
+                  </MenuItem>
+                )}
+                {isProductSearching && (
+                  <MenuItem disabled>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                      <CircularProgress size={20} />
+                    </Box>
+                  </MenuItem>
+                )}
+              </Select>
+            </FormControl>
+          </Grid>
+        </Grid>
+      </Collapse>
+    </Paper>
+  );
+};
+
+// Компонент сортировки (только цена и количество)
+interface SortSectionProps {
+  sortBy: 'price' | 'quantity';
+  sortOrder: 'asc' | 'desc';
+  onSortChange: (sortBy: 'price' | 'quantity') => void;
+}
+
+const SortSection: React.FC<SortSectionProps> = ({ sortBy, sortOrder, onSortChange }) => {
+  const theme = useTheme();
+
+  const sortOptions = [
+    { value: 'price', label: 'Цене', icon: <PriceIcon fontSize="small" /> },
+    { value: 'quantity', label: 'Количеству', icon: <QuantityIcon fontSize="small" /> },
+  ] as const;
+
+  return (
+    <Box 
+      sx={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: 1, 
+        mb: 2,
+        flexWrap: 'wrap',
+      }}
+    >
+      <SortIcon sx={{ color: theme.palette.text.secondary, fontSize: 20 }} />
+      <Typography variant="subtitle2" color="text.secondary">
+        Сортировать по:
+      </Typography>
+      {sortOptions.map((option) => (
+        <Button
+          key={option.value}
+          size="small"
+          variant={sortBy === option.value ? 'contained' : 'outlined'}
+          onClick={() => onSortChange(option.value)}
+          endIcon={
+            sortBy === option.value && (
+              sortOrder === 'asc' ? <ArrowUpIcon fontSize="small" /> : <ArrowDownIcon fontSize="small" />
+            )
+          }
+          sx={{
+            ...iOSStyles.button,
+            borderRadius: 4,
+            py: 0.5,
+            px: 1.5,
+            fontSize: '0.75rem',
+            backgroundColor: sortBy === option.value ? theme.palette.primary.main : 'transparent',
+            borderColor: sortBy === option.value ? 'transparent' : alpha(theme.palette.primary.main, 0.3),
+          }}
+        >
+          {option.label}
+        </Button>
+      ))}
+    </Box>
+  );
+};
+
+// Компонент таблицы с фиксированным заголовком
+interface InventoryTableProps {
+  items: InventoryItem[];
+  products: Product[];
+  categories: ProductCategory[];
+  users: User[];
+  loading: boolean;
+  getUserFullName: (userId: number) => string;
+  getCategoryName: (categoryId: number) => string;
+}
+
+const InventoryTable: React.FC<InventoryTableProps> = ({
+  items,
+  products,
+  categories,
+  users,
+  loading,
+  getUserFullName,
+  getCategoryName,
+}) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  if (loading) {
+    return (
+      <Box sx={{ p: 2 }}>
+        {[1, 2, 3].map((i) => (
+          <Skeleton 
+            key={i} 
+            variant="rectangular" 
+            height={48} 
+            sx={{ borderRadius: 1, mb: 1 }} 
+          />
+        ))}
+      </Box>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <Zoom in={true}>
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            p: 4, 
+            textAlign: 'center',
+            borderRadius: 1,
+            backgroundColor: alpha(theme.palette.primary.light, 0.02),
+            border: `1px dashed ${alpha(theme.palette.primary.main, 0.2)}`,
+          }}
+        >
+          <InventoryIcon sx={{ fontSize: 48, color: alpha(theme.palette.primary.main, 0.2), mb: 2 }} />
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            Нет товаров в инвентаре
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Используйте кнопку "Пополнить" чтобы добавить товары
+          </Typography>
+        </Paper>
+      </Zoom>
+    );
+  }
+
+  if (isMobile) {
+    // Карточный вид для мобильных с улучшенными акцентами и более сильной тенью
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        {items.map((item) => {
+          const product = products.find(p => p.id === item.productId);
+          return (
+            <Fade in={true} key={`${item.productId}-${item.userId}`}>
+              <Card sx={{ 
+                ...iOSStyles.card, 
+                p: 1.5,
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                border: '1px solid rgba(0, 0, 0, 0.05)',
+              }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography variant="subtitle1" fontWeight={600} fontSize="0.95rem">
+                      {product?.name || 'Неизвестно'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      SKU: {product?.sku || 'N/A'}
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={product ? getCategoryName(product.categoryId) : 'Без категории'}
+                    size="small"
+                    sx={{ 
+                      ...iOSStyles.chip, 
+                      backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                      color: theme.palette.primary.main,
+                      fontWeight: 600,
+                      fontSize: '0.7rem',
+                      height: 20,
+                    }}
+                  />
+                </Box>
+                
+                <Divider sx={{ my: 1 }} />
+                
+                <Grid container spacing={1}>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Количество
+                    </Typography>
+                    <Typography variant="body1" fontWeight={700} color={item.quantity > 0 ? 'primary' : 'text.secondary'}>
+                      {item.quantity} шт.
+                    </Typography>
+                    {item.reservedQuantity > 0 && (
+                      <Typography variant="caption" sx={{ color: theme.palette.warning.main, fontWeight: 600 }}>
+                        Резерв: {item.reservedQuantity}
+                      </Typography>
+                    )}
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Цена
+                    </Typography>
+                    <Typography variant="body1" fontWeight={700} color="success.main">
+                      {product?.price ? `${product.price.toLocaleString()} ₽` : 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Ответственный
+                    </Typography>
+                    <Typography variant="body2" fontWeight={500}>
+                      {getUserFullName(item.userId)}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Card>
+            </Fade>
+          );
+        })}
+      </Box>
+    );
+  }
+
+  // Табличный вид для десктопа с фиксированным заголовком
+  return (
+    <TableContainer 
+      component={Paper} 
+      elevation={0}
+      sx={{ 
+        borderRadius: 1,
+        border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        overflow: 'auto',
+        maxHeight: 'calc(100vh - 400px)',
+      }}
+    >
+      <Table stickyHeader>
+        <TableHead>
+          <TableRow>
+            <TableCell sx={iOSStyles.tableHeader}>Товар</TableCell>
+            <TableCell sx={iOSStyles.tableHeader}>SKU</TableCell>
+            <TableCell sx={iOSStyles.tableHeader}>Категория</TableCell>
+            <TableCell sx={iOSStyles.tableHeader}>Количество</TableCell>
+            <TableCell sx={iOSStyles.tableHeader}>Ответственный</TableCell>
+            <TableCell sx={iOSStyles.tableHeader}>Цена</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {items.map((item) => {
+            const product = products.find(p => p.id === item.productId);
+            return (
+              <TableRow 
+                key={`${item.productId}-${item.userId}`} 
+                hover
+                sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
+              >
+                <TableCell>
+                  <Typography variant="body2" fontWeight={500}>
+                    {product?.name || 'Неизвестно'}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    label={product?.sku || 'N/A'} 
+                    size="small" 
+                    variant="outlined"
+                    sx={{ ...iOSStyles.chip, borderRadius: 4 }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Chip 
+                    label={product ? getCategoryName(product.categoryId) : 'Без категории'} 
+                    size="small" 
+                    sx={{ 
+                      ...iOSStyles.chip, 
+                      backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                      color: theme.palette.primary.main,
+                      fontWeight: 500,
+                      borderRadius: 4,
+                    }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" fontWeight="bold" color="primary">
+                    {item.quantity} шт.
+                  </Typography>
+                  {item.reservedQuantity > 0 && (
+                    <Typography variant="caption" sx={{ color: theme.palette.warning.main }}>
+                      резерв: {item.reservedQuantity}
+                    </Typography>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2">
+                    {getUserFullName(item.userId)}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" fontWeight="bold" color="success.main">
+                    {product?.price ? `${product.price.toLocaleString()} ₽` : 'N/A'}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 };
 
 const ProductsPage: React.FC = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { user } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
@@ -75,6 +737,18 @@ const ProductsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   
+  // Фильтры и сортировка
+  const [filters, setFilters] = useState({
+    userId: 'all' as number | 'all',
+    categoryId: 'all' as number | 'all',
+    productId: 'all' as number | 'all',
+  });
+  
+  const [sortConfig, setSortConfig] = useState({
+    by: 'quantity' as 'price' | 'quantity',
+    order: 'desc' as 'asc' | 'desc',
+  });
+
   // Диалоги
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [replenishDialogOpen, setReplenishDialogOpen] = useState(false);
@@ -91,17 +765,16 @@ const ProductsPage: React.FC = () => {
   const [replenishForm, setReplenishForm] = useState({
     isNewProduct: false,
     productId: '',
-    quantity: 1,
+    quantity: '',
     newProduct: {
       name: '',
       sku: '',
       categoryId: '',
-      price: 0,
+      price: '',
       description: '',
     },
   });
 
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | 'all'>('all');
   const [categoryToDelete, setCategoryToDelete] = useState<ProductCategory | null>(null);
   const [isEditingCategory, setIsEditingCategory] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
@@ -121,7 +794,7 @@ const ProductsPage: React.FC = () => {
         productService.getAllProducts(),
         productService.getAllCategories(),
         productService.getCompanyInventory(),
-        userService.getAllUsers(0, 1000), // Получаем всех пользователей
+        userService.getAllUsers(0, 1000),
       ]);
       
       setProducts(productsData);
@@ -137,19 +810,17 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  // Получить ФИО пользователя по ID
   const getUserFullName = (userId: number): string => {
     const user = users.find(u => u.id === userId);
     return user?.fullName || `Пользователь #${userId}`;
   };
 
-  // Получить имя категории по ID
   const getCategoryName = (categoryId: number): string => {
     const category = categories.find(c => c.id === categoryId);
     return category?.name || `Категория #${categoryId}`;
   };
 
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+  const handleTabChange = (newValue: number) => {
     setTabValue(newValue);
   };
 
@@ -209,29 +880,25 @@ const ProductsPage: React.FC = () => {
   const handleReplenish = async () => {
     try {
       if (replenishForm.isNewProduct) {
-        // Создать новый товар
         const newProduct = await productService.createProduct({
           name: replenishForm.newProduct.name,
           sku: replenishForm.newProduct.sku,
           categoryId: parseInt(replenishForm.newProduct.categoryId),
-          price: replenishForm.newProduct.price,
+          price: parseFloat(replenishForm.newProduct.price) || 0,
           description: replenishForm.newProduct.description,
         });
         
-        // Пополнить инвентарь новым товаром
         await productService.replenishInventory({
           productId: newProduct.id,
-          quantity: replenishForm.quantity,
+          quantity: parseInt(replenishForm.quantity) || 1,
         });
       } else {
-        // Пополнить существующий товар
         await productService.replenishInventory({
           productId: parseInt(replenishForm.productId),
-          quantity: replenishForm.quantity,
+          quantity: parseInt(replenishForm.quantity) || 1,
         });
       }
       
-      // Обновить данные
       await loadData();
       setReplenishDialogOpen(false);
       resetReplenishForm();
@@ -245,12 +912,12 @@ const ProductsPage: React.FC = () => {
     setReplenishForm({
       isNewProduct: false,
       productId: '',
-      quantity: 1,
+      quantity: '',
       newProduct: {
         name: '',
         sku: '',
         categoryId: '',
-        price: 0,
+        price: '',
         description: '',
       },
     });
@@ -263,35 +930,104 @@ const ProductsPage: React.FC = () => {
     setEditingCategoryId(null);
   };
 
-  // Фильтрация инвентаря для таблицы
-  const filteredInventory = selectedCategoryId === 'all' 
-    ? inventory 
-    : inventory.filter(item => {
-        const product = products.find(p => p.id === item.productId);
-        return product?.categoryId === selectedCategoryId;
-      });
+  const handleFilterChange = (newFilters: Partial<typeof filters>) => {
+    setFilters(prev => ({ ...prev, ...newFilters }));
+  };
 
-  // Фильтрация товаров для пополнения (существующие товары)
+  const handleClearFilters = () => {
+    setFilters({ userId: 'all', categoryId: 'all', productId: 'all' });
+  };
+
+  const handleSortChange = (sortBy: 'price' | 'quantity') => {
+    setSortConfig(prev => ({
+      by: sortBy,
+      order: prev.by === sortBy && prev.order === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  // Фильтрация и сортировка инвентаря
+  const getFilteredAndSortedInventory = () => {
+    // Сначала агрегируем данные
+    const aggregated = inventory.reduce((acc, item) => {
+      const existing = acc.find(i => i.productId === item.productId && i.userId === item.userId);
+      if (existing) {
+        existing.quantity += item.quantity;
+        existing.reservedQuantity += item.reservedQuantity;
+      } else {
+        acc.push({ ...item });
+      }
+      return acc;
+    }, [] as InventoryItem[]);
+
+    // Применяем фильтры
+    let filtered = aggregated.filter(item => {
+      const product = products.find(p => p.id === item.productId);
+      if (!product) return false;
+      
+      const matchesUser = filters.userId === 'all' || item.userId === filters.userId;
+      const matchesCategory = filters.categoryId === 'all' || product.categoryId === filters.categoryId;
+      const matchesProduct = filters.productId === 'all' || item.productId === filters.productId;
+      
+      return matchesUser && matchesCategory && matchesProduct;
+    });
+
+    // Применяем сортировку
+    filtered.sort((a, b) => {
+      const productA = products.find(p => p.id === a.productId);
+      const productB = products.find(p => p.id === b.productId);
+      
+      if (sortConfig.by === 'price') {
+        const priceA = productA?.price || 0;
+        const priceB = productB?.price || 0;
+        return sortConfig.order === 'asc' ? priceA - priceB : priceB - priceA;
+      }
+      
+      if (sortConfig.by === 'quantity') {
+        return sortConfig.order === 'asc' 
+          ? a.quantity - b.quantity
+          : b.quantity - a.quantity;
+      }
+      
+      return 0;
+    });
+
+    return filtered;
+  };
+
+  const filteredInventory = getFilteredAndSortedInventory();
   const filteredProductsForReplenish = replenishCategoryFilter === 'all'
     ? products
     : products.filter(product => product.categoryId === replenishCategoryFilter);
 
-  // Агрегируем данные по товарам для лучшего отображения
-  const aggregatedInventory = filteredInventory.reduce((acc, item) => {
-    const existing = acc.find(i => i.productId === item.productId && i.userId === item.userId);
-    if (existing) {
-      existing.quantity += item.quantity;
-      existing.reservedQuantity += item.reservedQuantity;
-    } else {
-      acc.push({ ...item });
+  // Обработчик изменения количества
+  const handleQuantityChange = (value: string) => {
+    // Разрешаем только цифры
+    if (value === '' || /^\d+$/.test(value)) {
+      setReplenishForm({
+        ...replenishForm,
+        quantity: value
+      });
     }
-    return acc;
-  }, [] as InventoryItem[]);
+  };
+
+  // Обработчик изменения цены
+  const handlePriceChange = (value: string) => {
+    // Разрешаем цифры и точку
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setReplenishForm({
+        ...replenishForm,
+        newProduct: {
+          ...replenishForm.newProduct,
+          price: value
+        }
+      });
+    }
+  };
 
   if (user?.role !== UserRole.OWNER) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
-        <Paper sx={{ p: 3, textAlign: 'center' }}>
+      <Container maxWidth="lg" sx={{ mt: 2, mb: 2 }}>
+        <Paper sx={{ ...iOSStyles.paper, p: 4, textAlign: 'center' }}>
           <Typography variant="h6" color="error">
             Доступ запрещен. Эта страница доступна только владельцу.
           </Typography>
@@ -300,65 +1036,670 @@ const ProductsPage: React.FC = () => {
     );
   }
 
+  const tabs = [
+    { label: 'Товары', icon: <InventoryIcon fontSize="small" />, value: 0 },
+    { label: 'Категории', icon: <CategoryIcon fontSize="small" />, value: 1 },
+  ];
+
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Paper elevation={3} sx={{ borderRadius: 2 }}>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Tabs value={tabValue} onChange={handleTabChange} aria-label="products tabs">
-            <Tab 
-              icon={<InventoryIcon />} 
-              iconPosition="start" 
-              label="Товары" 
-              id="products-tab-0" 
-            />
-            <Tab 
-              icon={<CategoryIcon />} 
-              iconPosition="start" 
-              label="Категории" 
-              id="products-tab-1" 
-            />
-          </Tabs>
-        </Box>
+    <Container 
+      maxWidth="lg" 
+      sx={{ 
+        mt: { xs: 1, sm: 2 }, 
+        mb: { xs: 1, sm: 2 },
+        px: { xs: 1, sm: 2, md: 3 },
+      }}
+    >
+      <Paper elevation={0} sx={iOSStyles.paper}>
+        <TabBadges value={tabValue} onChange={handleTabChange} tabs={tabs} />
 
         {error && (
-          <Alert severity="error" sx={{ m: 2 }} onClose={() => setError(null)}>
+          <Alert 
+            severity="error" 
+            sx={{ m: 2, borderRadius: 1 }}
+            onClose={() => setError(null)}
+            action={
+              <IconButton color="inherit" size="small" onClick={() => setError(null)}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            }
+          >
             {error}
           </Alert>
         )}
 
-        <TabPanel value={tabValue} index={0}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-            <Box>
-              <Typography variant="h5" gutterBottom>
-                Общий остаток товаров
-              </Typography>
-              <Typography variant="h3" color="primary">
-                {totalQuantity} шт.
-              </Typography>
+        {tabValue === 0 && (
+          <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', mb: 3, gap: 2 }}>
+              <Box>
+                <Typography variant="h5" gutterBottom fontWeight={600}>
+                  Общий остаток товаров
+                </Typography>
+                <Typography variant="h3" color="primary" fontWeight={700}>
+                  {totalQuantity.toLocaleString()} шт.
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => setReplenishDialogOpen(true)}
+                  sx={{ 
+                    ...iOSStyles.button,
+                    background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                  }}
+                >
+                  Пополнить
+                </Button>
+                <Tooltip title="Обновить">
+                  <IconButton 
+                    onClick={loadData} 
+                    disabled={loading}
+                    sx={{ 
+                      backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                      '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                    }}
+                  >
+                    <RefreshIcon />
+                  </IconButton>
+                </Tooltip>
+              </Box>
             </Box>
-            <Box>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setReplenishDialogOpen(true)}
-                sx={{ mr: 1 }}
-              >
-                Пополнить товар
-              </Button>
-              <IconButton onClick={loadData} disabled={loading}>
-                <RefreshIcon />
-              </IconButton>
-            </Box>
-          </Box>
 
-          <Box sx={{ mb: 3 }}>
-            <FormControl sx={{ minWidth: 200 }}>
-              <InputLabel id="category-filter-label">Фильтр по категории</InputLabel>
+            <FilterSection
+              users={users}
+              categories={categories}
+              products={products}
+              filters={filters}
+              onFilterChange={handleFilterChange}
+              onClearFilters={handleClearFilters}
+            />
+
+            <SortSection
+              sortBy={sortConfig.by}
+              sortOrder={sortConfig.order}
+              onSortChange={handleSortChange}
+            />
+
+            <InventoryTable
+              items={filteredInventory}
+              products={products}
+              categories={categories}
+              users={users}
+              loading={loading}
+              getUserFullName={getUserFullName}
+              getCategoryName={getCategoryName}
+            />
+          </Box>
+        )}
+
+        {tabValue === 1 && (
+          <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
+            <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  mb: 3, 
+                  alignItems: 'center',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: { xs: 2, sm: 0 }
+                }}>
+                  <Typography variant="h5" fontWeight={600} sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    Управление категориями
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      resetCategoryForm();
+                      setCategoryDialogOpen(true);
+                    }}
+                    sx={{
+                      ...iOSStyles.button,
+                      width: { xs: '100%', sm: 'auto' },
+                      whiteSpace: 'nowrap',
+                      fontSize: { xs: '0.875rem', sm: '0.95rem' },
+                      py: { xs: 1, sm: 0.75 },
+                    }}
+                  >
+                    Добавить категорию
+                  </Button>
+                </Box>
+
+            <Grid container spacing={1.5}>
+              {categories.map((category) => (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }} key={category.id}>
+                  <Card variant="outlined" sx={iOSStyles.card}>
+                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="h6" gutterBottom fontWeight={600} fontSize="1rem">
+                            {category.name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" paragraph sx={{ minHeight: 32, fontSize: '0.875rem' }}>
+                            {category.description || 'Нет описания'}
+                          </Typography>
+                          <Chip
+                            label={category.isActive ? 'Активна' : 'Неактивна'}
+                            size="small"
+                            color={category.isActive ? 'success' : 'default'}
+                            variant="outlined"
+                            sx={{ ...iOSStyles.chip, height: 20 }}
+                          />
+                          <Box sx={{ mt: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              ID: {category.id}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Товаров: {products.filter(p => p.categoryId === category.id).length}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleEditCategory(category)}
+                            sx={{ 
+                              backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                              '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                            }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setCategoryToDelete(category);
+                              setDeleteCategoryDialogOpen(true);
+                            }}
+                            sx={{ 
+                              backgroundColor: alpha(theme.palette.error.main, 0.1),
+                              '&:hover': { backgroundColor: alpha(theme.palette.error.main, 0.2) },
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+              {categories.length === 0 && (
+                <Grid size={{ xs: 12 }}>
+                  <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 1 }}>
+                    <CategoryIcon sx={{ fontSize: 48, color: 'text.secondary', opacity: 0.2, mb: 2 }} />
+                    <Typography color="text.secondary">
+                      Категории еще не созданы. Создайте первую категорию.
+                    </Typography>
+                  </Paper>
+                </Grid>
+              )}
+            </Grid>
+          </Box>
+        )}
+      </Paper>
+
+      {/* Диалог создания/редактирования категории */}
+<Dialog 
+  open={categoryDialogOpen} 
+  onClose={() => {
+    setCategoryDialogOpen(false);
+    resetCategoryForm();
+  }}
+  PaperProps={{
+    sx: {
+      borderRadius: 4,
+      maxWidth: 520,
+      width: '100%',
+      m: 2,
+      boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+    },
+  }}
+>
+  <DialogTitle sx={{ p: { xs: 2, sm: 2.5 }, pb: 1 }}>
+    <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ mb: 0.5, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+      {isEditingCategory ? 'Редактировать категорию' : 'Создать новую категорию'}
+    </Typography>
+    <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.8rem', sm: '0.85rem' } }}>
+      {isEditingCategory ? 'Измените информацию о категории' : 'Заполните информацию о новой категории'}
+    </Typography>
+  </DialogTitle>
+  <DialogContent sx={{ p: { xs: 2, sm: 2.5 }, pt: { xs: 1, sm: 2 } }}>
+    <Stack spacing={2.5}>
+      <Box>
+        <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+          НАЗВАНИЕ КАТЕГОРИИ
+        </Typography>
+        <TextField
+          autoFocus
+          fullWidth
+          value={newCategory.name}
+          onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
+          size="small"
+          placeholder="Введите название категории"
+          variant="outlined"
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              backgroundColor: '#ffffff',
+              '& fieldset': {
+                borderColor: '#e0e0e0',
+                borderWidth: 1.5,
+              },
+              '&:hover fieldset': {
+                borderColor: '#9c7cae',
+              },
+              '&.Mui-focused fieldset': {
+                borderColor: '#3f1f4b',
+              },
+            },
+          }}
+        />
+      </Box>
+
+      <Box>
+        <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+          ОПИСАНИЕ
+        </Typography>
+        <TextField
+          fullWidth
+          multiline
+          rows={3}
+          value={newCategory.description}
+          onChange={(e) => setNewCategory({...newCategory, description: e.target.value})}
+          size="small"
+          placeholder="Введите описание категории (необязательно)"
+          variant="outlined"
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              backgroundColor: '#ffffff',
+              '& fieldset': {
+                borderColor: '#e0e0e0',
+                borderWidth: 1.5,
+              },
+              '&:hover fieldset': {
+                borderColor: '#9c7cae',
+              },
+              '&.Mui-focused fieldset': {
+                borderColor: '#3f1f4b',
+              },
+            },
+          }}
+        />
+      </Box>
+    </Stack>
+  </DialogContent>
+  <DialogActions sx={{ p: { xs: 2, sm: 2.5 }, pt: 1, gap: 1.5 }}>
+    <Button
+      onClick={() => {
+        setCategoryDialogOpen(false);
+        resetCategoryForm();
+      }}
+      variant="outlined"
+      sx={{
+        borderRadius: 2,
+        borderColor: '#e0e0e0',
+        borderWidth: 1.5,
+        backgroundColor: '#f8f7fa',
+        color: '#4c5454',
+        px: 3,
+        py: 1,
+        textTransform: 'none',
+        fontSize: { xs: '0.85rem', sm: '0.95rem' },
+        fontWeight: 500,
+        flex: 1,
+        '&:hover': {
+          backgroundColor: '#f0eef2',
+          borderColor: '#9c7cae',
+        },
+      }}
+    >
+      Отмена
+    </Button>
+    <Button
+      variant="contained"
+      onClick={isEditingCategory ? handleUpdateCategory : handleCreateCategory}
+      disabled={!newCategory.name.trim()}
+      sx={{
+        borderRadius: 2,
+        backgroundColor: '#3f1f4b',
+        color: 'white',
+        px: 3,
+        py: 1,
+        textTransform: 'none',
+        fontSize: { xs: '0.85rem', sm: '0.95rem' },
+        fontWeight: 500,
+        flex: 1,
+        '&:hover': { 
+          backgroundColor: '#2a0f35',
+        },
+        '&.Mui-disabled': {
+          backgroundColor: '#e0e0e0',
+          color: '#9e9e9e',
+        },
+      }}
+    >
+      {isEditingCategory ? 'Сохранить' : 'Создать'}
+    </Button>
+  </DialogActions>
+</Dialog>
+
+
+      {/* Диалог удаления категории */}
+      <Dialog 
+        open={deleteCategoryDialogOpen} 
+        onClose={() => setDeleteCategoryDialogOpen(false)}
+        PaperProps={{
+          sx: iOSStyles.dialog,
+        }}
+      >
+        <DialogTitle sx={{ p: 2.5, pb: 1 }}>
+          <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ mb: 0.5 }}>
+            Удалить категорию
+          </Typography>
+          <Typography variant="body2" color="#4c5454" sx={{ fontSize: '0.85rem' }}>
+            Вы уверены, что хотите удалить категорию "{categoryToDelete?.name}"?
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: 2.5, pt: 2 }}>
+          <Box sx={{
+            p: 2,
+            backgroundColor: 'rgba(211, 47, 47, 0.04)',
+            borderRadius: 4,
+            border: '1px solid rgba(211, 47, 47, 0.1)',
+          }}>
+            <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
+              ВНИМАНИЕ
+            </Typography>
+            <Typography variant="body2" color="#d32f2f">
+              Это действие нельзя отменить. Все связанные товары останутся в системе, но категория будет удалена.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1, gap: 1 }}>
+          <Button
+            onClick={() => setDeleteCategoryDialogOpen(false)}
+            sx={{
+              borderRadius: 4,
+              color: '#4c5454',
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+            }}
+          >
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleDeleteCategory}
+            sx={{
+              borderRadius: 4,
+              backgroundColor: '#d32f2f',
+              '&:hover': { backgroundColor: '#b71c1c' },
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+            }}
+          >
+            Удалить
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог пополнения товара */}
+<Dialog 
+  open={replenishDialogOpen} 
+  onClose={() => {
+    setReplenishDialogOpen(false);
+    resetReplenishForm();
+  }}
+  PaperProps={{
+    sx: {
+      borderRadius: 4,
+      maxWidth: 680,
+      width: '100%',
+      m: 2,
+      boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+    },
+  }}
+>
+  <DialogTitle sx={{ p: { xs: 2, sm: 2.5 }, pb: 1 }}>
+    <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ mb: 0.5, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+      Пополнить товар
+    </Typography>
+    <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.8rem', sm: '0.85rem' } }}>
+      Добавьте новый товар в инвентарь компании
+    </Typography>
+  </DialogTitle>
+  <DialogContent sx={{ p: { xs: 2, sm: 2.5 }, pt: { xs: 1, sm: 2 } }}>
+    <Stack spacing={2.5}>
+      <Box>
+        <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+          ТИП ТОВАРА
+        </Typography>
+        <FormControl fullWidth size="small">
+          <Select
+            value={replenishForm.isNewProduct ? 'new' : 'existing'}
+            onChange={(e) => setReplenishForm({
+              ...replenishForm,
+              isNewProduct: e.target.value === 'new',
+              productId: '',
+            })}
+            sx={{
+              borderRadius: 2,
+              backgroundColor: '#ffffff',
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#e0e0e0',
+                borderWidth: 1.5,
+              },
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#9c7cae',
+              },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#3f1f4b',
+              },
+            }}
+          >
+            <MenuItem value="existing">Существующий товар</MenuItem>
+            <MenuItem value="new">Новый товар</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
+
+      {replenishForm.isNewProduct ? (
+        <>
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              НОВЫЙ ТОВАР
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Название"
+                  fullWidth
+                  required
+                  size="small"
+                  value={replenishForm.newProduct.name}
+                  onChange={(e) => setReplenishForm({
+                    ...replenishForm,
+                    newProduct: {...replenishForm.newProduct, name: e.target.value}
+                  })}
+                  placeholder="Введите название товара"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                      backgroundColor: '#ffffff',
+                      '& fieldset': {
+                        borderColor: '#e0e0e0',
+                        borderWidth: 1.5,
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#9c7cae',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#3f1f4b',
+                      },
+                    },
+                  }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="SKU (артикул)"
+                  fullWidth
+                  required
+                  size="small"
+                  value={replenishForm.newProduct.sku}
+                  onChange={(e) => setReplenishForm({
+                    ...replenishForm,
+                    newProduct: {...replenishForm.newProduct, sku: e.target.value}
+                  })}
+                  placeholder="Введите артикул"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                      backgroundColor: '#ffffff',
+                      '& fieldset': {
+                        borderColor: '#e0e0e0',
+                        borderWidth: 1.5,
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#9c7cae',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#3f1f4b',
+                      },
+                    },
+                  }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth required size="small">
+                  <Select
+                    value={replenishForm.newProduct.categoryId}
+                    onChange={(e) => setReplenishForm({
+                      ...replenishForm,
+                      newProduct: {...replenishForm.newProduct, categoryId: e.target.value}
+                    })}
+                    displayEmpty
+                    sx={{
+                      borderRadius: 2,
+                      backgroundColor: '#ffffff',
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#e0e0e0',
+                        borderWidth: 1.5,
+                      },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#9c7cae',
+                      },
+                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                        borderColor: '#3f1f4b',
+                      },
+                    }}
+                  >
+                    <MenuItem value="" disabled>Выберите категорию</MenuItem>
+                    {categories.map(category => (
+                      <MenuItem key={category.id} value={category.id}>
+                        {category.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Цена"
+                  type="text"
+                  fullWidth
+                  required
+                  size="small"
+                  value={replenishForm.newProduct.price}
+                  onChange={(e) => handlePriceChange(e.target.value)}
+                  placeholder="0.00"
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">₽</InputAdornment>,
+                  }}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                      backgroundColor: '#ffffff',
+                      '& fieldset': {
+                        borderColor: '#e0e0e0',
+                        borderWidth: 1.5,
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#9c7cae',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#3f1f4b',
+                      },
+                    },
+                  }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  label="Описание"
+                  fullWidth
+                  multiline
+                  rows={2}
+                  size="small"
+                  value={replenishForm.newProduct.description}
+                  onChange={(e) => setReplenishForm({
+                    ...replenishForm,
+                    newProduct: {...replenishForm.newProduct, description: e.target.value}
+                  })}
+                  placeholder="Введите описание товара (необязательно)"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                      backgroundColor: '#ffffff',
+                      '& fieldset': {
+                        borderColor: '#e0e0e0',
+                        borderWidth: 1.5,
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#9c7cae',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#3f1f4b',
+                      },
+                    },
+                  }}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </>
+      ) : (
+        <>
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              ФИЛЬТР ПО КАТЕГОРИИ
+            </Typography>
+            <FormControl fullWidth size="small">
               <Select
-                labelId="category-filter-label"
-                value={selectedCategoryId}
-                label="Фильтр по категории"
-                onChange={(e) => setSelectedCategoryId(e.target.value as number | 'all')}
+                value={replenishCategoryFilter}
+                onChange={(e) => setReplenishCategoryFilter(e.target.value as number | 'all')}
+                sx={{
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#3f1f4b',
+                  },
+                }}
               >
                 <MenuItem value="all">Все категории</MenuItem>
                 {categories.map(category => (
@@ -370,456 +1711,191 @@ const ProductsPage: React.FC = () => {
             </FormControl>
           </Box>
 
-          {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <TableContainer component={Paper} variant="outlined">
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                    <TableCell><strong>Товар</strong></TableCell>
-                    <TableCell><strong>SKU</strong></TableCell>
-                    <TableCell><strong>Категория</strong></TableCell>
-                    <TableCell><strong>Количество</strong></TableCell>
-                    <TableCell><strong>У кого находится</strong></TableCell>
-                    <TableCell><strong>Цена</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {aggregatedInventory.length > 0 ? (
-                    aggregatedInventory.map((item) => {
-                      const product = products.find(p => p.id === item.productId);
-                      
-                      return (
-                        <TableRow key={`${item.productId}-${item.userId}`} hover>
-                          <TableCell>{product?.name || 'Неизвестно'}</TableCell>
-                          <TableCell>{product?.sku || 'N/A'}</TableCell>
-                          <TableCell>
-                            {product ? (
-                              <Chip 
-                                label={getCategoryName(product.categoryId)} 
-                                size="small" 
-                                variant="outlined"
-                              />
-                            ) : 'Без категории'}
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body1" fontWeight="bold">
-                              {item.quantity} шт.
-                            </Typography>
-                            {item.reservedQuantity > 0 && (
-                              <Typography variant="caption" color="text.secondary">
-                                (зарезервировано: {item.reservedQuantity} шт.)
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            {getUserFullName(item.userId)}
-                          </TableCell>
-                          <TableCell>
-                            {product?.price ? `${product.price} ₽` : 'N/A'}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                        <Box sx={{ textAlign: 'center', py: 2 }}>
-                          <Typography variant="h6" color="text.secondary" gutterBottom>
-                            Нет товаров в инвентаре для отображения
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            {selectedCategoryId !== 'all' ? (
-                              `Для выбранной категории "${categories.find(c => c.id === selectedCategoryId)?.name}" нет товаров в инвентаре`
-                            ) : (
-                              'Используйте кнопку "Пополнить товар" чтобы добавить товары в инвентарь'
-                            )}
-                          </Typography>
-                          {products.length > 0 && (
-                            <Box sx={{ mt: 2 }}>
-                              <Typography variant="body2" color="text.secondary">
-                                Всего товаров в системе: {products.length}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                В инвентаре: {inventory.length > 0 ? `${aggregatedInventory.length} позиций` : 'нет товаров'}
-                              </Typography>
-                            </Box>
-                          )}
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </TabPanel>
-
-        <TabPanel value={tabValue} index={1}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-            <Typography variant="h5">Управление категориями</Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => {
-                resetCategoryForm();
-                setCategoryDialogOpen(true);
-              }}
-            >
-              Добавить категорию
-            </Button>
-          </Box>
-
-          <Grid container spacing={2}>
-            {categories.map((category) => (
-              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={category.id}>
-                <Card variant="outlined">
-                  <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                      <Box>
-                        <Typography variant="h6" gutterBottom>
-                          {category.name}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" paragraph>
-                          {category.description || 'Нет описания'}
-                        </Typography>
-                        <Chip
-                          label={category.isActive ? 'Активна' : 'Неактивна'}
-                          size="small"
-                          color={category.isActive ? 'success' : 'default'}
-                          variant="outlined"
-                        />
-                        <Box sx={{ mt: 1 }}>
-                          <Typography variant="caption" color="text.secondary">
-                            ID: {category.id}
-                          </Typography>
-                          <Typography variant="caption" display="block" color="text.secondary">
-                            Товаров в категории: {products.filter(p => p.categoryId === category.id).length}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      <Box>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleEditCategory(category)}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            setCategoryToDelete(category);
-                            setDeleteCategoryDialogOpen(true);
-                          }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-            {categories.length === 0 && (
-              <Grid size={{ xs: 12 }}>
-                <Paper sx={{ p: 3, textAlign: 'center' }}>
-                  <Typography color="text.secondary">
-                    Категории еще не созданы. Создайте первую категорию.
-                  </Typography>
-                </Paper>
-              </Grid>
-            )}
-          </Grid>
-        </TabPanel>
-      </Paper>
-
-      {/* Диалог создания/редактирования категории */}
-      <Dialog 
-        open={categoryDialogOpen} 
-        onClose={() => {
-          setCategoryDialogOpen(false);
-          resetCategoryForm();
-        }}
-      >
-        <DialogTitle>
-          {isEditingCategory ? 'Редактировать категорию' : 'Создать новую категорию'}
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Название категории"
-            fullWidth
-            value={newCategory.name}
-            onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            margin="dense"
-            label="Описание"
-            fullWidth
-            multiline
-            rows={3}
-            value={newCategory.description}
-            onChange={(e) => setNewCategory({...newCategory, description: e.target.value})}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setCategoryDialogOpen(false);
-            resetCategoryForm();
-          }}>
-            Отмена
-          </Button>
-          <Button 
-            onClick={isEditingCategory ? handleUpdateCategory : handleCreateCategory}
-            variant="contained"
-            disabled={!newCategory.name.trim()}
-          >
-            {isEditingCategory ? 'Сохранить' : 'Создать'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Диалог удаления категории */}
-      <Dialog 
-        open={deleteCategoryDialogOpen} 
-        onClose={() => setDeleteCategoryDialogOpen(false)}
-      >
-        <DialogTitle>Удалить категорию</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Вы уверены, что хотите удалить категорию "{categoryToDelete?.name}"?
-            Это действие нельзя отменить.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteCategoryDialogOpen(false)}>Отмена</Button>
-          <Button 
-            onClick={handleDeleteCategory}
-            variant="contained"
-            color="error"
-          >
-            Удалить
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Диалог пополнения товара */}
-      <Dialog 
-        open={replenishDialogOpen} 
-        onClose={() => {
-          setReplenishDialogOpen(false);
-          resetReplenishForm();
-        }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>Пополнить товар</DialogTitle>
-        <DialogContent>
-          <Box sx={{ mt: 2 }}>
-            <FormControl fullWidth sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" gutterBottom>
-                Тип товара:
-              </Typography>
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              ВЫБЕРИТЕ ТОВАР
+            </Typography>
+            <FormControl fullWidth size="small">
               <Select
-                value={replenishForm.isNewProduct ? 'new' : 'existing'}
+                value={replenishForm.productId}
                 onChange={(e) => setReplenishForm({
                   ...replenishForm,
-                  isNewProduct: e.target.value === 'new',
-                  productId: '',
+                  productId: e.target.value
                 })}
+                disabled={filteredProductsForReplenish.length === 0}
+                displayEmpty
+                sx={{
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#3f1f4b',
+                  },
+                }}
               >
-                <MenuItem value="existing">Существующий товар</MenuItem>
-                <MenuItem value="new">Новый товар</MenuItem>
+                <MenuItem value="" disabled>Выберите товар</MenuItem>
+                {filteredProductsForReplenish.map(product => (
+                  <MenuItem key={product.id} value={product.id}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="body2" fontWeight={500}>
+                        {product.name}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {product.sku} • {product.price} ₽
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
               </Select>
+              {filteredProductsForReplenish.length === 0 && (
+                <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
+                  {replenishCategoryFilter === 'all' 
+                    ? 'В системе нет товаров' 
+                    : `В категории "${categories.find(c => c.id === replenishCategoryFilter)?.name}" нет товаров`}
+                </Typography>
+              )}
             </FormControl>
-
-            {replenishForm.isNewProduct ? (
-              <Box>
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      label="Название товара"
-                      fullWidth
-                      required
-                      value={replenishForm.newProduct.name}
-                      onChange={(e) => setReplenishForm({
-                        ...replenishForm,
-                        newProduct: {...replenishForm.newProduct, name: e.target.value}
-                      })}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      label="SKU (артикул)"
-                      fullWidth
-                      required
-                      value={replenishForm.newProduct.sku}
-                      onChange={(e) => setReplenishForm({
-                        ...replenishForm,
-                        newProduct: {...replenishForm.newProduct, sku: e.target.value}
-                      })}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <FormControl fullWidth required>
-                      <InputLabel>Категория</InputLabel>
-                      <Select
-                        value={replenishForm.newProduct.categoryId}
-                        label="Категория"
-                        onChange={(e) => setReplenishForm({
-                          ...replenishForm,
-                          newProduct: {...replenishForm.newProduct, categoryId: e.target.value}
-                        })}
-                      >
-                        <MenuItem value="">Выберите категорию</MenuItem>
-                        {categories.map(category => (
-                          <MenuItem key={category.id} value={category.id}>
-                            {category.name}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField
-                      label="Цена"
-                      type="number"
-                      fullWidth
-                      required
-                      value={replenishForm.newProduct.price || ''}
-                      onChange={(e) => setReplenishForm({
-                        ...replenishForm,
-                        newProduct: {
-                          ...replenishForm.newProduct, 
-                          price: parseFloat(e.target.value) || 0
-                        }
-                      })}
-                      InputProps={{
-                        inputProps: { min: 0, step: 0.01 }
-                      }}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <TextField
-                      label="Описание"
-                      fullWidth
-                      multiline
-                      rows={2}
-                      value={replenishForm.newProduct.description}
-                      onChange={(e) => setReplenishForm({
-                        ...replenishForm,
-                        newProduct: {...replenishForm.newProduct, description: e.target.value}
-                      })}
-                    />
-                  </Grid>
-                </Grid>
-              </Box>
-            ) : (
-              <Box>
-                {/* Фильтр по категории для существующих товаров */}
-                <FormControl fullWidth sx={{ mb: 2 }}>
-                  <InputLabel>Фильтр по категории</InputLabel>
-                  <Select
-                    value={replenishCategoryFilter}
-                    label="Фильтр по категории"
-                    onChange={(e) => setReplenishCategoryFilter(e.target.value as number | 'all')}
-                  >
-                    <MenuItem value="all">Все категории</MenuItem>
-                    {categories.map(category => (
-                      <MenuItem key={category.id} value={category.id}>
-                        {category.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-
-                <FormControl fullWidth sx={{ mb: 3 }}>
-                  <InputLabel>Выберите товар</InputLabel>
-                  <Select
-                    value={replenishForm.productId}
-                    label="Выберите товар"
-                    onChange={(e) => setReplenishForm({
-                      ...replenishForm,
-                      productId: e.target.value
-                    })}
-                    disabled={filteredProductsForReplenish.length === 0}
-                  >
-                    <MenuItem value="">Выберите товар</MenuItem>
-                    {filteredProductsForReplenish.map(product => (
-                      <MenuItem key={product.id} value={product.id}>
-                        {product.name} ({product.sku}) - {product.price} ₽
-                        <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                          [{categories.find(c => c.id === product.categoryId)?.name}]
-                        </Typography>
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  {filteredProductsForReplenish.length === 0 && (
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-                      {replenishCategoryFilter === 'all' 
-                        ? 'В системе нет товаров' 
-                        : `В категории "${categories.find(c => c.id === replenishCategoryFilter)?.name}" нет товаров`}
-                    </Typography>
-                  )}
-                </FormControl>
-              </Box>
-            )}
-
-            <TextField
-              label="Количество"
-              type="number"
-              fullWidth
-              required
-              sx={{ mt: 3 }}
-              value={replenishForm.quantity}
-              onChange={(e) => setReplenishForm({
-                ...replenishForm,
-                quantity: parseInt(e.target.value) || 0
-              })}
-              InputProps={{
-                inputProps: { min: 1 }
-              }}
-            />
           </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => {
-            setReplenishDialogOpen(false);
-            resetReplenishForm();
-          }}>
-            Отмена
-          </Button>
-          <Button 
-            onClick={handleReplenish}
-            variant="contained"
-            disabled={
-              replenishForm.quantity < 1 ||
-              (!replenishForm.isNewProduct && !replenishForm.productId) ||
-              (replenishForm.isNewProduct && (
-                !replenishForm.newProduct.name.trim() ||
-                !replenishForm.newProduct.sku.trim() ||
-                !replenishForm.newProduct.categoryId ||
-                replenishForm.newProduct.price <= 0
-              ))
-            }
-          >
-            Пополнить
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </>
+      )}
+
+      <Box>
+        <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+          КОЛИЧЕСТВО
+        </Typography>
+        <TextField
+          type="text"
+          fullWidth
+          required
+          size="small"
+          value={replenishForm.quantity}
+          onChange={(e) => handleQuantityChange(e.target.value)}
+          placeholder="0"
+          InputProps={{
+            endAdornment: <InputAdornment position="end">шт.</InputAdornment>,
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 2,
+              backgroundColor: '#ffffff',
+              '& fieldset': {
+                borderColor: '#e0e0e0',
+                borderWidth: 1.5,
+              },
+              '&:hover fieldset': {
+                borderColor: '#9c7cae',
+              },
+              '&.Mui-focused fieldset': {
+                borderColor: '#3f1f4b',
+              },
+            },
+          }}
+        />
+      </Box>
+
+      {replenishForm.isNewProduct && (
+        <Alert severity="info" sx={{ borderRadius: 2, border: '1.5px solid #4fc3f7', backgroundColor: '#e1f5fe' }}>
+          После создания товар сразу появится в инвентаре компании
+        </Alert>
+      )}
+    </Stack>
+  </DialogContent>
+  <DialogActions sx={{ p: { xs: 2, sm: 2.5 }, pt: 1, gap: 1.5 }}>
+    <Button
+      onClick={() => {
+        setReplenishDialogOpen(false);
+        resetReplenishForm();
+      }}
+      variant="outlined"
+      sx={{
+        borderRadius: 2,
+        borderColor: '#e0e0e0',
+        borderWidth: 1.5,
+        backgroundColor: '#f8f7fa',
+        color: '#4c5454',
+        px: 3,
+        py: 1,
+        textTransform: 'none',
+        fontSize: { xs: '0.85rem', sm: '0.95rem' },
+        fontWeight: 500,
+        flex: 1,
+        '&:hover': {
+          backgroundColor: '#f0eef2',
+          borderColor: '#9c7cae',
+        },
+      }}
+    >
+      Отмена
+    </Button>
+    <Button
+      variant="contained"
+      onClick={handleReplenish}
+      disabled={
+        !replenishForm.quantity || 
+        parseInt(replenishForm.quantity) < 1 ||
+        (!replenishForm.isNewProduct && !replenishForm.productId) ||
+        (replenishForm.isNewProduct && (
+          !replenishForm.newProduct.name.trim() ||
+          !replenishForm.newProduct.sku.trim() ||
+          !replenishForm.newProduct.categoryId ||
+          !replenishForm.newProduct.price ||
+          parseFloat(replenishForm.newProduct.price) <= 0
+        ))
+      }
+      sx={{
+        borderRadius: 2,
+        backgroundColor: '#3f1f4b',
+        color: 'white',
+        px: 3,
+        py: 1,
+        textTransform: 'none',
+        fontSize: { xs: '0.85rem', sm: '0.95rem' },
+        fontWeight: 500,
+        flex: 1,
+        '&:hover': { 
+          backgroundColor: '#2a0f35',
+        },
+        '&.Mui-disabled': {
+          backgroundColor: '#e0e0e0',
+          color: '#9e9e9e',
+        },
+      }}
+    >
+      Пополнить
+    </Button>
+  </DialogActions>
+</Dialog>
 
       {/* Уведомление об успехе */}
       <Snackbar
         open={!!successMessage}
         autoHideDuration={3000}
         onClose={() => setSuccessMessage(null)}
-        message={successMessage}
-      />
+        TransitionComponent={Zoom}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Paper 
+          elevation={4} 
+          sx={{ 
+            ...iOSStyles.paper, 
+            py: 1, 
+            px: 2.5, 
+            backgroundColor: theme.palette.success.main,
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+          }}
+        >
+          <Typography variant="body2">{successMessage}</Typography>
+        </Paper>
+      </Snackbar>
     </Container>
   );
 };

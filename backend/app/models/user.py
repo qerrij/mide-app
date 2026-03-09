@@ -1,3 +1,5 @@
+# models/user.py
+import json
 from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, ForeignKey, Float, Text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -35,13 +37,15 @@ class User(Base):
     senior_seller_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
-    # Для администраторов - список кустов 
-    admin_clusters = Column(Text, nullable=True)
+    # Для администраторов - список кустов (хранится как JSON строка)
+    _admin_clusters = Column("admin_clusters", Text, nullable=True)
     
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True), nullable=True)
+
+    accountant_user_ids = Column(Text, nullable=True)
     
     # Используем строки вместо импортов для избежания циклических зависимостей
     cluster = relationship(
@@ -83,6 +87,28 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    
+    @property
+    def admin_clusters(self):
+        """Получить список ID кустов администратора"""
+        if not self._admin_clusters:
+            return []
+        try:
+            if isinstance(self._admin_clusters, str):
+                return json.loads(self._admin_clusters)
+            return self._admin_clusters
+        except (json.JSONDecodeError, TypeError):
+            return []
+    
+    @admin_clusters.setter
+    def admin_clusters(self, value):
+        """Установить список ID кустов администратора"""
+        if value is None:
+            self._admin_clusters = None
+        elif isinstance(value, list):
+            self._admin_clusters = json.dumps(value)
+        else:
+            self._admin_clusters = str(value)
     
     def __repr__(self):
         return f"<User {self.username} ({self.role.value})>"

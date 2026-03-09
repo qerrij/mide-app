@@ -46,6 +46,7 @@ export interface User {
   seniorSellerId?: number;
   adminId?: number;  // Добавляем adminId
   adminClusterIds?: number[];
+  accountantUserIds?: number[];
   
   createdAt: Date;
   updatedAt?: Date;
@@ -89,6 +90,7 @@ export interface UpdateUserDto {
   seniorSellerId?: number;
   adminId?: number;
   adminClusterIds?: number[];
+  accountantUserIds?: number[];
 }
 
 // ================ ТОВАРЫ ================
@@ -475,6 +477,10 @@ export enum NotificationType {
   TRANSFER_MANAGER_REQUEST = 'TRANSFER_MANAGER_REQUEST',
   TRANSFER_STATUS = 'TRANSFER_STATUS',
   
+  REJECTION_REQUEST = 'REJECTION_REQUEST',
+  REJECTION_APPROVED = 'REJECTION_APPROVED',
+  REJECTION_REJECTED = 'REJECTION_REJECTED',
+  
   OTHER = 'OTHER'
 }
 
@@ -561,11 +567,17 @@ export const getNotificationTypeText = (type: NotificationType): string => {
     [NotificationType.TRANSFER_REJECTED]: 'Перемещение отклонено',
     [NotificationType.TRANSFER_MANAGER_REQUEST]: 'Запрос перемещения от руководителя',
     [NotificationType.TRANSFER_STATUS]: 'Статус перемещения',
+
+    [NotificationType.REJECTION_REQUEST]: 'Запрос на брак',
+    [NotificationType.REJECTION_APPROVED]: 'Брак утвержден',
+    [NotificationType.REJECTION_REJECTED]: 'Брак отклонен',
     
     [NotificationType.OTHER]: 'Другое',
   };
   return texts[type];
 };
+
+
 
 export const getNotificationPriorityColor = (priority: number): string => {
   if (priority >= 5) return '#f44336';
@@ -1120,4 +1132,100 @@ export const getRejectionStatusColor = (status: RejectionStatus): string => {
     [RejectionStatus.CANCELLED]: '#9e9e9e',
   };
   return colors[status];
+};
+
+
+// ================ НАЗНАЧЕНИЯ БУХГАЛТЕРОВ ================
+export interface AccountantAssignmentUser {
+  id: number;
+  fullName: string;
+  role: UserRole;
+  isAssigned: boolean;
+}
+
+export interface AccountantAssignmentSeller {
+  id: number;
+  fullName: string;
+  role: UserRole;
+  isAssigned: boolean;
+}
+
+export interface AccountantAssignmentGroup {
+  id: number;
+  name: string;
+  mentor: AccountantAssignmentUser | null;
+  sellers: AccountantAssignmentSeller[];
+  allUserIds: number[];
+  assignedCount: number;
+}
+
+export interface AccountantAssignmentCluster {
+  id: number;
+  name: string;
+  seniorSeller: AccountantAssignmentUser | null;
+  groups: AccountantAssignmentGroup[];
+  allUserIds: number[];
+  assignedCount: number;
+}
+
+export interface AccountantAssignmentHierarchy {
+  clusters: AccountantAssignmentCluster[];
+  unassignedGroups: AccountantAssignmentGroup[];
+  unassignedUsers: AccountantAssignmentUser[];
+}
+
+export interface CheckConflictResponse {
+  conflicts: Array<{
+    accountantId: number;
+    accountantName: string;
+    userIds: number[];
+    userNames: string[];
+  }>;
+  hasConflicts: boolean;
+}
+
+
+// ================ БУХГАЛТЕРИЯ ================
+export interface CompanyTransaction {
+  id: number;
+  balance: number;
+  description: string;
+  operation_type: 'INCOME' | 'EXPENSE' | 'CORRECTION';
+  amount: number;
+  reference_id?: number;
+  reference_type?: string;
+  created_at: string;
+  created_by?: number;
+  created_by_name?: string;
+}
+
+export interface CompanyBalanceResponse {
+  balance: number;
+}
+
+export interface CompanyBalanceHistory {
+  date: string;
+  balance: number;
+  amount: number;
+  type: 'INCOME' | 'EXPENSE' | 'CORRECTION';
+  description: string;
+}
+
+// Типы операций для отображения
+export const OperationTypeLabels = {
+  INCOME: 'Доход',
+  EXPENSE: 'Расход',
+  CORRECTION: 'Коррекция',
+};
+
+export const OperationTypeColors = {
+  INCOME: '#4caf50',
+  EXPENSE: '#f44336',
+  CORRECTION: '#ff9800',
+};
+
+export const OperationTypeIcons = {
+  INCOME: '💰',
+  EXPENSE: '💸',
+  CORRECTION: '📝',
 };

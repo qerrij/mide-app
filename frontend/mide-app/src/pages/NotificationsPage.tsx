@@ -222,6 +222,12 @@ const NotificationsPage: React.FC = () => {
         case 'report':
           navigate(`/reports/${notification.entityId}`);
           break;
+        case 'transfer':
+          navigate(`/movements/${notification.entityId}`);
+          break;
+        case 'rejection':
+          navigate(`/defects/${notification.entityId}`);
+          break;
       }
     }
     handleCloseDetails();
@@ -274,6 +280,10 @@ const getNotificationColor = (type: NotificationType): string => {
     [NotificationType.TRANSFER_MANAGER_REQUEST]: '#673ab7',
     [NotificationType.TRANSFER_STATUS]: '#607d8b',
     [NotificationType.OTHER]: '#9e9e9e',
+
+          [NotificationType.REJECTION_REQUEST]: '#ff9800',
+          [NotificationType.REJECTION_APPROVED]: '#4caf50',
+          [NotificationType.REJECTION_REJECTED]: '#f44336',
   };
   return colors[type];
 };

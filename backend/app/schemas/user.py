@@ -73,6 +73,23 @@ class UserResponse(UserBase):
     sellers_count: Optional[int] = 0
     groups_count: Optional[int] = 0
     
+    accountant_user_ids: Optional[List[int]] = None
+    
+    @field_validator('accountant_user_ids', mode='before')
+    @classmethod
+    def parse_accountant_user_ids(cls, v):
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+                return []
+            except:
+                return []
+        return v or []
+    
     @field_validator('admin_clusters', mode='before')
     @classmethod
     def parse_admin_clusters(cls, v):

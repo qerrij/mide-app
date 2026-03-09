@@ -1,54 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
-  Typography,
   Box,
-  Button,
+  Container,
   Paper,
+  Typography,
+  Button,
   Grid,
-  Card,
-  CardContent,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Radio,
-  RadioGroup,
-  FormControlLabel,
-  FormControl,
   Alert,
   CircularProgress,
   Chip,
+  Stack,
   Divider,
+  Card,
+  CardContent,
   IconButton,
+  TextField,
+  FormControl,
+  FormControlLabel,
+  Radio,
+  RadioGroup,
+  useTheme,
+  useMediaQuery,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
-  ImageList,
-  ImageListItem,
-  ImageListItemBar,
-  Snackbar,
-  Alert as MuiAlert,
-  Stepper,
-  Step,
-  StepLabel,
 } from '@mui/material';
 import {
-  ArrowBack as BackIcon,
+  ArrowBack as ArrowBackIcon,
   CheckCircle as AcceptIcon,
   Cancel as RejectIcon,
   Warning as DiscrepancyIcon,
   Add as AddIcon,
   Remove as RemoveIcon,
-  PhotoCamera as PhotoIcon,
+  PhotoCamera as PhotoCameraIcon,
   Delete as DeleteIcon,
   Close as CloseIcon,
-  Numbers as NumbersIcon,
-  PhotoLibrary as PhotoLibraryIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { transferService } from '../../api/transferService';
@@ -61,11 +49,14 @@ import {
   getTransferItemStatusColor,
   Product,
 } from '../../types';
+import { PhotoViewer } from '../../components/PhotoViewer';
 
 const ArrivedTransferPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const [transfer, setTransfer] = useState<TransferDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -75,71 +66,60 @@ const ArrivedTransferPage: React.FC = () => {
   const [notes, setNotes] = useState('');
   const [itemQuantities, setItemQuantities] = useState<{ [key: number]: number }>({});
   
-  // Состояние для файлов
   const [files, setFiles] = useState<File[]>([]);
   const [filePreviews, setFilePreviews] = useState<string[]>([]);
   const [fileError, setFileError] = useState('');
   
-  // 🔴 Шаги процесса: для reject - 2 шага, для остальных - 4 шага
-  const [activeStep, setActiveStep] = useState(0);
-  const [steps, setSteps] = useState<string[]>(['Выбор действия', 'Указание количеств', 'Загрузка фотографий', 'Подтверждение']);
+  const [step, setStep] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   
-  // Модальные окна и уведомления
-  const [viewImageOpen, setViewImageOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string>('');
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [errorDialogOpen, setErrorDialogOpen] = useState(false);
-  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
-  const [validationError, setValidationError] = useState('');
-  const [stepErrors, setStepErrors] = useState<{ [key: number]: string }>({});
+  const [confirmDialog, setConfirmDialog] = useState(false);
+  const [successDialog, setSuccessDialog] = useState(false);
+  const [exitDialog, setExitDialog] = useState(false);
+  const [photoViewer, setPhotoViewer] = useState<{
+    open: boolean;
+    photos: string[];
+    currentIndex: number;
+  }>({
+    open: false,
+    photos: [],
+    currentIndex: 0,
+  });
 
   useEffect(() => {
     if (id) {
       loadTransfer();
     }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [id]);
 
-  // 🔴 Обновляем шаги в зависимости от выбранного действия
   useEffect(() => {
-    if (action === 'reject') {
-      setSteps(['Выбор действия', 'Причина отклонения']);
-    } else {
-      setSteps(['Выбор действия', 'Указание количеств', 'Загрузка фотографий', 'Подтверждение']);
-    }
-    // Сбрасываем на первый шаг при изменении действия
-    setActiveStep(0);
-  }, [action]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step]);
 
   const loadTransfer = async () => {
     try {
       setLoading(true);
       const transferData = await transferService.getTransferById(Number(id));
       
-      // Проверяем что пользователь является получателем и статус IN_TRANSIT
       if (transferData.status !== 'IN_TRANSIT') {
-        setErrorMessage('Это перемещение нельзя принять в текущем статусе');
-        setErrorDialogOpen(true);
-        navigate(`/movements/${id}`);
+        setError('Это перемещение нельзя принять в текущем статусе');
+        setTimeout(() => navigate(`/movements/${id}`), 2000);
         return;
       }
       
       setTransfer(transferData);
       
-      // Инициализируем количества ВСЕГДА с ожидаемым количеством
       const quantities: { [key: number]: number } = {};
       transferData.items.forEach(item => {
-        quantities[item.productId] = item.expectedQuantity; // По умолчанию ставим ожидаемое количество
+        quantities[item.productId] = item.expectedQuantity;
       });
       setItemQuantities(quantities);
       
-      // Загружаем информацию о товарах
       await loadProductDetails(transferData.items);
     } catch (error) {
       console.error('Error loading transfer:', error);
-      setErrorMessage('Ошибка загрузки перемещения');
-      setErrorDialogOpen(true);
+      setError('Ошибка загрузки перемещения');
     } finally {
       setLoading(false);
     }
@@ -147,15 +127,13 @@ const ArrivedTransferPage: React.FC = () => {
 
   const loadProductDetails = async (items: TransferItem[]) => {
     try {
-      const productIds = items.map(item => item.productId);
-      const uniqueProductIds = Array.from(new Set(productIds));
+      const productIds = Array.from(new Set(items.map(item => item.productId)));
       
-      const productPromises = uniqueProductIds.map(async (productId) => {
+      const productPromises = productIds.map(async (productId) => {
         try {
           const product = await productService.getProductById(productId);
           return { id: productId, product };
         } catch (error) {
-          console.error(`Error loading product ${productId}:`, error);
           return { id: productId, product: null };
         }
       });
@@ -178,24 +156,16 @@ const ArrivedTransferPage: React.FC = () => {
     if (!e.target.files) return;
     
     const newFiles = Array.from(e.target.files);
-    const errors: string[] = [];
     
-    // Проверяем каждый файл
-    newFiles.forEach(file => {
-      // Проверяем тип файла (только изображения)
+    for (const file of newFiles) {
       if (!file.type.startsWith('image/')) {
-        errors.push(`Файл "${file.name}" не является изображением`);
+        setFileError(`Файл "${file.name}" не является изображением`);
+        return;
       }
-      
-      // Проверяем размер файла (максимум 10MB)
       if (file.size > 10 * 1024 * 1024) {
-        errors.push(`Файл "${file.name}" слишком большой (макс. 10MB)`);
+        setFileError(`Файл "${file.name}" слишком большой (макс. 10MB)`);
+        return;
       }
-    });
-    
-    if (errors.length > 0) {
-      setFileError(errors.join(', '));
-      return;
     }
     
     if (files.length + newFiles.length > 10) {
@@ -203,20 +173,15 @@ const ArrivedTransferPage: React.FC = () => {
       return;
     }
     
-    // Добавляем файлы
     setFiles(prev => [...prev, ...newFiles]);
     
-    // Создаем превью для новых файлов
     const newPreviews = newFiles.map(file => URL.createObjectURL(file));
     setFilePreviews(prev => [...prev, ...newPreviews]);
     
     setFileError('');
-    // Очищаем ошибку шага если файлы загружены
-    setStepErrors(prev => ({ ...prev, [2]: '' }));
   };
 
   const removeFile = (index: number) => {
-    // Освобождаем URL объекта для превью
     URL.revokeObjectURL(filePreviews[index]);
     
     const newFiles = [...files];
@@ -231,147 +196,14 @@ const ArrivedTransferPage: React.FC = () => {
   const handleQuantityChange = (productId: number, quantity: number) => {
     setItemQuantities({
       ...itemQuantities,
-      [productId]: Math.max(0, quantity) // Нельзя указать отрицательное количество
+      [productId]: Math.max(0, quantity)
     });
-  };
-
-  const validateStep = (step: number): boolean => {
-    if (!transfer) return false;
-    
-    const newErrors: { [key: number]: string } = { ...stepErrors };
-    
-    switch (step) {
-      case 0: // Выбор действия
-        delete newErrors[0];
-        break;
-        
-      case 1: 
-        if (action === 'reject') {
-          // Для reject проверяем только комментарий
-          if (!notes.trim()) {
-            newErrors[1] = 'Укажите причину отклонения';
-          }
-        } else {
-          // Для accept и discrepancy проверяем количества
-          for (const item of transfer.items) {
-            const quantity = itemQuantities[item.productId];
-            if (quantity === undefined || quantity < 0) {
-              const productName = getProductName(item.productId);
-              newErrors[1] = `Укажите корректное количество для товара "${productName}"`;
-              break;
-            }
-          }
-        }
-        break;
-        
-      case 2: // Загрузка фотографий (только для accept/discrepancy)
-        if (action !== 'reject') {
-          // Файлы обязательны для accept и discrepancy
-          if (files.length === 0) {
-            newErrors[2] = 'Необходимо прикрепить хотя бы одну фотографию';
-          } else if (files.length > 10) {
-            newErrors[2] = 'Можно загрузить не более 10 файлов';
-          } else {
-            delete newErrors[2];
-          }
-        } else {
-          // Для reject файлы не обязательны
-          delete newErrors[2];
-        }
-        break;
-        
-      case 3: // Подтверждение (только для accept/discrepancy)
-        if (action !== 'reject') {
-          // Дополнительная проверка для accept/discrepancy
-          delete newErrors[3];
-        }
-        break;
-    }
-    
-    setStepErrors(newErrors);
-    return !newErrors[step];
-  };
-
-  const handleNext = () => {
-    if (validateStep(activeStep)) {
-      setActiveStep(prev => prev + 1);
-    }
-  };
-
-  const handleBack = () => {
-    setActiveStep(prev => prev - 1);
-  };
-
-  const openConfirmationDialog = () => {
-    if (validateStep(activeStep)) {
-      setConfirmDialogOpen(true);
-    }
-  };
-
-const handleSubmit = async () => {
-  if (!transfer) return;
-  
-  setConfirmDialogOpen(false);
-  
-  try {
-    setSubmitting(true);
-    
-    // 🔴 ИЗМЕНЕНИЕ: Формируем данные в зависимости от действия
-    const arrivalData = {
-      action,
-      // Для reject отправляем пустой массив товаров
-      items: action === 'reject' ? [] : transfer.items.map(item => ({
-        productId: item.productId,
-        actualQuantity: itemQuantities[item.productId] || 0,
-        notes: item.notes,
-      })),
-      notes: notes.trim() || undefined,
-    };
-    
-    // 🔴 ИЗМЕНЕНИЕ: Для reject не отправляем файлы
-    const filesToSend = action === 'reject' ? [] : files;
-    
-    await transferService.markArrived(
-      Number(id), 
-      arrivalData, 
-      filesToSend
-    );
-    
-    setSuccessMessage(`Перемещение успешно ${getSuccessMessage()}`);
-    setSuccessDialogOpen(true);
-  } catch (error: any) {
-    console.error('Error submitting arrival:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
-    setErrorMessage(`Ошибка: ${errorDetail}`);
-    setErrorDialogOpen(true);
-  } finally {
-    setSubmitting(false);
-  }
-};
-
-  const getActionText = () => {
-    switch (action) {
-      case 'accept': return 'принять';
-      case 'reject': return 'отклонить';
-      case 'discrepancy': return 'принять с расхождениями';
-      default: return '';
-    }
-  };
-
-  const getSuccessMessage = () => {
-    switch (action) {
-      case 'accept': return 'принято';
-      case 'reject': return 'отклонено';
-      case 'discrepancy': return 'отмечено с расхождениями';
-      default: return 'обработано';
-    }
   };
 
   const getItemStatus = (item: TransferItem): TransferItemStatus => {
     const actual = itemQuantities[item.productId] || 0;
     
     if (action === 'reject') return TransferItemStatus.REJECTED;
-    
     if (actual === item.expectedQuantity) return TransferItemStatus.RECEIVED;
     if (actual < item.expectedQuantity) return TransferItemStatus.MISSING;
     return TransferItemStatus.EXCESS;
@@ -390,53 +222,152 @@ const handleSubmit = async () => {
     return productDetails[productId]?.sku || '';
   };
 
-  const openImageDialog = (previewUrl: string) => {
-    setSelectedImage(previewUrl);
-    setViewImageOpen(true);
+  const getPhotoPreviewUrl = (photo: File): string => {
+    return URL.createObjectURL(photo);
   };
 
-  const closeImageDialog = () => {
-    setViewImageOpen(false);
-    setSelectedImage('');
+  const handleViewPhoto = (photos: string[], index: number) => {
+    setPhotoViewer({
+      open: true,
+      photos,
+      currentIndex: index,
+    });
   };
 
-  const handleSuccessDialogClose = () => {
-    setSuccessDialogOpen(false);
-    navigate(`/movements/${id}`);
+  const validateStep = (stepNumber: number): boolean => {
+    setError(null);
+
+    switch (stepNumber) {
+      case 0:
+        return true;
+
+      case 1:
+        if (action === 'reject') {
+          if (!notes.trim()) {
+            setError('Укажите причину отклонения');
+            return false;
+          }
+          return true;
+        } else {
+          if (!transfer?.items) {
+            setError('Данные о товарах отсутствуют');
+            return false;
+          }
+          for (const item of transfer.items) {
+            const quantity = itemQuantities[item.productId];
+            if (quantity === undefined || quantity < 0) {
+              setError('Укажите корректное количество для всех товаров');
+              return false;
+            }
+          }
+          return true;
+        }
+
+      case 2:
+        if (action !== 'reject' && files.length === 0) {
+          setError('Необходимо прикрепить хотя бы одну фотографию');
+          return false;
+        }
+        return true;
+
+      default:
+        return true;
+    }
   };
 
-  const handleErrorDialogClose = () => {
-    setErrorDialogOpen(false);
+  const handleNext = () => {
+    if (validateStep(step)) {
+      setStep(step + 1);
+    }
   };
 
-  const handleValidationErrorClose = () => {
-    setValidationError('');
+  const handleBack = () => {
+    setStep(step - 1);
   };
 
-  // Очистка URL объектов при размонтировании
-  useEffect(() => {
-    return () => {
-      filePreviews.forEach(preview => URL.revokeObjectURL(preview));
-    };
-  }, [filePreviews]);
+  const handleExitClick = () => {
+    const hasData = files.length > 0 || notes || action !== 'accept';
+    if (hasData) {
+      setExitDialog(true);
+    } else {
+      navigate(`/movements/${id}`);
+    }
+  };
 
-  // Функция для получения подсказки для ввода
-  const getInputHelperText = (item: TransferItem): string => {
-    if (action === 'reject') return 'Товары будут возвращены отправителю';
+  const handleSubmit = async () => {
+    if (!transfer) return;
     
-    const actual = itemQuantities[item.productId] || 0;
-    const discrepancy = getDiscrepancy(item);
-    
-    if (discrepancy === 0) return 'Получено ожидаемое количество';
-    if (discrepancy > 0) return `Избыток: +${discrepancy} шт.`;
-    return `Недосдача: ${discrepancy} шт.`;
+    try {
+      setSubmitting(true);
+      
+      const arrivalData = {
+        action,
+        items: action === 'reject' ? [] : transfer.items.map(item => ({
+          productId: item.productId,
+          actualQuantity: itemQuantities[item.productId] || 0,
+          notes: item.notes,
+        })),
+        notes: notes.trim() || undefined,
+      };
+      
+      const filesToSend = action === 'reject' ? [] : files;
+      
+      await transferService.markArrived(
+        Number(id), 
+        arrivalData, 
+        filesToSend
+      );
+      
+      setSuccessDialog(true);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Ошибка при обработке перемещения');
+    } finally {
+      setSubmitting(false);
+      setConfirmDialog(false);
+    }
   };
+
+  const getActionText = () => {
+    switch (action) {
+      case 'accept': return 'принять';
+      case 'reject': return 'отклонить';
+      case 'discrepancy': return 'принять с расхождениями';
+      default: return '';
+    }
+  };
+
+  const getActionButtonText = () => {
+    switch (action) {
+      case 'accept': return 'Принять';
+      case 'reject': return 'Отклонить';
+      case 'discrepancy': return 'Принять с расхождениями';
+      default: return '';
+    }
+  };
+
+  const getActionColor = () => {
+    switch (action) {
+      case 'accept': return '#4caf50';
+      case 'reject': return '#f44336';
+      case 'discrepancy': return '#ff9800';
+      default: return '#674fb6';
+    }
+  };
+
+  const totalExpected = transfer?.totalQuantity || 0;
+  const totalActual = Object.values(itemQuantities).reduce((a, b) => a + b, 0);
 
   if (loading) {
     return (
-      <Container sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
-        <CircularProgress />
-      </Container>
+      <Box sx={{ 
+        minHeight: '100vh', 
+        backgroundColor: '#f5f3f6', 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center' 
+      }}>
+        <CircularProgress sx={{ color: '#674fb6' }} />
+      </Box>
     );
   }
 
@@ -444,838 +375,990 @@ const handleSubmit = async () => {
     return null;
   }
 
-  // Функция для рендеринга шага
-  const renderStepContent = (step: number) => {
-    // 🔴 ИЗМЕНЕНИЕ: Для reject отдельная логика
-    if (action === 'reject') {
-      switch (step) {
-        case 0: // Выбор действия
-          return (
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: '#2a0f35' }}>
-                Выберите действие
-              </Typography>
-              
-              <FormControl component="fieldset" sx={{ mb: 3 }}>
+  return (
+    <Box sx={{ 
+      minHeight: '100vh', 
+      backgroundColor: '#f5f3f6', 
+      pt: { xs: 2, md: 4 }
+    }}>
+      <Container 
+        maxWidth="md" 
+        sx={{ 
+          px: { xs: 1, sm: 2, md: 3 },
+        }}
+      >
+
+        <Paper
+          sx={{
+            p: { xs: 1.5, sm: 2, md: 3 },
+            borderRadius: { xs: 6, sm: 8 },
+            backgroundColor: '#ffffff',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+            width: '100%',
+            mb: 3,
+          }}
+        >
+          <Box sx={{ mb: { xs: 2, sm: 3 } }}>
+            <Typography variant="h5" color="#2a0f35" fontWeight={600} gutterBottom sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+              Прием товара
+            </Typography>
+            <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+              Перемещение #{transfer?.id}: {transfer?.title || 'Без названия'}
+            </Typography>
+          </Box>
+
+          <Card sx={{ 
+            borderRadius: { xs: 4, sm: 4 }, 
+            backgroundColor: '#f8f7fa',
+            border: '1px solid rgba(63, 31, 75, 0.1)',
+            mb: { xs: 2, sm: 3 },
+          }}>
+            <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+              <Grid container spacing={{ xs: 1, sm: 2 }}>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                    Отправитель
+                  </Typography>
+                  <Typography variant="body2" color="#2a0f35" fontWeight={500} sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                    {transfer?.fromUserName || 'Не указан'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                    Получатель
+                  </Typography>
+                  <Typography variant="body2" color="#2a0f35" fontWeight={500} sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                    {transfer?.toUserName || 'Не указан'}
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                    Товаров
+                  </Typography>
+                  <Typography variant="body2" color="#2a0f35" fontWeight={500} sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                    {transfer?.items?.length || 0} позиций
+                  </Typography>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                    Ожидается
+                  </Typography>
+                  <Typography variant="body2" color="#2a0f35" fontWeight={500} sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                    {totalExpected} ед.
+                  </Typography>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+
+          <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ 
+            mb: { xs: 2, sm: 3 },
+            fontSize: { xs: '1rem', sm: '1.25rem' }
+          }}>
+            {step === 0 && 'Выберите действие'}
+            {step === 1 && (action === 'reject' ? 'Причина отклонения' : 'Укажите фактическое количество')}
+            {step === 2 && (action === 'reject' ? 'Подтверждение' : 'Фотографии и подтверждение')}
+          </Typography>
+
+          {error && (
+            <Alert
+              severity="error"
+              sx={{
+                mb: { xs: 2, sm: 3 },
+                borderRadius: 4,
+                backgroundColor: 'rgba(202, 14, 192, 0.08)',
+                border: '1px solid rgba(202, 14, 192, 0.2)',
+                color: '#ca0ec0',
+                '& .MuiAlert-icon': { color: '#ca0ec0' },
+                fontSize: { xs: '0.8rem', sm: '0.875rem' },
+              }}
+              onClose={() => setError(null)}
+            >
+              {error}
+            </Alert>
+          )}
+
+          {/* Шаг 0: Выбор действия */}
+          {step === 0 && (
+            <Stack spacing={2}>
+              <FormControl component="fieldset">
                 <RadioGroup
                   value={action}
-                  onChange={(e) => {
-                    const newAction = e.target.value as any;
-                    setAction(newAction);
-                    setStepErrors({});
-                  }}
+                  onChange={(e) => setAction(e.target.value as any)}
                 >
-                  <FormControlLabel
-                    value="accept"
-                    control={<Radio color="success" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <AcceptIcon sx={{ color: '#4caf50' }} />
-                        <span>Принять товар (указать фактическое количество)</span>
-                      </Box>
-                    }
-                  />
-                  <FormControlLabel
-                    value="discrepancy"
-                    control={<Radio color="warning" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <DiscrepancyIcon sx={{ color: '#ff9800' }} />
-                        <span>Принять с расхождениями (требуется проверка руководителя)</span>
-                      </Box>
-                    }
-                  />
-                  <FormControlLabel
-                    value="reject"
-                    control={<Radio color="error" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <RejectIcon sx={{ color: '#f44336' }} />
-                        <span>Отклонить полностью (вернуть товары отправителю)</span>
-                      </Box>
-                    }
-                  />
+                  <Paper
+                    sx={{
+                      p: { xs: 1.5, sm: 2 },
+                      mb: 1.5,
+                      borderRadius: 4,
+                      border: '2px solid',
+                      borderColor: action === 'accept' ? '#4caf50' : 'rgba(103, 79, 182, 0.1)',
+                      backgroundColor: action === 'accept' ? 'rgba(76, 175, 80, 0.04)' : '#f8f7fa',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      '&:hover': {
+                        borderColor: '#4caf50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.04)',
+                      },
+                    }}
+                    onClick={() => setAction('accept')}
+                  >
+                    <FormControlLabel
+                      value="accept"
+                      control={<Radio sx={{ color: '#4caf50', '&.Mui-checked': { color: '#4caf50' } }} />}
+                      label={
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <AcceptIcon sx={{ color: '#4caf50', fontSize: { xs: 18, sm: 24 } }} />
+                            <Typography variant="subtitle1" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                              Принять товар
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                            Укажите фактическое количество. Товары сразу списываются и зачисляются.
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ m: 0, width: '100%', alignItems: 'flex-start' }}
+                    />
+                  </Paper>
+
+                  <Paper
+                    sx={{
+                      p: { xs: 1.5, sm: 2 },
+                      mb: 1.5,
+                      borderRadius: 4,
+                      border: '2px solid',
+                      borderColor: action === 'discrepancy' ? '#ff9800' : 'rgba(103, 79, 182, 0.1)',
+                      backgroundColor: action === 'discrepancy' ? 'rgba(255, 152, 0, 0.04)' : '#f8f7fa',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      '&:hover': {
+                        borderColor: '#ff9800',
+                        backgroundColor: 'rgba(255, 152, 0, 0.04)',
+                      },
+                    }}
+                    onClick={() => setAction('discrepancy')}
+                  >
+                    <FormControlLabel
+                      value="discrepancy"
+                      control={<Radio sx={{ color: '#ff9800', '&.Mui-checked': { color: '#ff9800' } }} />}
+                      label={
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <DiscrepancyIcon sx={{ color: '#ff9800', fontSize: { xs: 18, sm: 24 } }} />
+                            <Typography variant="subtitle1" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                              Принять с расхождениями
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                            Требуется проверка руководителя перед списанием товаров.
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ m: 0, width: '100%', alignItems: 'flex-start' }}
+                    />
+                  </Paper>
+
+                  <Paper
+                    sx={{
+                      p: { xs: 1.5, sm: 2 },
+                      borderRadius: 4,
+                      border: '2px solid',
+                      borderColor: action === 'reject' ? '#f44336' : 'rgba(103, 79, 182, 0.1)',
+                      backgroundColor: action === 'reject' ? 'rgba(244, 67, 54, 0.04)' : '#f8f7fa',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      '&:hover': {
+                        borderColor: '#f44336',
+                        backgroundColor: 'rgba(244, 67, 54, 0.04)',
+                      },
+                    }}
+                    onClick={() => setAction('reject')}
+                  >
+                    <FormControlLabel
+                      value="reject"
+                      control={<Radio sx={{ color: '#f44336', '&.Mui-checked': { color: '#f44336' } }} />}
+                      label={
+                        <Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <RejectIcon sx={{ color: '#f44336', fontSize: { xs: 18, sm: 24 } }} />
+                            <Typography variant="subtitle1" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                              Отклонить полностью
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                            Все товары возвращаются отправителю без проверки количеств.
+                          </Typography>
+                        </Box>
+                      }
+                      sx={{ m: 0, width: '100%', alignItems: 'flex-start' }}
+                    />
+                  </Paper>
                 </RadioGroup>
               </FormControl>
-              
-              <Alert severity="info">
-                <Typography variant="body2">
-                  <strong>Важно:</strong>
-                  <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                    <li><strong>"Принять"</strong> - укажите сколько фактически получили, товары сразу списываются и зачисляются</li>
-                    <li><strong>"Принять с расхождениями"</strong> - расхождения проверяются руководителем, после чего товары списываются</li>
-                    <li><strong>"Отклонить"</strong> - все товары возвращаются отправителю без проверки количеств</li>
-                  </ul>
-                </Typography>
-              </Alert>
-            </Paper>
-          );
-          
-        case 1: // Причина отклонения (последний шаг для reject)
-          return (
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: '#2a0f35' }}>
-                Причина отклонения
-              </Typography>
-              
-              {stepErrors[1] && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {stepErrors[1]}
-                </Alert>
-              )}
-              
-              <Alert severity="warning" sx={{ mb: 3 }}>
-                <Typography variant="body2">
-                  <strong>Вы выбрали отклонение перемещения.</strong>
-                  <br />
-                  При подтверждении:
-                  <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                    <li>Все товары будут возвращены отправителю</li>
-                    <li>Перемещение будет отменено</li>
-                    <li>Товары не будут списываться у отправителя</li>
-                    <li>Требуется указать причину отклонения</li>
-                  </ul>
-                </Typography>
-              </Alert>
-              
-              <Typography variant="subtitle1" gutterBottom>
-                Укажите причину отклонения:
-              </Typography>
-              <TextField
-                fullWidth
-                multiline
-                rows={4}
-                placeholder="Укажите причину, по которой вы отклоняете это перемещение..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                sx={{ mb: 3 }}
-                error={!!stepErrors[1]}
-                helperText={stepErrors[1] || "Объясните причину отклонения перемещения"}
-              />
-              
-              <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                <Typography variant="body2" color="textSecondary">
-                  Информация о перемещении:
-                </Typography>
-                <Box sx={{ pl: 2, mt: 1 }}>
-                  <Typography variant="body2">
-                    <strong>Товаров:</strong> {transfer.items.length} позиций
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Всего ожидалось:</strong> {transfer.totalQuantity || 0} ед.
-                  </Typography>
-                  <Typography variant="body2">
-                    <strong>Отправитель:</strong> {transfer.fromUserName}
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
-          );
-      }
-    } else {
-      // Логика для accept и discrepancy
-      switch (step) {
-        case 0: // Выбор действия
-          return (
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: '#2a0f35' }}>
-                Выберите действие
-              </Typography>
-              
-              <FormControl component="fieldset" sx={{ mb: 3 }}>
-                <RadioGroup
-                  value={action}
-                  onChange={(e) => {
-                    const newAction = e.target.value as any;
-                    setAction(newAction);
-                    setStepErrors({});
-                  }}
-                >
-                  <FormControlLabel
-                    value="accept"
-                    control={<Radio color="success" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <AcceptIcon sx={{ color: '#4caf50' }} />
-                        <span>Принять товар (указать фактическое количество)</span>
-                      </Box>
-                    }
+            </Stack>
+          )}
+
+          {/* Шаг 1: Указание количеств или причина отклонения */}
+          {step === 1 && (
+            <>
+              {action === 'reject' ? (
+                <Stack spacing={3}>
+                  <Alert severity="warning" sx={{ borderRadius: 4, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                    <Typography variant="body2" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                      <strong>Вы выбрали отклонение перемещения.</strong>
+                      <br />
+                      При подтверждении все товары будут возвращены отправителю.
+                    </Typography>
+                  </Alert>
+
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={4}
+                    label="Причина отклонения *"
+                    placeholder="Укажите причину, по которой вы отклоняете перемещение..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 4,
+                        backgroundColor: '#f8f7fa',
+                        fontSize: { xs: '0.85rem', sm: '0.95rem' },
+                      },
+                      '& .MuiInputLabel-root': {
+                        fontSize: { xs: '0.85rem', sm: '0.95rem' },
+                      },
+                    }}
                   />
-                  <FormControlLabel
-                    value="discrepancy"
-                    control={<Radio color="warning" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <DiscrepancyIcon sx={{ color: '#ff9800' }} />
-                        <span>Принять с расхождениями (требуется проверка руководителя)</span>
-                      </Box>
-                    }
-                  />
-                  <FormControlLabel
-                    value="reject"
-                    control={<Radio color="error" />}
-                    label={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <RejectIcon sx={{ color: '#f44336' }} />
-                        <span>Отклонить полностью (вернуть товары отправителю)</span>
-                      </Box>
-                    }
-                  />
-                </RadioGroup>
-              </FormControl>
-              
-              <Alert severity="info">
-                <Typography variant="body2">
-                  <strong>Важно:</strong>
-                  <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                    <li><strong>"Принять"</strong> - укажите сколько фактически получили, товары сразу списываются и зачисляются</li>
-                    <li><strong>"Принять с расхождениями"</strong> - расхождения проверяются руководителем, после чего товары списываются</li>
-                    <li><strong>"Отклонить"</strong> - все товары возвращаются отправителю без проверки количеств</li>
-                  </ul>
-                </Typography>
-              </Alert>
-            </Paper>
-          );
-          
-        case 1: // Указание количеств
-          return (
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: '#2a0f35', display: 'flex', alignItems: 'center', gap: 1 }}>
-                <NumbersIcon /> Укажите фактически полученные количества
-              </Typography>
-              
-              {stepErrors[1] && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {stepErrors[1]}
-                </Alert>
-              )}
-              
-              <Alert severity="info" sx={{ mb: 3 }}>
-                <Typography variant="body2">
-                  <strong>Указывайте фактическое количество полученного товара!</strong>
-                  <br />
-                  Товар будет списан у отправителя и добавлен вам именно в том количестве, которое вы укажете.
-                  <br />
-                  <strong>Можете указать любое количество:</strong>
-                  <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                    <li>Столько же как ожидалось</li>
-                    <li>Меньше чем ожидалось (недосдача)</li>
-                    <li>Больше чем ожидалось (избыток)</li>
-                  </ul>
-                </Typography>
-              </Alert>
-              
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Товар</TableCell>
-                      <TableCell align="right">Ожидается</TableCell>
-                      <TableCell align="center">Фактически получено</TableCell>
-                      <TableCell align="right">Разница</TableCell>
-                      <TableCell>Статус</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {transfer.items.map((item, index) => {
-                      const actual = itemQuantities[item.productId] || 0;
-                      const discrepancy = getDiscrepancy(item);
-                      const status = getItemStatus(item);
-                      const helperText = getInputHelperText(item);
-                      
-                      return (
-                        <TableRow key={index} hover>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight="medium">
+                </Stack>
+              ) : (
+                <Stack spacing={2}>
+                  {/* Карточки товаров вместо таблицы */}
+                  {transfer.items.map((item) => {
+                    const actual = itemQuantities[item.productId] || 0;
+                    const discrepancy = getDiscrepancy(item);
+                    const status = getItemStatus(item);
+                    
+                    return (
+                      <Card
+                        key={item.productId}
+                        sx={{
+                          p: { xs: 1.5, sm: 2 },
+                          borderRadius: 4,
+                          backgroundColor: '#f8f7fa',
+                          border: '1px solid rgba(103, 79, 182, 0.1)',
+                        }}
+                      >
+                        <Box sx={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'flex-start',
+                          mb: 1.5
+                        }}>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2" fontWeight={600} color="#2a0f35" sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
                               {getProductName(item.productId)}
                             </Typography>
-                            {getProductSku(item.productId) && (
-                              <Typography variant="caption" color="textSecondary" display="block">
-                                Арт: {getProductSku(item.productId)}
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" fontWeight="medium">
+                            <Typography variant="caption" color="#4c5454" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                              Арт: {getProductSku(item.productId) || '---'}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label={getTransferItemStatusText(status)}
+                            size="small"
+                            sx={{
+                              backgroundColor: `${getTransferItemStatusColor(status)}20`,
+                              color: getTransferItemStatusColor(status),
+                              fontWeight: 500,
+                              fontSize: { xs: '0.65rem', sm: '0.7rem' },
+                              height: { xs: 20, sm: 24 },
+                            }}
+                          />
+                        </Box>
+
+                        <Grid container spacing={1.5} alignItems="center">
+                          <Grid size={{ xs: 5, sm: 4 }}>
+                            <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.7rem' } }}>
+                              Ожидалось
+                            </Typography>
+                            <Typography variant="body2" fontWeight={500} color="#2a0f35" sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
                               {item.expectedQuantity} шт.
                             </Typography>
-                          </TableCell>
-                          <TableCell align="center">
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          </Grid>
+                          
+                          <Grid size={{ xs: 7, sm: 8 }}>
+                            <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.7rem' } }}>
+                              Фактически получено
+                            </Typography>
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
                               <IconButton
                                 size="small"
                                 onClick={() => handleQuantityChange(item.productId, actual - 1)}
                                 disabled={actual <= 0}
+                                sx={{ 
+                                  color: '#674fb6',
+                                  p: { xs: 0.5, sm: 1 },
+                                }}
                               >
-                                <RemoveIcon />
+                                <RemoveIcon fontSize={isMobile ? 'small' : 'medium'} />
                               </IconButton>
                               <TextField
                                 type="number"
                                 value={actual}
                                 onChange={(e) => handleQuantityChange(item.productId, Number(e.target.value))}
                                 size="small"
-                                sx={{ width: 120, mx: 1 }}
-                                inputProps={{ 
-                                  min: 0,
-                                  style: { textAlign: 'center' }
+                                sx={{ 
+                                  width: { xs: 70, sm: 100 },
+                                  mx: 0.5,
+                                  '& .MuiOutlinedInput-root': {
+                                    borderRadius: 4,
+                                    backgroundColor: '#ffffff',
+                                    fontSize: { xs: '0.85rem', sm: '0.95rem' },
+                                  },
+                                  '& input': {
+                                    textAlign: 'center',
+                                    py: { xs: 0.5, sm: 1 },
+                                  },
                                 }}
-                                helperText={helperText}
+                                inputProps={{ min: 0 }}
                               />
                               <IconButton
                                 size="small"
                                 onClick={() => handleQuantityChange(item.productId, actual + 1)}
+                                sx={{ 
+                                  color: '#674fb6',
+                                  p: { xs: 0.5, sm: 1 },
+                                }}
                               >
-                                <AddIcon />
+                                <AddIcon fontSize={isMobile ? 'small' : 'medium'} />
                               </IconButton>
                             </Box>
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography variant="body2" sx={{ 
-                              color: discrepancy === 0 ? 'inherit' : 
-                                     discrepancy > 0 ? '#4caf50' : '#f44336',
-                              fontWeight: 600
+                          </Grid>
+
+                          <Grid size={{ xs: 12 }}>
+                            <Box sx={{ 
+                              display: 'flex', 
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              mt: 1,
+                              pt: 1,
+                              borderTop: '1px dashed rgba(103, 79, 182, 0.2)',
                             }}>
-                              {discrepancy > 0 ? '+' : ''}{discrepancy} шт.
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Chip
-                              label={getTransferItemStatusText(status)}
-                              size="small"
-                              sx={{
-                                backgroundColor: `${getTransferItemStatusColor(status)}20`,
-                                color: getTransferItemStatusColor(status),
-                                fontWeight: 500,
-                              }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-              
-              <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                <Grid container spacing={2}>
-                  <Grid size={{xs: 6}}>
-                    <Typography variant="body2" color="textSecondary">
-                      Всего ожидается:
-                    </Typography>
-                    <Typography variant="h6">
-                      {transfer.totalQuantity || 0} ед.
-                    </Typography>
-                  </Grid>
-                  <Grid size={{xs: 6}}>
-                    <Typography variant="body2" color="textSecondary">
-                      Всего фактически:
-                    </Typography>
-                    <Typography variant="h6" color={
-                      Object.values(itemQuantities).reduce((a, b) => a + b, 0) === transfer.totalQuantity ? 
-                      'inherit' : '#ff9800'
-                    }>
-                      {Object.values(itemQuantities).reduce((a, b) => a + b, 0)} ед.
-                    </Typography>
-                  </Grid>
-                </Grid>
-                {action === 'discrepancy' && (
-                  <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-                    <strong>При расхождениях:</strong> Требуется подтверждение руководителя перед списанием товаров
-                  </Typography>
-                )}
-              </Box>
-            </Paper>
-          );
-          
-        case 2: // Загрузка фотографий
-          return (
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: '#2a0f35', display: 'flex', alignItems: 'center', gap: 1 }}>
-                <PhotoLibraryIcon /> Загрузите фотографии товара
-              </Typography>
-              
-              {stepErrors[2] && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {stepErrors[2]}
-                </Alert>
+                              <Typography variant="caption" color="#4c5454" sx={{ fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                                Разница
+                              </Typography>
+                              <Typography variant="body2" sx={{ 
+                                color: discrepancy === 0 ? '#4c5454' : 
+                                       discrepancy > 0 ? '#4caf50' : '#f44336',
+                                fontWeight: 600,
+                                fontSize: { xs: '0.9rem', sm: '1rem' },
+                              }}>
+                                {discrepancy > 0 ? '+' : ''}{discrepancy} шт.
+                              </Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+                      </Card>
+                    );
+                  })}
+
+                  {/* Сводка по количествам */}
+                  <Card sx={{ 
+                    borderRadius: 4, 
+                    backgroundColor: 'rgba(63, 31, 75, 0.04)',
+                    border: '1px solid rgba(63, 31, 75, 0.1)',
+                    mt: 2,
+                  }}>
+                    <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                      <Grid container spacing={2}>
+                        <Grid size={{ xs: 6 }}>
+                          <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                            Всего ожидается
+                          </Typography>
+                          <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                            {totalExpected} ед.
+                          </Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6 }}>
+                          <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                            Всего фактически
+                          </Typography>
+                          <Typography variant="h6" color={totalActual === totalExpected ? '#2a0f35' : '#ff9800'} fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                            {totalActual} ед.
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                      {action === 'discrepancy' && (
+                        <Typography variant="caption" color="#ff9800" display="block" sx={{ mt: 1, fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                          При расхождениях требуется подтверждение руководителя
+                        </Typography>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Stack>
               )}
-              
-              <Alert severity="info" sx={{ mb: 3 }}>
-                <Typography variant="body2">
-                  <strong>Обязательно:</strong> Прикрепите фотографии полученного товара.
-                  Фотографии служат подтверждением фактического количества и состояния товара.
-                  <br />
-                  <br />
-                  <strong>Требования:</strong>
-                  <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                    <li>Только изображения (JPEG, PNG, GIF, WebP)</li>
-                    <li>Максимальный размер файла: 10MB</li>
-                    <li>Максимальное количество: 10 файлов</li>
-                  </ul>
-                </Typography>
-              </Alert>
-              
-              <input
-                accept="image/*"
-                style={{ display: 'none' }}
-                id="file-upload"
-                type="file"
-                multiple
-                onChange={handleFileUpload}
-              />
-              <label htmlFor="file-upload">
-                <Button
-                  variant="outlined"
-                  component="span"
-                  startIcon={<PhotoIcon />}
-                  fullWidth
-                  sx={{ mb: 2 }}
-                >
-                  Добавить фотографии
-                </Button>
-              </label>
-              
-              {filePreviews.length > 0 && (
+            </>
+          )}
+
+          {/* Шаг 2: Фотографии и подтверждение */}
+          {step === 2 && (
+            <Stack spacing={3}>
+              {action !== 'reject' && (
                 <>
-                  <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                    Загружено фотографий: {filePreviews.length}
+                  <input
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    id="photo-upload"
+                    type="file"
+                    multiple
+                    onChange={handleFileUpload}
+                  />
+                  
+                  <Box
+                    sx={{
+                      border: '2px dashed rgba(103, 79, 182, 0.3)',
+                      p: { xs: 2, sm: 4 },
+                      borderRadius: 4,
+                      textAlign: 'center',
+                      backgroundColor: '#f8f7fa',
+                      cursor: files.length >= 10 ? 'not-allowed' : 'pointer',
+                      opacity: files.length >= 10 ? 0.6 : 1,
+                      transition: 'all 0.2s',
+                      '&:hover': files.length < 10 ? {
+                        borderColor: '#674fb6',
+                        backgroundColor: 'rgba(103, 79, 182, 0.02)',
+                      } : {},
+                    }}
+                    onClick={() => {
+                      if (files.length < 10) {
+                        document.getElementById('photo-upload')?.click();
+                      }
+                    }}
+                  >
+                    <PhotoCameraIcon sx={{ fontSize: { xs: 36, sm: 48 }, color: '#674fb6', mb: 1 }} />
+                    <Typography variant="body1" color="#2a0f35" fontWeight={500} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                      {files.length > 0 ? 'Добавить еще фотографии' : 'Прикрепить фотографии товаров'}
+                    </Typography>
+                    <Typography variant="caption" color="#4c5454" display="block" sx={{ mt: 1, fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                      {files.length}/10 фотографий • Максимум 10MB на файл
+                    </Typography>
+                  </Box>
+
+                  {fileError && (
+                    <Alert severity="error" sx={{ borderRadius: 4, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                      {fileError}
+                    </Alert>
+                  )}
+
+                  {files.length > 0 && (
+                    <Grid container spacing={1}>
+                      {files.map((file, index) => {
+                        const photoUrl = getPhotoPreviewUrl(file);
+                        
+                        return (
+                          <Grid size={{ xs: 6, sm: 4, md: 3 }} key={index}>
+                            <Box
+                              sx={{
+                                position: 'relative',
+                                width: '100%',
+                                paddingBottom: '100%',
+                                borderRadius: 4,
+                                overflow: 'hidden',
+                                cursor: 'pointer',
+                                backgroundImage: `url(${photoUrl})`,
+                                backgroundSize: 'cover',
+                                backgroundPosition: 'center',
+                                transition: 'transform 0.2s ease',
+                                '&:hover': {
+                                  transform: { xs: 'none', md: 'scale(1.02)' },
+                                },
+                              }}
+                              onClick={() => handleViewPhoto([photoUrl], 0)}
+                            >
+                              <IconButton
+                                size="small"
+                                sx={{
+                                  position: 'absolute',
+                                  top: 4,
+                                  right: 4,
+                                  backgroundColor: 'rgba(42, 15, 53, 0.6)',
+                                  backdropFilter: 'blur(4px)',
+                                  zIndex: 1,
+                                  padding: { xs: 0.5, sm: 0.75 },
+                                  '&:hover': { backgroundColor: 'rgba(42, 15, 53, 0.8)' },
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeFile(index);
+                                }}
+                              >
+                                <CloseIcon sx={{ color: 'white', fontSize: { xs: 14, sm: 18 } }} />
+                              </IconButton>
+                            </Box>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  )}
+                </>
+              )}
+
+              <Divider />
+
+              <Card sx={{ 
+                borderRadius: 4, 
+                backgroundColor: 'rgba(63, 31, 75, 0.04)',
+                border: '1px solid rgba(63, 31, 75, 0.1)',
+              }}>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                  <Typography variant="subtitle2" color="#2a0f35" fontWeight={600} gutterBottom sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 1,
+                    fontSize: { xs: '0.85rem', sm: '0.95rem' }
+                  }}>
+                    <CheckCircleIcon sx={{ color: '#3f1f4b', fontSize: { xs: 18, sm: 20 } }} />
+                    Сводка по перемещению
                   </Typography>
                   
-                  <ImageList cols={3} gap={8} sx={{ mb: 2 }}>
-                    {filePreviews.map((preview, index) => (
-                      <ImageListItem key={index}>
-                        <img
-                          src={preview}
-                          alt={`Фото ${index + 1}`}
-                          loading="lazy"
-                          style={{ height: 120, objectFit: 'cover', cursor: 'pointer' }}
-                          onClick={() => openImageDialog(preview)}
-                        />
-                        <ImageListItemBar
-                          position="top"
-                          actionIcon={
-                            <IconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeFile(index);
-                              }}
-                              sx={{ color: 'white' }}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          }
-                          actionPosition="right"
-                        />
-                        <ImageListItemBar
-                          position="bottom"
-                          subtitle={`Фото ${index + 1}`}
-                        />
-                      </ImageListItem>
-                    ))}
-                  </ImageList>
-                </>
-              )}
-              
-              {fileError && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {fileError}
-                </Alert>
-              )}
-            </Paper>
-          );
-          
-        case 3: // Подтверждение
-          return (
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ color: '#2a0f35' }}>
-                Подтверждение действия
-              </Typography>
-              
-              {stepErrors[3] && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {stepErrors[3]}
-                </Alert>
-              )}
-              
-              <Alert severity="info" sx={{ mb: 3 }}>
-                <Typography variant="body2">
-                  Проверьте все данные перед подтверждением:
-                </Typography>
-              </Alert>
-              
-              <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid size={{xs: 12, md: 6}}>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                  <Divider sx={{ my: { xs: 1.5, sm: 2 }, borderColor: 'rgba(63, 31, 75, 0.1)' }} />
+                  
+                  <Grid container spacing={1.5}>
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
                         Действие
                       </Typography>
-                      <Typography variant="body1" fontWeight="medium" sx={{ 
-                        color: action === 'accept' ? '#4caf50' : 
-                               action === 'discrepancy' ? '#ff9800' : '#f44336'
-                      }}>
+                      <Typography variant="h6" color={getActionColor()} fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
                         {getActionText().toUpperCase()}
                       </Typography>
-                    </CardContent>
-                  </Card>
+                    </Grid>
+                    
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                        {action === 'reject' ? 'Причина' : 'Количество'}
+                      </Typography>
+                      <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                        {action === 'reject' 
+                          ? notes ? 'Указана' : 'Не указана'
+                          : `${totalActual} / ${totalExpected}`
+                        }
+                      </Typography>
+                    </Grid>
+                    
+                    {action !== 'reject' && (
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                          Фотографии
+                        </Typography>
+                        <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                          {files.length} шт.
+                        </Typography>
+                      </Grid>
+                    )}
+                    
+                    <Grid size={{ xs: 6, sm: action === 'reject' ? 6 : 3 }}>
+                      <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                        Получатель
+                      </Typography>
+                      <Typography variant="h6" color="#674fb6" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                        {transfer?.toUserName?.split(' ')[0] || 'Не указан'}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                  
+                  {action === 'reject' && notes && (
+                    <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px dashed rgba(63, 31, 75, 0.2)' }}>
+                      <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                        ПРИЧИНА ОТКЛОНЕНИЯ
+                      </Typography>
+                      <Typography variant="body2" color="#2a0f35" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                        {notes}
+                      </Typography>
+                    </Box>
+                  )}
+                </CardContent>
+              </Card>
+            </Stack>
+          )}
+
+          {/* Кнопки навигации */}
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            mt: { xs: 3, sm: 4 },
+            gap: { xs: 1, sm: 2 },
+          }}>
+            {step > 0 ? (
+              <Button
+                variant="outlined"
+                onClick={handleBack}
+                disabled={submitting}
+                sx={{
+                  borderRadius: 4,
+                  borderColor: '#d8d1e0',
+                  color: '#674fb6',
+                  '&:hover': {
+                    borderColor: '#674fb6',
+                    backgroundColor: 'rgba(103, 79, 182, 0.04)',
+                  },
+                  fontSize: { xs: '0.8rem', sm: '0.95rem' },
+                  py: { xs: 1, sm: 1.5 },
+                  minWidth: { xs: '80px', sm: '100px' },
+                }}
+              >
+                Назад
+              </Button>
+            ) : (
+              <Button
+                variant="outlined"
+                onClick={handleExitClick}
+                disabled={submitting}
+                sx={{
+                  borderRadius: 4,
+                  borderColor: '#d8d1e0',
+                  color: '#ca0ec0',
+                  '&:hover': {
+                    borderColor: '#ca0ec0',
+                    backgroundColor: 'rgba(202, 14, 192, 0.04)',
+                  },
+                  fontSize: { xs: '0.8rem', sm: '0.95rem' },
+                  py: { xs: 1, sm: 1.5 },
+                  minWidth: { xs: '80px', sm: '100px' },
+                }}
+              >
+                Выйти
+              </Button>
+            )}
+            
+            <Box sx={{ flex: 1 }} />
+            
+            {step < 2 ? (
+              <Button
+                variant="contained"
+                onClick={handleNext}
+                disabled={submitting}
+                sx={{
+                  borderRadius: 4,
+                  backgroundColor: '#674fb6',
+                  '&:hover': { backgroundColor: '#483399' },
+                  fontSize: { xs: '0.8rem', sm: '0.95rem' },
+                  py: { xs: 1, sm: 1.5 },
+                  px: { xs: 3, sm: 4 },
+                  minWidth: { xs: '80px', sm: '100px' },
+                }}
+              >
+                Далее
+              </Button>
+            ) : (
+              <Button
+                variant="contained"
+                onClick={() => setConfirmDialog(true)}
+                disabled={submitting || (action !== 'reject' && files.length === 0)}
+                sx={{
+                  borderRadius: 4,
+                  backgroundColor: getActionColor(),
+                  '&:hover': { 
+                    backgroundColor: 
+                      action === 'accept' ? '#388e3c' : 
+                      action === 'discrepancy' ? '#f57c00' : '#d32f2f',
+                  },
+                  fontSize: { xs: '0.8rem', sm: '0.95rem' },
+                  py: { xs: 1, sm: 1.5 },
+                  px: { xs: 2, sm: 3 },
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {submitting ? <CircularProgress size={20} sx={{ color: 'white' }} /> : getActionButtonText()}
+              </Button>
+            )}
+          </Box>
+        </Paper>
+      </Container>
+
+      {/* Диалог подтверждения выхода */}
+      <Dialog
+        open={exitDialog}
+        onClose={() => setExitDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            maxWidth: { xs: '90%', sm: 450 },
+            width: '100%',
+            m: 2,
+          },
+        }}
+      >
+        <DialogTitle sx={{ p: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+            Прервать приемку?
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: { xs: 2, sm: 2.5 }, pt: { xs: 1, sm: 2 } }}>
+          <Typography variant="body1" color="#4c5454" sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}>
+            Введенные данные не сохранятся. Вы уверены, что хотите выйти?
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: { xs: 2, sm: 2.5 }, pt: 1, gap: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
+          <Button
+            onClick={() => setExitDialog(false)}
+            sx={{
+              borderRadius: 4,
+              color: '#4c5454',
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: { xs: '0.85rem', sm: '0.95rem' },
+              fontWeight: 500,
+              width: { xs: '100%', sm: 'auto' },
+            }}
+          >
+            Продолжить
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setExitDialog(false);
+              navigate(`/movements/${id}`);
+            }}
+            sx={{
+              borderRadius: 4,
+              backgroundColor: '#ca0ec0',
+              '&:hover': { backgroundColor: '#950090' },
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: { xs: '0.85rem', sm: '0.95rem' },
+              fontWeight: 500,
+              width: { xs: '100%', sm: 'auto' },
+            }}
+          >
+            Выйти
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог подтверждения отправки */}
+      <Dialog
+        open={confirmDialog}
+        onClose={() => setConfirmDialog(false)}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            maxWidth: 520,
+            width: '100%',
+            m: 2,
+            boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ p: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ mb: 0.5, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+            Подтверждение действия
+          </Typography>
+          <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.8rem', sm: '0.85rem' } }}>
+            Проверьте данные перед подтверждением
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: { xs: 2, sm: 2.5 }, pt: { xs: 1, sm: 2 } }}>
+          <Stack spacing={2.5}>
+            <Box sx={{ 
+              p: { xs: 1.5, sm: 2 }, 
+              backgroundColor: 'rgba(63, 31, 75, 0.04)',
+              borderRadius: 4,
+              border: '1px solid rgba(63, 31, 75, 0.1)',
+            }}>
+              <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                ДЕЙСТВИЕ
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {action === 'accept' && <AcceptIcon sx={{ color: '#4caf50', fontSize: { xs: 20, sm: 24 } }} />}
+                {action === 'discrepancy' && <DiscrepancyIcon sx={{ color: '#ff9800', fontSize: { xs: 20, sm: 24 } }} />}
+                {action === 'reject' && <RejectIcon sx={{ color: '#f44336', fontSize: { xs: 20, sm: 24 } }} />}
+                <Typography variant="body1" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                  {getActionText().toUpperCase()}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ 
+              p: { xs: 1.5, sm: 2 }, 
+              backgroundColor: '#f8f7fa',
+              borderRadius: 4,
+            }}>
+              <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                ДЕТАЛИ
+              </Typography>
+              <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                <Grid size={{ xs: 4 }}>
+                  <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                    Товаров
+                  </Typography>
+                  <Typography variant="body1" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                    {transfer?.items?.length || 0} поз.
+                  </Typography>
                 </Grid>
-                <Grid size={{xs: 12, md: 6}}>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+                {action !== 'reject' && (
+                  <>
+                    <Grid size={{ xs: 4 }}>
+                      <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                        Количество
+                      </Typography>
+                      <Typography variant="body1" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                        {totalActual} / {totalExpected}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 4 }}>
+                      <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
                         Фотографии
                       </Typography>
-                      <Typography variant="body1" fontWeight="medium">
+                      <Typography variant="body1" color="#2a0f35" fontWeight={600} sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
                         {files.length} шт.
                       </Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                    </Grid>
+                  </>
+                )}
               </Grid>
-              
-              <Typography variant="subtitle1" gutterBottom>
-                Количества товаров:
-              </Typography>
-              <TableContainer sx={{ mb: 3 }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Товар</TableCell>
-                      <TableCell align="right">Ожидалось</TableCell>
-                      <TableCell align="right">Указано</TableCell>
-                      <TableCell align="right">Разница</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {transfer.items.map((item, index) => {
-                      const actual = itemQuantities[item.productId] || 0;
-                      const discrepancy = getDiscrepancy(item);
-                      
-                      return (
-                        <TableRow key={index}>
-                          <TableCell>{getProductName(item.productId)}</TableCell>
-                          <TableCell align="right">{item.expectedQuantity} шт.</TableCell>
-                          <TableCell align="right">{actual} шт.</TableCell>
-                          <TableCell align="right" sx={{ 
-                            color: discrepancy === 0 ? 'inherit' : 
-                                   discrepancy > 0 ? '#4caf50' : '#f44336',
-                            fontWeight: 600
-                          }}>
-                            {discrepancy > 0 ? '+' : ''}{discrepancy} шт.
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-              
-              <Typography variant="subtitle1" gutterBottom>
-                Комментарий:
-              </Typography>
-              <TextField
-                fullWidth
-                multiline
-                rows={3}
-                placeholder="Дополнительная информация..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                sx={{ mb: 3 }}
-                error={!!stepErrors[3]}
-                helperText={stepErrors[3]}
-              />
-            </Paper>
-          );
-      }
-    }
-    
-    return null;
-  };
-
-  // 🔴 Функция для определения, нужно ли показывать кнопку "Подтвердить"
-  const isLastStep = () => {
-    if (action === 'reject') {
-      return activeStep === steps.length - 1; // Для reject последний шаг - причина отклонения
-    } else {
-      return activeStep === steps.length - 1; // Для accept/discrepancy последний шаг - подтверждение
-    }
-  };
-
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Button
-          startIcon={<BackIcon />}
-          onClick={() => navigate(`/movements/${id}`)}
-          sx={{ mb: 2 }}
-        >
-          Назад к перемещению
-        </Button>
-        
-        <Typography variant="h4" component="h1" gutterBottom color="#2a0f35">
-          {action === 'reject' ? 'Отклонение товара' : 'Прием товара'}
-        </Typography>
-        <Typography variant="subtitle1" color="#4c5454">
-          Перемещение #{transfer.id}: {transfer.title}
-        </Typography>
-        <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
-          От: {transfer.fromUserName} → Кому: {transfer.toUserName}
-        </Typography>
-      </Box>
-
-      {/* Валидационные ошибки */}
-      <Snackbar
-        open={!!validationError}
-        autoHideDuration={6000}
-        onClose={handleValidationErrorClose}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <MuiAlert onClose={handleValidationErrorClose} severity="error" sx={{ width: '100%' }}>
-          {validationError}
-        </MuiAlert>
-      </Snackbar>
-
-      {/* Степпер */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Stepper activeStep={activeStep} alternativeLabel>
-          {steps.map((label, index) => (
-            <Step key={label}>
-              <StepLabel error={!!stepErrors[index]}>
-                {label}
-              </StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-      </Paper>
-
-      {/* Содержимое текущего шага */}
-      {renderStepContent(activeStep)}
-
-      {/* Кнопки навигации */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
-        <Button
-          onClick={activeStep === 0 ? () => navigate(`/movements/${id}`) : handleBack}
-          disabled={submitting}
-        >
-          {activeStep === 0 ? 'Отмена' : 'Назад'}
-        </Button>
-        
-        <Box>
-          {!isLastStep() ? (
-            <Button
-              variant="contained"
-              onClick={handleNext}
-              disabled={submitting}
-              sx={{ backgroundColor: '#2a0f35', '&:hover': { backgroundColor: '#3a1f45' } }}
-            >
-              Далее
-            </Button>
-          ) : (
-            <Button
-              variant="contained"
-              onClick={openConfirmationDialog}
-              disabled={submitting}
-              sx={{
-                backgroundColor: 
-                  action === 'accept' ? '#4caf50' : 
-                  action === 'discrepancy' ? '#ff9800' : '#f44336',
-                '&:hover': {
-                  backgroundColor: 
-                    action === 'accept' ? '#388e3c' : 
-                    action === 'discrepancy' ? '#f57c00' : '#d32f2f',
-                },
-              }}
-            >
-              {submitting ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                `Подтвердить ${getActionText()}`
-              )}
-            </Button>
-          )}
-        </Box>
-      </Box>
-
-      {/* Панель сводки (всегда видна) */}
-      <Paper sx={{ p: 3, mt: 3, bgcolor: 'grey.50' }}>
-        <Typography variant="h6" gutterBottom sx={{ color: '#2a0f35' }}>
-          Сводка по перемещению
-        </Typography>
-        
-        <Grid container spacing={2}>
-          <Grid size={{xs: 12, md: 6}}>
-            <Typography variant="body2" color="textSecondary">
-              Общая информация
-            </Typography>
-            <Box sx={{ pl: 2, mt: 1 }}>
-              <Typography variant="body2">
-                <strong>Товаров:</strong> {transfer.items.length} позиций
-              </Typography>
-              <Typography variant="body2">
-                <strong>Ожидалось всего:</strong> {transfer.totalQuantity || 0} ед.
-              </Typography>
-              {action !== 'reject' && (
-                <Typography variant="body2">
-                  <strong>Указано всего:</strong> {Object.values(itemQuantities).reduce((a, b) => a + b, 0)} ед.
-                </Typography>
-              )}
-              {action !== 'reject' && (
-                <Typography variant="body2">
-                  <strong>Фотографий:</strong> {files.length} шт.
-                </Typography>
-              )}
             </Box>
-          </Grid>
-          
-          <Grid size={{xs: 12, md: 6}}>
-            <Typography variant="body2" color="textSecondary">
-              Что произойдет после подтверждения
-            </Typography>
-            <Box sx={{ pl: 2, mt: 1 }}>
-              {action === 'accept' && (
-                <>
-                  <Typography variant="body2">✓ Товары будут списаны у отправителя в указанном количестве</Typography>
-                  <Typography variant="body2">✓ Товары будут добавлены вам в указанном количестве</Typography>
-                  <Typography variant="body2">✓ Перемещение будет завершено автоматически</Typography>
-                  <Typography variant="body2">✓ Фотографии будут сохранены в разделе "Приемка"</Typography>
-                </>
-              )}
-              {action === 'discrepancy' && (
-                <>
-                  <Typography variant="body2">✓ Будут созданы записи о расхождениях</Typography>
-                  <Typography variant="body2">✓ Перемещение перейдет в статус проверки расхождений</Typography>
-                  <Typography variant="body2">⚠ Требуется подтверждение руководителей получателя</Typography>
-                  <Typography variant="body2">⚠ После подтверждения товары будут списаны/зачислены</Typography>
-                </>
-              )}
-              {action === 'reject' && (
-                <>
-                  <Typography variant="body2">✗ Все товары будут возвращены отправителю</Typography>
-                  <Typography variant="body2">✗ Перемещение будет отменено</Typography>
-                  <Typography variant="body2">⚠ Укажите причину отклонения</Typography>
-                </>
-              )}
-            </Box>
-          </Grid>
-        </Grid>
-      </Paper>
 
-      {/* Модальные окна */}
-      <Dialog
-        open={confirmDialogOpen}
-        onClose={() => setConfirmDialogOpen(false)}
-      >
-        <DialogTitle>Подтверждение действия</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Вы уверены, что хотите {getActionText()}?
-          </Typography>
-          {action === 'reject' && (
-            <Alert severity="warning" sx={{ mt: 2 }}>
-              <strong>Внимание!</strong> При отклонении:
-              <ul style={{ marginTop: 8, marginBottom: 0 }}>
-                <li>Все товары будут возвращены отправителю</li>
-                <li>Перемещение будет отменено</li>
-              </ul>
-            </Alert>
-          )}
-          {action === 'accept' && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              <strong>Будет списано:</strong> {Object.values(itemQuantities).reduce((a, b) => a + b, 0)} ед.
-              <br />
-              <strong>Будет зачислено вам:</strong> {Object.values(itemQuantities).reduce((a, b) => a + b, 0)} ед.
-            </Alert>
-          )}
+            {action === 'reject' && notes && (
+              <Box sx={{ 
+                p: { xs: 1.5, sm: 2 }, 
+                backgroundColor: '#f8f7fa',
+                borderRadius: 4,
+              }}>
+                <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' } }}>
+                  ПРИЧИНА ОТКЛОНЕНИЯ
+                </Typography>
+                <Typography variant="body2" color="#2a0f35" sx={{ fontSize: { xs: '0.85rem', sm: '0.95rem' } }}>
+                  {notes}
+                </Typography>
+              </Box>
+            )}
+
+            {action === 'accept' && (
+              <Alert severity="info" sx={{ borderRadius: 4, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                Товары будут списаны у отправителя и зачислены вам в указанном количестве
+              </Alert>
+            )}
+            {action === 'discrepancy' && (
+              <Alert severity="warning" sx={{ borderRadius: 4, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                Требуется подтверждение руководителя перед списанием товаров
+              </Alert>
+            )}
+            {action === 'reject' && (
+              <Alert severity="error" sx={{ borderRadius: 4, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+                Все товары будут возвращены отправителю, перемещение будет отменено
+              </Alert>
+            )}
+          </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDialogOpen(false)} disabled={submitting}>
+        <DialogActions sx={{ p: { xs: 2, sm: 2.5 }, pt: 1, gap: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
+          <Button
+            onClick={() => setConfirmDialog(false)}
+            disabled={submitting}
+            sx={{
+              borderRadius: 4,
+              color: '#4c5454',
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: { xs: '0.85rem', sm: '0.95rem' },
+              fontWeight: 500,
+              width: { xs: '100%', sm: 'auto' },
+            }}
+          >
             Отмена
           </Button>
-          <Button 
-            onClick={handleSubmit} 
-            variant="contained" 
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
             disabled={submitting}
-            color={
-              action === 'accept' ? 'success' : 
-              action === 'discrepancy' ? 'warning' : 'error'
-            }
+            sx={{
+              borderRadius: 4,
+              backgroundColor: getActionColor(),
+              '&:hover': { 
+                backgroundColor: 
+                  action === 'accept' ? '#388e3c' : 
+                  action === 'discrepancy' ? '#f57c00' : '#d32f2f',
+              },
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: { xs: '0.85rem', sm: '0.95rem' },
+              fontWeight: 500,
+              width: { xs: '100%', sm: 'auto' },
+            }}
           >
-            {submitting ? (
-              <CircularProgress size={24} color="inherit" />
-            ) : (
-              'Подтвердить'
-            )}
+            {submitting ? <CircularProgress size={20} sx={{ color: 'white' }} /> : getActionButtonText()}
           </Button>
         </DialogActions>
       </Dialog>
 
+      {/* Диалог успеха */}
       <Dialog
-        open={successDialogOpen}
-        onClose={handleSuccessDialogClose}
+        open={successDialog}
+        onClose={() => {
+          setSuccessDialog(false);
+          navigate(`/movements/${id}`);
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            maxWidth: 400,
+            width: '100%',
+            m: 2,
+            boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+          },
+        }}
       >
-        <DialogTitle>Успешно</DialogTitle>
-        <DialogContent>
-          <Typography>{successMessage}</Typography>
+        <DialogContent sx={{ textAlign: 'center', py: { xs: 3, sm: 4 }, px: { xs: 2, sm: 3 } }}>
+          <CheckCircleIcon sx={{ fontSize: { xs: 60, sm: 80 }, color: '#3f1f4b', mb: 2 }} />
+          <Typography variant="h5" color="#2a0f35" fontWeight={600} gutterBottom sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+            Перемещение {getActionText()}!
+          </Typography>
+          <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.85rem', sm: '0.95rem' } }}>
+            {action === 'accept' && 'Товары успешно приняты'}
+            {action === 'discrepancy' && 'Заявка отправлена на проверку руководителю'}
+            {action === 'reject' && 'Перемещение отклонено'}
+          </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleSuccessDialogClose} variant="contained" color="primary">
-            ОК
+        <DialogActions sx={{ justifyContent: 'center', pb: { xs: 3, sm: 4 } }}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setSuccessDialog(false);
+              navigate(`/movements/${id}`);
+            }}
+            sx={{
+              borderRadius: 4,
+              backgroundColor: '#674fb6',
+              '&:hover': { backgroundColor: '#483399' },
+              px: { xs: 3, sm: 4 },
+              py: 1,
+              textTransform: 'none',
+              fontSize: { xs: '0.85rem', sm: '0.95rem' },
+              fontWeight: 500,
+            }}
+          >
+            К перемещению
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog
-        open={errorDialogOpen}
-        onClose={handleErrorDialogClose}
-      >
-        <DialogTitle>Ошибка</DialogTitle>
-        <DialogContent>
-          <Typography>{errorMessage}</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleErrorDialogClose} color="primary">
-            Закрыть
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog
-        open={viewImageOpen}
-        onClose={closeImageDialog}
-        maxWidth="lg"
-        fullWidth
-      >
-        <DialogTitle>
-          <Box display="flex" justifyContent="space-between" alignItems="center">
-            <Typography variant="h6">Просмотр фотографии</Typography>
-            <IconButton onClick={closeImageDialog}>
-              <CloseIcon />
-            </IconButton>
-          </Box>
-        </DialogTitle>
-        <DialogContent>
-          {selectedImage && (
-            <Box
-              component="img"
-              src={selectedImage}
-              alt="Предпросмотр"
-              sx={{
-                width: '100%',
-                height: 'auto',
-                maxHeight: '70vh',
-                objectFit: 'contain',
-              }}
-            />
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeImageDialog} color="primary">
-            Закрыть
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
+      {/* Просмотр фото */}
+      <PhotoViewer
+        open={photoViewer.open}
+        photos={photoViewer.photos}
+        currentIndex={photoViewer.currentIndex}
+        onClose={() => setPhotoViewer(prev => ({ ...prev, open: false }))}
+        onIndexChange={(index) => setPhotoViewer(prev => ({ ...prev, currentIndex: index }))}
+        getPhotoUrl={(photo) => photo}
+        forceMobile={false}
+        disableThumbnails={photoViewer.photos.length <= 1}
+      />
+    </Box>
   );
 };
 

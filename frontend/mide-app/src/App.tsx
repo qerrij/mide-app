@@ -31,13 +31,15 @@ import ArrivedTransferPage from './pages/transfers/ArrivedTransferPage';
 import VerifyDiscrepancyPage from './pages/transfers/VerifyDiscrepancyPage';
 import CreateManagerTransferPage from './pages/transfers/CreateManagerTransferPage';
 import ExecuteManagerRequestPage from './pages/transfers/ExecuteManagerRequestPage';
-import DefectsPage from './pages/DefectsPage';
-import CreateDefectPage from './pages/CreateDefectPage';
-import DefectDetailPage from './pages/DefectDetailPage';
+import DefectsPage from './pages/defects/DefectsPage';
+import CreateDefectPage from './pages/defects/CreateDefectPage';
+import DefectDetailPage from './pages/defects/DefectDetailPage';
 import NotificationsPage from './pages/NotificationsPage';
 
-import DefectStatsPage from './pages/DefectStatsPage';
-import StaffPage from './pages/StaffPage';
+import CompanyPage from './pages/company/CompanyPage';
+
+import DefectStatsPage from './pages/defects/DefectStatsPage';
+import StaffPage from './pages/staff/StaffPage';
 import { UserRole } from './types';
 
 function App() {
@@ -324,7 +326,8 @@ function App() {
                       
                       <Route path="/staff" element={
                         <RoleBasedRoute allowedRoles={[
-                          UserRole.OWNER                        ]}>
+                          UserRole.OWNER
+                          ]}>
                           <StaffPage />
                         </RoleBasedRoute>
                       } />
@@ -332,6 +335,16 @@ function App() {
                       <Route path="/products" element={
                         <RoleBasedRoute allowedRoles={[UserRole.OWNER]}>
                           <ProductsPage />
+                        </RoleBasedRoute>
+                      } />
+
+                      <Route path="/company" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.ACCOUNTANT
+                        ]}>
+                          <CompanyPage />
                         </RoleBasedRoute>
                       } />
                       

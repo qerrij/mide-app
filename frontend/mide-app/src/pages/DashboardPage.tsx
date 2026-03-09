@@ -19,6 +19,7 @@ import {
   BarChart,
   Person,
 } from '@mui/icons-material';
+import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
 import { useNavigate } from 'react-router-dom';
@@ -100,7 +101,16 @@ const DashboardPage: React.FC = () => {
       roles: [UserRole.OWNER],
       description: 'Управление товарами и остатками',
       color: '#1976d2',
+    },
+    {
+      title: 'Бухгалтерия',
+      icon: <AccountBalanceIcon sx={{ fontSize: 40, color: '#1976d2' }} />,
+      path: '/company',
+      roles: [UserRole.OWNER, UserRole.ACCOUNTANT],
+      description: 'Управление транзакциями',
+      color: '#1976d2',
     }
+
   ];
 
   const getRoleName = (role: UserRole): string => {

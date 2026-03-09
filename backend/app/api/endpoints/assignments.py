@@ -397,8 +397,15 @@ def assign_admin_to_cluster(
         admin_clusters = []
         if admin.admin_clusters:
             try:
-                admin_clusters = json.loads(admin.admin_clusters)
-            except:
+                # Если это строка, парсим JSON
+                if isinstance(admin.admin_clusters, str):
+                    admin_clusters = json.loads(admin.admin_clusters)
+                # Если это уже список, используем как есть
+                elif isinstance(admin.admin_clusters, list):
+                    admin_clusters = admin.admin_clusters
+            except (json.JSONDecodeError, TypeError) as e:
+                # Если не удалось распарсить, начинаем с пустого списка
+                print(f"Error parsing admin_clusters: {e}")
                 admin_clusters = []
         
         # Проверяем, не добавлен ли уже этот куст
@@ -407,6 +414,8 @@ def assign_admin_to_cluster(
         
         # Добавляем куст
         admin_clusters.append(cluster_id)
+        
+        # Сохраняем как JSON строку
         admin.admin_clusters = json.dumps(admin_clusters)
         
         # Обновляем куст (добавляем администратора если его еще нет)

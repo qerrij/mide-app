@@ -45,7 +45,7 @@ import {
   getNotificationTypeText,
 } from '../../types';
 
-interface SwipeableNotificationProps {
+interface NotificationItemProps {
   notification: Notification;
   onDelete: (id: number) => void;
   onClick: (notification: Notification) => void;
@@ -56,7 +56,7 @@ interface SwipeableNotificationProps {
   truncateText: (text: string, maxLength: number) => string;
 }
 
-const SwipeableNotification: React.FC<SwipeableNotificationProps> = ({
+const NotificationItem: React.FC<NotificationItemProps> = ({
   notification,
   onDelete,
   onClick,
@@ -66,143 +66,14 @@ const SwipeableNotification: React.FC<SwipeableNotificationProps> = ({
   formatTime,
   truncateText,
 }) => {
-  const [translateX, setTranslateX] = useState(0);
-  const [isSwiping, setIsSwiping] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showDelete, setShowDelete] = useState(false);
-  const touchStartX = useRef(0);
-  const touchMoveX = useRef(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const DELETE_THRESHOLD = -80; // Порог для удаления (пиксели)
-  const DELETE_LIMIT = -120; // Максимальный свайп
-  const ANIMATION_DURATION = 200; // Длительность анимации (мс)
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    setIsSwiping(true);
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isSwiping) return;
-    
-    touchMoveX.current = e.touches[0].clientX;
-    const diff = touchMoveX.current - touchStartX.current;
-    
-    // Ограничиваем свайп только влево (отрицательные значения)
-    let newTranslateX = Math.max(Math.min(diff, 0), DELETE_LIMIT);
-    
-    // Добавляем сопротивление при приближении к порогу удаления
-    if (newTranslateX < DELETE_THRESHOLD) {
-      newTranslateX = DELETE_THRESHOLD + (newTranslateX - DELETE_THRESHOLD) * 0.7;
-    }
-    
-    setTranslateX(newTranslateX);
-    
-    // Показываем кнопку удаления, если превышен порог
-    if (newTranslateX <= DELETE_THRESHOLD) {
-      setShowDelete(true);
-    } else {
-      setShowDelete(false);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    setIsSwiping(false);
-    
-    if (translateX <= DELETE_THRESHOLD) {
-      // Если свайпнули достаточно далеко, удаляем
-      handleDelete();
-    } else {
-      // Возвращаем на место с анимацией
-      setTranslateX(0);
-      setShowDelete(false);
-    }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Только левая кнопка мыши
-    touchStartX.current = e.clientX;
-    setIsSwiping(true);
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isSwiping) return;
-    
-    touchMoveX.current = e.clientX;
-    const diff = touchMoveX.current - touchStartX.current;
-    
-    let newTranslateX = Math.max(Math.min(diff, 0), DELETE_LIMIT);
-    
-    if (newTranslateX < DELETE_THRESHOLD) {
-      newTranslateX = DELETE_THRESHOLD + (newTranslateX - DELETE_THRESHOLD) * 0.7;
-    }
-    
-    setTranslateX(newTranslateX);
-    
-    if (newTranslateX <= DELETE_THRESHOLD) {
-      setShowDelete(true);
-    } else {
-      setShowDelete(false);
-    }
-  };
-
-  const handleMouseUp = () => {
-    setIsSwiping(false);
-    
-    if (translateX <= DELETE_THRESHOLD) {
-      handleDelete();
-    } else {
-      setTranslateX(0);
-      setShowDelete(false);
-    }
-  };
-
-  const handleDelete = () => {
-    setIsDeleting(true);
-    
-    // Анимация удаления
-    setTimeout(() => {
-      onDelete(notification.id);
-    }, ANIMATION_DURATION);
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete(notification.id);
   };
 
   const handleClick = () => {
-    if (!isSwiping && translateX === 0) {
-      onClick(notification);
-    }
+    onClick(notification);
   };
-
-  // Очищаем слушатели при размонтировании
-  useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      if (isSwiping) {
-        setIsSwiping(false);
-        if (translateX <= DELETE_THRESHOLD) {
-          handleDelete();
-        } else {
-          setTranslateX(0);
-          setShowDelete(false);
-        }
-      }
-    };
-
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (isSwiping) {
-        handleMouseMove(e as unknown as React.MouseEvent);
-      }
-    };
-
-    if (isSwiping) {
-      document.addEventListener('mouseup', handleGlobalMouseUp);
-      document.addEventListener('mousemove', handleGlobalMouseMove);
-    }
-
-    return () => {
-      document.removeEventListener('mouseup', handleGlobalMouseUp);
-      document.removeEventListener('mousemove', handleGlobalMouseMove);
-    };
-  }, [isSwiping, translateX]);
 
   return (
     <Box
@@ -220,32 +91,7 @@ const SwipeableNotification: React.FC<SwipeableNotificationProps> = ({
         },
       }}
     >
-      {/* Фон для удаления (красный шлейф) */}
       <Box
-        sx={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: '#f4433615',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-start',
-          paddingLeft: 2,
-          opacity: showDelete ? 1 : 0,
-          transform: showDelete ? 'translateX(0)' : 'translateX(-100%)',
-          transition: 'all 0.3s ease',
-          borderRadius: 8,
-          border: '1px solid #f4433630',
-        }}
-      >
-        <DeleteForever sx={{ color: '#f44336' }} />
-      </Box>
-
-      {/* Контент уведомления */}
-      <Box
-        ref={containerRef}
         className="notification-content"
         sx={{
           backgroundColor: 'white',
@@ -254,23 +100,10 @@ const SwipeableNotification: React.FC<SwipeableNotificationProps> = ({
             : '1px solid rgba(106, 61, 122, 0.1)',
           boxShadow: '0 2px 8px rgba(106, 61, 122, 0.08)',
           borderRadius: 8,
-          transform: `translateX(${translateX}px)`,
-          transition: isSwiping ? 'none' : `transform ${ANIMATION_DURATION}ms ease`,
           position: 'relative',
           zIndex: 1,
           cursor: 'pointer',
-          userSelect: 'none',
-          opacity: isDeleting ? 0 : 1,
-          transformOrigin: 'left center',
-          ...(isDeleting && {
-            transform: `translateX(-100%) scale(0.8)`,
-            transition: `all ${ANIMATION_DURATION}ms ease`,
-          }),
         }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={handleMouseDown}
         onClick={handleClick}
       >
         <ListItemButton
@@ -337,6 +170,21 @@ const SwipeableNotification: React.FC<SwipeableNotificationProps> = ({
                   {formatTime(notification.createdAt)}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
+                  <IconButton
+                    size="small"
+                    onClick={handleDelete}
+                    sx={{ 
+                      color: '#f44336',
+                      backgroundColor: '#f4433610',
+                      width: 28,
+                      height: 28,
+                      '&:hover': {
+                        backgroundColor: '#f4433620',
+                      },
+                    }}
+                  >
+                    <Delete fontSize="small" />
+                  </IconButton>
                   {notification.entityType && (
                     <IconButton
                       size="small"
@@ -467,6 +315,9 @@ const Notifications: React.FC = () => {
         case 'transfer':
           navigate(`/movements/${notification.entityId}`);
           break;
+        case 'rejection':
+          navigate(`/defects/${notification.entityId}`);
+          break;
       }
     }
     handleClose();
@@ -515,6 +366,13 @@ const Notifications: React.FC = () => {
         return <TransferWithinAStation sx={{ color: '#673ab7' }} />;
       case NotificationType.TRANSFER_STATUS:
         return <NotificationsIcon sx={{ color: '#607d8b' }} />;
+
+      case NotificationType.REJECTION_REQUEST:
+        return <Warning sx={{ color: '#ff9800' }} />;
+      case NotificationType.REJECTION_APPROVED:
+        return <CheckCircle sx={{ color: '#4caf50' }} />;
+      case NotificationType.REJECTION_REJECTED:
+        return <Cancel sx={{ color: '#f44336' }} />;
       
       case NotificationType.OTHER:
         return <NotificationsIcon />;
@@ -543,6 +401,10 @@ const Notifications: React.FC = () => {
       [NotificationType.TRANSFER_REJECTED]: '#f44336',
       [NotificationType.TRANSFER_MANAGER_REQUEST]: '#673ab7',
       [NotificationType.TRANSFER_STATUS]: '#607d8b',
+
+      [NotificationType.REJECTION_REQUEST]: '#ff9800',
+      [NotificationType.REJECTION_APPROVED]: '#4caf50',
+      [NotificationType.REJECTION_REJECTED]: '#f44336',
       
       [NotificationType.OTHER]: '#9e9e9e',
     };
@@ -695,7 +557,7 @@ const Notifications: React.FC = () => {
             </Box>
           ) : (
             notifications.map((notification) => (
-              <SwipeableNotification
+              <NotificationItem
                 key={notification.id}
                 notification={notification}
                 onDelete={handleDeleteNotification}

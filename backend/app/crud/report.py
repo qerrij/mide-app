@@ -76,6 +76,7 @@ class CRUDReport:
         
         return query.offset(filters.skip).limit(filters.limit).all()
     
+
     def _apply_role_filters(self, db: Session, query, current_user: User):
         """Применить фильтры в зависимости от роли"""
         if current_user.role == UserRole.SELLER:
@@ -83,37 +84,27 @@ class CRUDReport:
             return query.filter(Report.seller_id == current_user.id)
         
         elif current_user.role == UserRole.MENTOR:
-            # Наставник видит:
-            # 1. Свои собственные отчеты (как продавец)
-            # 2. Отчеты своих подопечных
+            # Наставник видит свои отчеты и отчеты подопечных
             subquery = db.query(User.id).filter(User.mentor_id == current_user.id).subquery()
             return query.filter(
-                (Report.seller_id == current_user.id) |  # Свои отчеты
-                (Report.seller_id.in_(subquery))         # Отчеты подопечных
+                (Report.seller_id == current_user.id) | 
+                (Report.seller_id.in_(subquery))
             )
         
         elif current_user.role == UserRole.SENIOR_SELLER:
-            # Старший продавец видит:
-            # 1. Свои собственные отчеты (как продавец)
-            # 2. Отчеты продавцов своего куста
+            # Старший продавец видит свои отчеты и отчеты куста
             if current_user.cluster_id:
                 subquery = db.query(User.id).filter(User.cluster_id == current_user.cluster_id).subquery()
                 return query.filter(
-                    (Report.seller_id == current_user.id) |  # Свои отчеты
-                    (Report.seller_id.in_(subquery))         # Отчеты куста
+                    (Report.seller_id == current_user.id) |
+                    (Report.seller_id.in_(subquery))
                 )
-            # Если нет куста, только свои отчеты
             return query.filter(Report.seller_id == current_user.id)
         
         elif current_user.role == UserRole.ADMIN:
-            # Администратор видит:
-            # 1. Свои собственные отчеты (если он также продавец)
-            # 2. Отчеты продавцов из своих кустов (admin_clusters)
-            # 3. Отчеты продавцов из кустов, где он admin_id (Cluster.admin_id)
-            
+            # Администратор видит свои отчеты и отчеты из своих кустов
             admin_cluster_ids = []
             
-            # Получаем кусты из admin_clusters (JSON поле)
             if current_user.admin_clusters:
                 try:
                     admin_clusters = json.loads(current_user.admin_clusters)
@@ -122,30 +113,26 @@ class CRUDReport:
                 except:
                     pass
             
-            # Получаем кусты, где пользователь является admin_id
             cluster_as_admin = db.query(Cluster.id).filter(Cluster.admin_id == current_user.id).all()
             admin_cluster_ids.extend([c[0] for c in cluster_as_admin])
-            
-            # Убираем дубликаты
             admin_cluster_ids = list(set(admin_cluster_ids))
             
             if admin_cluster_ids:
-                # Получаем всех продавцов из этих кустов
                 subquery = db.query(User.id).filter(
                     User.cluster_id.in_(admin_cluster_ids)
                 ).subquery()
-                
                 return query.filter(
-                    (Report.seller_id == current_user.id) |  # Свои отчеты
-                    (Report.seller_id.in_(subquery))         # Отчеты из кустов
+                    (Report.seller_id == current_user.id) |
+                    (Report.seller_id.in_(subquery))
                 )
-            else:
-                # Если нет кустов, показываем только свои отчеты
-                return query.filter(Report.seller_id == current_user.id)
+            return query.filter(Report.seller_id == current_user.id)
         
         elif current_user.role == UserRole.ACCOUNTANT:
-            # Бухгалтер видит все отчеты
-            return query
+            # Бухгалтер видит отчеты только от привязанных к нему пользователей
+            from app.crud.accountant_assignment import crud_accountant_assignment
+            return crud_accountant_assignment.filter_reports_by_accountant(
+                db, query, current_user.id
+            )
         
         # OWNER видит все
         return query

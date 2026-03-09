@@ -857,7 +857,12 @@ class CRUDRevision:
                     UserInventory.product_id == item.product_id
                 ).first()
                 
-                expected = inventory.quantity if inventory else 0
+                # ИСПРАВЛЕНИЕ: Используем доступное количество (общее минус зарезервированное)
+                total_quantity = inventory.quantity if inventory else 0
+                reserved_quantity = inventory.reserved_quantity if inventory else 0
+                available_quantity = total_quantity - reserved_quantity
+                
+                expected = available_quantity  # Используем доступное количество
                 actual = item.quantity
                 discrepancy = actual - expected
                 
@@ -876,7 +881,6 @@ class CRUDRevision:
                     
                     # Применяем расхождение к инвентарю
                     try:
-                        print(f"Applying: User {filling.user_id}, Product {item.product_id}: {discrepancy}")
                         crud_inventory.update_inventory(
                             db,
                             user_id=filling.user_id,

@@ -40,14 +40,14 @@ import {
   ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { rejectionService } from '../api/rejectionService';
+import { useAuth } from '../../contexts/AuthContext';
+import { rejectionService } from '../../api/rejectionService';
 import {
   CombinedRejectionStats,
   TeamRejectionStats,
   UserRole,
   RejectionUserProductStats,
-} from '../types';
+} from '../../types';
 
 // Компонент для табов
 const TabPanel = ({ children, value, index }: { children?: React.ReactNode; index: number; value: number }) => {
@@ -127,85 +127,104 @@ const StatCard = ({
 );
 
 // Компонент для карточки товара
-const ProductCard = ({ product }: { product: RejectionUserProductStats }) => (
-  <Paper 
-    variant="outlined" 
-    sx={{ 
-      p: 1.5,
-      borderRadius: 2,
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-    }}
-  >
-    <Box sx={{ mb: 1 }}>
-      <Typography 
-        variant="subtitle2" 
-        fontWeight={600}
-        sx={{ 
-          fontSize: '0.875rem',
-          lineHeight: 1.3,
-          mb: 0.5
-        }}
-      >
-        {product.productName}
-      </Typography>
-      <Typography 
-        variant="caption" 
-        color="text.secondary"
-        sx={{ fontSize: '0.75rem' }}
-      >
-        SKU: {product.productSku}
-      </Typography>
-    </Box>
-    
-    {product.categoryName && (
-      <Chip 
-        label={product.categoryName} 
-        size="small" 
-        sx={{ 
-          backgroundColor: '#f5f5f5',
-          color: '#666',
-          fontSize: '0.75rem',
-          height: 20,
-          mb: 1.5,
-          '& .MuiChip-label': {
-            px: 1
-          }
-        }}
-      />
-    )}
-    
-    <Box sx={{ mt: 'auto' }}>
-      <Grid container spacing={1}>
-        <Grid size={{ xs: 6 }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-              Количество
-            </Typography>
-            <Typography variant="body2" fontWeight={600} color="#2c3e50">
-              {product.totalRejected} шт.
-            </Typography>
-          </Box>
+const ProductCard = ({ product }: { product: RejectionUserProductStats }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+  return (
+    <Paper 
+      variant="outlined" 
+      sx={{ 
+        p: isMobile ? 1 : 1.5,
+        borderRadius: 2,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        width: '100%',
+        overflow: 'hidden'
+      }}
+    >
+      <Box sx={{ mb: 1 }}>
+        <Typography 
+          variant="subtitle2" 
+          fontWeight={600}
+          sx={{ 
+            fontSize: isMobile ? '0.8rem' : '0.875rem',
+            lineHeight: 1.3,
+            mb: 0.5,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+          }}
+        >
+          {product.productName}
+        </Typography>
+        <Typography 
+          variant="caption" 
+          color="text.secondary"
+          sx={{ fontSize: '0.7rem' }}
+        >
+          SKU: {product.productSku}
+        </Typography>
+      </Box>
+      
+      {product.categoryName && (
+        <Chip 
+          label={product.categoryName} 
+          size="small" 
+          sx={{ 
+            backgroundColor: '#f5f5f5',
+            color: '#666',
+            fontSize: '0.7rem',
+            height: 18,
+            mb: 1,
+            alignSelf: 'flex-start',
+            maxWidth: '100%',
+            '& .MuiChip-label': {
+              px: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }
+          }}
+        />
+      )}
+      
+      <Box sx={{ mt: 'auto' }}>
+        <Grid container spacing={1}>
+          <Grid size={{ xs: 6 }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                Количество
+              </Typography>
+              <Typography variant="body2" fontWeight={600} color="#2c3e50" sx={{ fontSize: isMobile ? '0.8rem' : '0.875rem' }}>
+                {product.totalRejected} шт.
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 6 }}>
+            <Box sx={{ textAlign: 'right' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                Стоимость
+              </Typography>
+              <Typography variant="body2" fontWeight={600} color="#2c3e50" sx={{ fontSize: isMobile ? '0.8rem' : '0.875rem' }}>
+                {product.totalValue?.toLocaleString('ru-RU')} ₽
+              </Typography>
+            </Box>
+          </Grid>
         </Grid>
-        <Grid size={{ xs: 6 }}>
-          <Box sx={{ textAlign: 'right' }}>
-            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-              Стоимость
-            </Typography>
-            <Typography variant="body2" fontWeight={600} color="#2c3e50">
-              {product.totalValue?.toLocaleString('ru-RU')} ₽
-            </Typography>
-          </Box>
-        </Grid>
-      </Grid>
-    </Box>
-  </Paper>
-);
+      </Box>
+    </Paper>
+  );
+};
 
 // Компонент для подчиненного в аккордеоне
 const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index: number }) => {
   const [expanded, setExpanded] = useState(false);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   return (
     <Accordion 
@@ -218,7 +237,9 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
         '&.Mui-expanded': {
           margin: 0,
           marginBottom: 2
-        }
+        },
+        width: '100%',
+        overflow: 'hidden'
       }}
     >
       <AccordionSummary 
@@ -230,7 +251,8 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
           '&.Mui-expanded': {
             borderBottomLeftRadius: 0,
             borderBottomRightRadius: 0,
-          }
+          },
+          padding: isMobile ? '8px 12px' : '0 24px'
         }}
       >
         <Box sx={{ 
@@ -238,22 +260,49 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
           alignItems: 'center', 
           justifyContent: 'space-between',
           width: '100%',
-          pr: 2
+          pr: isMobile ? 1 : 2,
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: isMobile ? 1 : 0
         }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: isMobile ? 1 : 2,
+            width: isMobile ? '100%' : 'auto',
+            minWidth: 0
+          }}>
             <Avatar sx={{ 
               bgcolor: '#e9ecef', 
               color: '#2c3e50',
-              width: 40,
-              height: 40
+              width: isMobile ? 32 : 40,
+              height: isMobile ? 32 : 40,
+              flexShrink: 0
             }}>
-              <PersonIcon />
+              <PersonIcon fontSize={isMobile ? 'small' : 'medium'} />
             </Avatar>
-            <Box>
-              <Typography variant="subtitle1" fontWeight={600} color="#2c3e50">
+            <Box sx={{ 
+              minWidth: 0,
+              overflow: 'hidden'
+            }}>
+              <Typography 
+                variant={isMobile ? "body2" : "subtitle1"} 
+                fontWeight={600} 
+                color="#2c3e50"
+                sx={{
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: isMobile ? '180px' : '300px'
+                }}
+              >
                 {subordinate.userName}
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
+              <Box sx={{ 
+                display: 'flex', 
+                gap: 0.5, 
+                flexWrap: 'wrap', 
+                mt: 0.5
+              }}>
                 {subordinate.userRole && (
                   <Chip 
                     label={subordinate.userRole} 
@@ -261,7 +310,11 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
                     sx={{ 
                       backgroundColor: '#e9ecef', 
                       color: '#2c3e50',
-                      fontSize: '0.75rem'
+                      fontSize: '0.7rem',
+                      height: 20,
+                      '& .MuiChip-label': {
+                        px: 0.8
+                      }
                     }}
                   />
                 )}
@@ -272,7 +325,11 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
                     sx={{ 
                       backgroundColor: '#f8f9fa', 
                       color: '#666',
-                      fontSize: '0.75rem'
+                      fontSize: '0.7rem',
+                      height: 20,
+                      '& .MuiChip-label': {
+                        px: 0.8
+                      }
                     }}
                   />
                 )}
@@ -280,21 +337,47 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
             </Box>
           </Box>
           
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <Box sx={{ textAlign: 'center', minWidth: 80 }}>
-              <Typography variant="caption" color="text.secondary">
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: isMobile ? 2 : 3,
+            width: isMobile ? '100%' : 'auto',
+            justifyContent: isMobile ? 'space-around' : 'flex-end',
+            mt: isMobile ? 0.5 : 0
+          }}>
+            <Box sx={{ 
+              textAlign: 'center', 
+              minWidth: isMobile ? '70px' : '80px'
+            }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                 Браков
               </Typography>
-              <Typography variant="h6" fontWeight={700} color={subordinate.totalRejections > 0 ? '#d32f2f' : '#2c3e50'}>
+              <Typography 
+                variant={isMobile ? "subtitle1" : "h6"} 
+                fontWeight={700} 
+                color={subordinate.totalRejections > 0 ? '#d32f2f' : '#2c3e50'}
+                sx={{ fontSize: isMobile ? '1rem' : '1.25rem' }}
+              >
                 {subordinate.totalRejections}
               </Typography>
             </Box>
             
-            <Box sx={{ textAlign: 'center', minWidth: 80 }}>
-              <Typography variant="caption" color="text.secondary">
+            <Box sx={{ 
+              textAlign: 'center', 
+              minWidth: isMobile ? '80px' : '80px'
+            }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                 Стоимость
               </Typography>
-              <Typography variant="h6" fontWeight={600} color="#2c3e50">
+              <Typography 
+                variant={isMobile ? "subtitle1" : "h6"} 
+                fontWeight={600} 
+                color="#2c3e50"
+                sx={{ 
+                  fontSize: isMobile ? '0.9rem' : '1.25rem',
+                  whiteSpace: 'nowrap'
+                }}
+              >
                 {subordinate.totalValue?.toLocaleString('ru-RU')} ₽
               </Typography>
             </Box>
@@ -302,14 +385,19 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
         </Box>
       </AccordionSummary>
       
-      <AccordionDetails sx={{ pt: 3, pb: 3 }}>
+      <AccordionDetails sx={{ 
+        pt: isMobile ? 2 : 3, 
+        pb: isMobile ? 2 : 3,
+        px: isMobile ? 2 : 3,
+        overflowX: 'hidden'
+      }}>
         {/* Детали по товарам */}
         {subordinate.products.length > 0 ? (
           <>
-            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
               Товары в браке ({subordinate.products.length})
             </Typography>
-            <Grid container spacing={2}>
+            <Grid container spacing={isMobile ? 1 : 2}>
               {subordinate.products.map((product: RejectionUserProductStats) => (
                 <Grid key={product.productId} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
                   <ProductCard product={product} />
@@ -318,8 +406,8 @@ const SubordinateAccordion = ({ subordinate, index }: { subordinate: any, index:
             </Grid>
           </>
         ) : (
-          <Box sx={{ textAlign: 'center', py: 4 }}>
-            <InventoryIcon sx={{ fontSize: 48, color: '#bdbdbd', mb: 2 }} />
+          <Box sx={{ textAlign: 'center', py: isMobile ? 2 : 4 }}>
+            <InventoryIcon sx={{ fontSize: isMobile ? 36 : 48, color: '#bdbdbd', mb: 1 }} />
             <Typography variant="body2" color="text.secondary">
               Нет детальной информации по товарам
             </Typography>
@@ -344,18 +432,23 @@ const DefectStatsPage: React.FC = () => {
   const [combinedStats, setCombinedStats] = useState<CombinedRejectionStats | null>(null);
   const [teamStats, setTeamStats] = useState<TeamRejectionStats | null>(null);
   
-  const [dateFrom, setDateFrom] = useState<string>('');
-  const [dateTo, setDateTo] = useState<string>('');
-  const [expandedUser, setExpandedUser] = useState<number | null>(null);
+  // Состояния для полей ввода фильтров
+  const [inputDateFrom, setInputDateFrom] = useState<string>('');
+  const [inputDateTo, setInputDateTo] = useState<string>('');
+  
+  // Состояния для примененных фильтров
+  const [appliedDateFrom, setAppliedDateFrom] = useState<string>('');
+  const [appliedDateTo, setAppliedDateTo] = useState<string>('');
 
   const isAdminOrOwner = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
   const isSeniorSeller = user?.role === UserRole.SENIOR_SELLER;
   const isMentor = user?.role === UserRole.MENTOR;
   const hasSubordinates = isAdminOrOwner || isSeniorSeller || isMentor;
 
+  // Загружаем статистику при изменении таба или примененных фильтров
   useEffect(() => {
     loadStats();
-  }, [tabValue, dateFrom, dateTo]);
+  }, [tabValue, appliedDateFrom, appliedDateTo]);
 
   const loadStats = async () => {
     try {
@@ -365,14 +458,14 @@ const DefectStatsPage: React.FC = () => {
       if (tabValue === 0) {
         const stats = await rejectionService.getCombinedStats(
           undefined,
-          dateFrom || undefined,
-          dateTo || undefined
+          appliedDateFrom || undefined,
+          appliedDateTo || undefined
         );
         setCombinedStats(stats);
       } else if (tabValue === 1) {
         const stats = await rejectionService.getTeamDetailedStats(
-          dateFrom || undefined,
-          dateTo || undefined
+          appliedDateFrom || undefined,
+          appliedDateTo || undefined
         );
         setTeamStats(stats);
       }
@@ -400,9 +493,16 @@ const DefectStatsPage: React.FC = () => {
     return `${from} ${to ? `— ${to}` : ''}`;
   };
 
+  const handleApplyFilters = () => {
+    setAppliedDateFrom(inputDateFrom);
+    setAppliedDateTo(inputDateTo);
+  };
+
   const handleResetFilters = () => {
-    setDateFrom('');
-    setDateTo('');
+    setInputDateFrom('');
+    setInputDateTo('');
+    setAppliedDateFrom('');
+    setAppliedDateTo('');
   };
 
   return (
@@ -470,8 +570,8 @@ const DefectStatsPage: React.FC = () => {
                 fullWidth
                 label="Дата с"
                 type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
+                value={inputDateFrom}
+                onChange={(e) => setInputDateFrom(e.target.value)}
                 InputLabelProps={{ shrink: true }}
                 size="small"
                 InputProps={{
@@ -484,8 +584,8 @@ const DefectStatsPage: React.FC = () => {
                 fullWidth
                 label="Дата по"
                 type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
+                value={inputDateTo}
+                onChange={(e) => setInputDateTo(e.target.value)}
                 InputLabelProps={{ shrink: true }}
                 size="small"
                 InputProps={{
@@ -509,7 +609,7 @@ const DefectStatsPage: React.FC = () => {
                 </Button>
                 <Button
                   variant="contained"
-                  onClick={loadStats}
+                  onClick={handleApplyFilters}
                   disabled={loading}
                   size="small"
                   sx={{ 
@@ -526,6 +626,38 @@ const DefectStatsPage: React.FC = () => {
               </Stack>
             </Grid>
           </Grid>
+
+          {/* Индикатор активных фильтров */}
+          {(appliedDateFrom || appliedDateTo) && (
+            <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <FilterIcon sx={{ color: '#666', fontSize: '1rem' }} />
+              <Typography variant="caption" color="text.secondary">
+                Активные фильтры:
+              </Typography>
+              {appliedDateFrom && (
+                <Chip
+                  label={`с ${new Date(appliedDateFrom).toLocaleDateString('ru-RU')}`}
+                  size="small"
+                  onDelete={() => {
+                    setInputDateFrom('');
+                    setAppliedDateFrom('');
+                  }}
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              )}
+              {appliedDateTo && (
+                <Chip
+                  label={`по ${new Date(appliedDateTo).toLocaleDateString('ru-RU')}`}
+                  size="small"
+                  onDelete={() => {
+                    setInputDateTo('');
+                    setAppliedDateTo('');
+                  }}
+                  sx={{ fontSize: '0.7rem' }}
+                />
+              )}
+            </Box>
+          )}
         </CardContent>
       </Card>
 

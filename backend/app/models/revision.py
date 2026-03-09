@@ -73,23 +73,6 @@ class Revision(Base):
         return f"<Revision {self.id} ({self.type})>"
 
 
-# class RevisionItem(Base):
-#     __tablename__ = "revision_items"
-    
-#     id = Column(Integer, primary_key=True, index=True)
-#     revision_id = Column(Integer, ForeignKey("revisions.id"), nullable=False)
-#     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-#     category_id = Column(Integer, ForeignKey("product_categories.id"), nullable=False)
-#     quantity = Column(Integer, nullable=False)  # Количество по ревизии
-#     actual_quantity = Column(Integer, nullable=True)  # Фактическое количество (заполняется при проверке)
-    
-#     # Связи
-#     revision = relationship("Revision", back_populates="items")
-#     product = relationship("Product")
-#     category = relationship("ProductCategory")
-    
-#     def __repr__(self):
-#         return f"<RevisionItem {self.product_id}: {self.quantity}>"
 
 
 class RevisionDiscrepancy(Base):

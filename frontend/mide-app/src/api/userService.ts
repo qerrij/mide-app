@@ -5,7 +5,19 @@ import { User, CreateUserDto, UpdateUserDto, UserRole, Group, Cluster } from '..
 const transformUserFromApi = (user: any): User => {
   // Исправленный парсинг admin_clusters
   let adminClusterIds: number[] = [];
+  let accountantUserIds: number[] = [];
   
+  try {
+    if (user.accountant_user_ids && typeof user.accountant_user_ids === 'string' && user.accountant_user_ids.trim() !== '') {
+      const parsed = JSON.parse(user.accountant_user_ids);
+      if (Array.isArray(parsed)) {
+        accountantUserIds = parsed.filter((id: any) => id && !isNaN(Number(id))).map(Number);
+      }
+    }
+  } catch (error) {
+    console.warn('Error parsing accountant_user_ids:', error);
+  }
+
   try {
     if (user.admin_clusters) {
       if (typeof user.admin_clusters === 'string') {
@@ -49,6 +61,7 @@ const transformUserFromApi = (user: any): User => {
     mentorName: user.mentor_name,
     seniorSellerName: user.senior_seller_name,
     adminName: user.admin_name,
+    accountantUserIds,
   };
 };
 

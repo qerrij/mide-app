@@ -190,6 +190,30 @@ export const transferService = {
     return transformTransferFromApi(response.data);
   },
 
+getPhotoUrl: (path: string): string => {
+  if (!path) return '';
+  
+  if (path.startsWith('http')) {
+    return path;
+  }
+  
+  let cleanPath = path;
+  
+  if (cleanPath.startsWith('uploads/')) {
+    cleanPath = cleanPath.substring(8);
+  }
+  
+  if (cleanPath.startsWith('transfers/')) {
+    cleanPath = cleanPath; 
+  }
+  
+  if (!cleanPath.startsWith('transfers/')) {
+    cleanPath = `transfers/${cleanPath}`;
+  }
+  
+  return `https://storage.yandexcloud.net/mide-app/${cleanPath}`;
+},
+
   // Создать запрос на перемещение от руководителя
   createManagerRequest: async (data: TransferCreateManagerRequestDto): Promise<Transfer> => {
     const snakeCaseData = transformToSnakeCase(data);

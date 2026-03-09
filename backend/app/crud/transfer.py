@@ -176,7 +176,7 @@ class CRUDTransfer:
         *,
         transfer_in: Dict[str, Any],
         items: List[Dict[str, Any]],
-        files: Optional[List[Any]] = None,  # Измени тип на Any
+        files: Optional[List[Any]] = None,
         created_by_id: int
     ) -> Transfer:
         """Создать запрос на перемещение от пользователя"""
@@ -202,15 +202,7 @@ class CRUDTransfer:
                 if inventory < quantity:
                     raise ValueError(f"Недостаточно товара ID {product_id} у отправителя. Доступно: {inventory}, требуется: {quantity}")
             
-            # Создаем временную папку, потом перенесем когда получим ID
-            folder_path = f"transfers/temp"
-            saved_files = save_uploaded_files(files, folder_path)
-            
-            # Если не сохранилось ни одного файла
-            if not saved_files:
-                raise ValueError("Не удалось сохранить файлы")
-            
-            # Создаем перемещение
+            # 🔴 ИСПРАВЛЕНИЕ: Сначала создаем перемещение, чтобы получить ID
             db_transfer = Transfer(
                 title=transfer_in['title'],
                 description=transfer_in.get('description'),
@@ -220,35 +212,23 @@ class CRUDTransfer:
                 executor_id=transfer_in.get('executor_id'),
                 request_type="user_request",
                 status=TransferStatus.REQUESTED,
-                files=saved_files,
+                files=[],  # Пока пустой массив
                 discrepancy_files=[]
             )
             
             db.add(db_transfer)
-            db.flush()
+            db.flush()  # Получаем ID, но не коммитим полностью
             
-            # Перемещаем файлы в постоянную папку
-            if saved_files:
-                new_folder_path = f"transfers/{db_transfer.id}"
-                new_saved_files = []
-                
-                for old_path in saved_files:
-                    try:
-                        old_full_path = Path(f"uploads/{old_path}")
-                        if old_full_path.exists():
-                            new_dir = Path(f"uploads/{new_folder_path}")
-                            new_dir.mkdir(parents=True, exist_ok=True)
-                            
-                            filename = old_full_path.name
-                            new_full_path = new_dir / filename
-                            
-                            old_full_path.rename(new_full_path)
-                            new_saved_files.append(f"{new_folder_path}/{filename}")
-                    except Exception as e:
-                        print(f"Ошибка перемещения файла {old_path}: {e}")
-                        new_saved_files.append(old_path)
-                
-                db_transfer.files = new_saved_files
+            # 🔴 ИСПРАВЛЕНИЕ: Сохраняем файлы сразу в правильную папку, используя ID
+            folder_path = f"transfers/{db_transfer.id}"
+            saved_files = save_uploaded_files(files, folder_path)
+            
+            # Если не сохранилось ни одного файла
+            if not saved_files:
+                raise ValueError("Не удалось сохранить файлы")
+            
+            # 🔴 ИСПРАВЛЕНИЕ: Обновляем поле files с правильными путями
+            db_transfer.files = saved_files
             
             # Создаем товары и считаем статистику
             total_items = 0
@@ -1520,11 +1500,35 @@ class CRUDTransfer:
         """Уведомления о завершении перемещения"""
         notifications = []
         
-        # Руководителям отправителя
-        from_managers = self._get_user_managers(db, transfer.from_user_id)
-        for manager in from_managers:
+        # Собираем всех получателей уведомлений
+        recipients = set()
+        
+        # Руководители отправителя
+        for manager in self._get_user_managers(db, transfer.from_user_id):
+            recipients.add(manager.id)
+        
+        # Руководители получателя
+        for manager in self._get_user_managers(db, transfer.to_user_id):
+            recipients.add(manager.id)
+        
+        # Участники перемещения
+        participants = [
+            transfer.created_by_id,
+            transfer.from_user_id,
+            transfer.to_user_id
+        ]
+        if transfer.executor_id:
+            participants.append(transfer.executor_id)
+        
+        # Добавляем всех участников
+        for user_id in participants:
+            if user_id:
+                recipients.add(user_id)
+        
+        # Создаем уведомления для всех уникальных получателей
+        for user_id in recipients:
             notifications.append({
-                'user_id': manager.id,
+                'user_id': user_id,
                 'type': 'TRANSFER_COMPLETED',
                 'title': 'Перемещение завершено',
                 'message': f'Перемещение #{transfer.id} успешно завершено',
@@ -1532,42 +1536,6 @@ class CRUDTransfer:
                 'entity_id': transfer.id,
                 'priority': 3
             })
-        
-        # Руководителям получателя
-        to_managers = self._get_user_managers(db, transfer.to_user_id)
-        for manager in to_managers:
-            if manager.id not in [m.id for m in from_managers]:
-                notifications.append({
-                    'user_id': manager.id,
-                    'type': 'TRANSFER_COMPLETED',
-                    'title': 'Перемещение завершено',
-                    'message': f'Перемещение #{transfer.id} успешно завершено',
-                    'entity_type': 'transfer',
-                    'entity_id': transfer.id,
-                    'priority': 3
-                })
-        
-        # Участникам перемещения
-        participants = [
-            transfer.created_by_id,
-            transfer.from_user_id,
-            transfer.to_user_id
-        ]
-        
-        if transfer.executor_id:
-            participants.append(transfer.executor_id)
-        
-        for user_id in set(participants):
-            if user_id:
-                notifications.append({
-                    'user_id': user_id,
-                    'type': 'TRANSFER_COMPLETED',
-                    'title': 'Перемещение завершено',
-                    'message': f'Перемещение #{transfer.id} успешно завершено',
-                    'entity_type': 'transfer',
-                    'entity_id': transfer.id,
-                    'priority': 3
-                })
         
         if notifications:
             crud_notification.create_multiple(db, notifications_data=notifications)

@@ -749,6 +749,7 @@ const ViewRevisionPage: React.FC = () => {
                                     const difference = discrepancy?.discrepancy || 0;
                                     const isPositive = difference > 0;
                                     const isNegative = difference < 0;
+                                    const hasDiscrepancy = isRevisionVerified && difference !== 0;
                                     
                                     // Для непроверенных ревизий показываем только полученное количество
                                     if (!isRevisionVerified) {
@@ -773,7 +774,7 @@ const ViewRevisionPage: React.FC = () => {
                                                 {item.productName || `Товар ${item.productId}`}
                                               </Typography>
                                               <Typography variant="caption" color="#4c5454" display="block" noWrap>
-                                                {item.productSku || `SKU${item.productId}`}
+                                                {item.categoryName || 'Категория'}
                                               </Typography>
                                             </Box>
                                             
@@ -799,7 +800,8 @@ const ViewRevisionPage: React.FC = () => {
                                       );
                                     }
                                     
-                                    // Для проверенных ревизий показываем полную информацию
+                                    // Для проверенных ревизий
+                                  // Для проверенных ревизий
                                     return (
                                       <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
                                         <Card
@@ -810,19 +812,50 @@ const ViewRevisionPage: React.FC = () => {
                                             boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
                                             height: '100%',
                                             transition: 'transform 0.2s ease',
+                                            border: hasDiscrepancy ? '1px solid' : 'none',
+                                            borderColor: isPositive ? 'rgba(33, 150, 243, 0.3)' : isNegative ? 'rgba(244, 67, 54, 0.3)' : 'transparent',
                                             '&:hover': {
                                               transform: 'translateY(-2px)',
-                                              boxShadow: '0 6px 16px rgba(106, 61, 122, 0.15)',
+                                              boxShadow: hasDiscrepancy 
+                                                ? isPositive 
+                                                  ? '0 6px 16px rgba(33, 150, 243, 0.2)' 
+                                                  : '0 6px 16px rgba(244, 67, 54, 0.2)'
+                                                : '0 6px 16px rgba(106, 61, 122, 0.15)',
                                             },
                                           }}
                                         >
-                                          <Box sx={{ mb: 1.5 }}>
-                                            <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
-                                              {item.productName || `Товар ${item.productId}`}
-                                            </Typography>
-                                            <Typography variant="caption" color="#4c5454" display="block" noWrap>
-                                              {item.productSku || `SKU${item.productId}`}
-                                            </Typography>
+                                          <Box sx={{ 
+                                            display: 'flex', 
+                                            alignItems: 'flex-start',
+                                            justifyContent: 'space-between',
+                                            mb: 1.5,
+                                            minHeight: 48,
+                                          }}>
+                                            <Box sx={{ flex: 1, minWidth: 0, pr: 1 }}>
+                                              <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
+                                                {item.productName || `Товар ${item.productId}`}
+                                              </Typography>
+                                              <Typography variant="caption" color="#4c5454" display="block" noWrap>
+                                                {item.categoryName || 'Категория'}
+                                              </Typography>
+                                            </Box>
+                                            
+                                            {hasDiscrepancy && (
+                                              <Chip
+                                                label={isPositive ? 'Излишек' : 'Недостача'}
+                                                size="small"
+                                                sx={{
+                                                  backgroundColor: isPositive ? '#2196f315' : '#f4433615',
+                                                  color: isPositive ? '#2196f3' : '#f44336',
+                                                  fontWeight: 500,
+                                                  borderRadius: 6,
+                                                  fontSize: '0.65rem',
+                                                  height: 20,
+                                                  flexShrink: 0,
+                                                  '& .MuiChip-label': { px: 1 },
+                                                }}
+                                              />
+                                            )}
                                           </Box>
                                           
                                           <Box sx={{ 
@@ -833,53 +866,70 @@ const ViewRevisionPage: React.FC = () => {
                                             pt: 1.5,
                                             borderTop: '1px dashed rgba(0,0,0,0.1)'
                                           }}>
-                                            <Box sx={{ textAlign: 'center', flex: 1 }}>
-                                              <Typography variant="caption" color="#4c5454" display="block">
-                                                Ожидалось
-                                              </Typography>
-                                              <Typography variant="body2" fontWeight={600}>
-                                                {expectedQuantity}
-                                              </Typography>
-                                            </Box>
-                                            
-                                            <Box sx={{ textAlign: 'center', flex: 1 }}>
-                                              <Typography variant="caption" color="#4c5454" display="block">
-                                                Получено
-                                              </Typography>
-                                              <Typography 
-                                                variant="body2" 
-                                                fontWeight={600}
-                                                color={isNegative ? '#f44336' : isPositive ? '#2196f3' : '#4caf50'}
-                                              >
-                                                {receivedQuantity}
-                                              </Typography>
-                                            </Box>
-                                            
-                                            <Box sx={{ textAlign: 'center', flex: 1 }}>
-                                              <Typography variant="caption" color="#4c5454" display="block">
-                                                Расхождение
-                                              </Typography>
-                                              {difference !== 0 ? (
-                                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                  {isPositive ? (
-                                                    <ArrowUpwardIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5 }} />
-                                                  ) : (
-                                                    <ArrowDownwardIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5 }} />
-                                                  )}
+                                            {hasDiscrepancy ? (
+                                              // Для товаров с расхождениями - 3 колонки
+                                              <>
+                                                <Box sx={{ textAlign: 'center' }}>
+                                                  <Typography variant="caption" color="#4c5454" display="block">
+                                                    Ожидалось
+                                                  </Typography>
+                                                  <Typography variant="body2" fontWeight={600}>
+                                                    {expectedQuantity}
+                                                  </Typography>
+                                                </Box>
+                                                
+                                                <Box sx={{ textAlign: 'center' }}>
+                                                  <Typography variant="caption" color="#4c5454" display="block">
+                                                    Получено
+                                                  </Typography>
                                                   <Typography 
                                                     variant="body2" 
                                                     fontWeight={600}
-                                                    color={isPositive ? '#2196f3' : '#f44336'}
+                                                    color={isNegative ? '#f44336' : isPositive ? '#2196f3' : '#4caf50'}
                                                   >
-                                                    {isPositive ? '+' : ''}{difference}
+                                                    {receivedQuantity}
                                                   </Typography>
                                                 </Box>
-                                              ) : (
-                                                <Typography variant="body2" fontWeight={600} color="#4caf50">
-                                                  0
-                                                </Typography>
-                                              )}
-                                            </Box>
+                                                
+                                                <Box sx={{ textAlign: 'center' }}>
+                                                  <Typography variant="caption" color="#4c5454" display="block">
+                                                    Расхождение
+                                                  </Typography>
+                                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    {isPositive && <ArrowUpwardIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5 }} />}
+                                                    {isNegative && <ArrowDownwardIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5 }} />}
+                                                    <Typography 
+                                                      variant="body2" 
+                                                      fontWeight={600}
+                                                      color={isPositive ? '#2196f3' : '#f44336'}
+                                                    >
+                                                      {isPositive ? '+' : ''}{difference}
+                                                    </Typography>
+                                                  </Box>
+                                                </Box>
+                                              </>
+                                            ) : (
+                                              // Для товаров без расхождений - 2 колонки
+                                              <>
+                                                <Box sx={{ textAlign: 'center' }}>
+                                                  <Typography variant="caption" color="#4c5454" display="block">
+                                                    Получено
+                                                  </Typography>
+                                                  <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                    {receivedQuantity}
+                                                  </Typography>
+                                                </Box>
+                                                
+                                                <Box sx={{ textAlign: 'center' }}>
+                                                  <Typography variant="caption" color="#4c5454" display="block">
+                                                    Расхождение
+                                                  </Typography>
+                                                  <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                    0
+                                                  </Typography>
+                                                </Box>
+                                              </>
+                                            )}
                                           </Box>
                                         </Card>
                                       </Grid>

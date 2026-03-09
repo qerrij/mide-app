@@ -10,6 +10,8 @@ from app.models.product import Product
 from app.models.category import ProductCategory
 from app.models.cluster import Cluster
 from app.crud.inventory import crud_inventory
+from app.crud.notification import crud_notification
+from app.schemas.notification import NotificationType
 from app.schemas.rejection import RejectionCreate, RejectionUpdate
 import traceback
 
@@ -71,28 +73,17 @@ class CRUDRejection:
         
         elif current_user.role == UserRole.ADMIN:
             # Администратор видит браки своих подчиненных (кустов)
-            admin_clusters = []
+            admin_clusters = current_user.admin_clusters  # Это вызовет property и вернет список
             
-            # Получаем список кустов администратора
-            if current_user.admin_clusters:
-                if isinstance(current_user.admin_clusters, str):
-                    try:
-                        admin_clusters = json.loads(current_user.admin_clusters)
-                    except json.JSONDecodeError:
-                        # Если не удалось распарсить, считаем что список пуст
-                        admin_clusters = []
-                elif isinstance(current_user.admin_clusters, list):
-                    admin_clusters = current_user.admin_clusters
-            
-            if admin_clusters:
-                # Преобразуем все ID в целые числа
-                try:
-                    cluster_ids = []
-                    for cluster_id in admin_clusters:
-                        if cluster_id is not None:
-                            cluster_ids.append(int(cluster_id))
-                except (ValueError, TypeError):
-                    cluster_ids = []
+            if admin_clusters:  # список не пустой
+                # Преобразуем все ID в целые числа (хотя они уже должны быть числами из JSON)
+                cluster_ids = []
+                for cid in admin_clusters:  
+                    if cid is not None:
+                        try:
+                            cluster_ids.append(int(cid))
+                        except (ValueError, TypeError):
+                            cluster_ids.append(cid)
                 
                 if cluster_ids:
                     # Находим пользователей в кустах администратора
@@ -102,27 +93,21 @@ class CRUDRejection:
                     ).subquery()
                     query = query.filter(Rejection.user_id.in_(subquery))
                 else:
-                    # Если нет валидных ID кустов, показываем только свои
                     query = query.filter(Rejection.user_id == current_user.id)
-            else:
-                # Если нет кустов, показываем только свои браки
-                query = query.filter(Rejection.user_id == current_user.id)
         
         else:
             # Все остальные роли (SELLER, MENTOR, SENIOR_SELLER, ACCOUNTANT) 
             # видят только свои собственные браки
             query = query.filter(Rejection.user_id == current_user.id)
         
-        # Дополнительные фильтры
+        # Применяем дополнительные фильтры
         if status:
             query = query.filter(Rejection.status == status)
         
         if user_id:
-            # Фильтр по конкретному пользователю (доступно только OWNER и ADMIN)
             if current_user.role in [UserRole.OWNER, UserRole.ADMIN]:
                 query = query.filter(Rejection.user_id == user_id)
             else:
-                # Для остальных ролей игнорируем этот фильтр если user_id не совпадает с текущим пользователем
                 if user_id != current_user.id:
                     query = query.filter(Rejection.user_id == current_user.id)
         
@@ -133,14 +118,12 @@ class CRUDRejection:
             query = query.filter(Rejection.created_at <= date_to)
         
         if product_id:
-            # Фильтр по товару через rejection_items
             subquery = db.query(RejectionItem.rejection_id).filter(
                 RejectionItem.product_id == product_id
             ).subquery()
             query = query.filter(Rejection.id.in_(subquery))
         
         if cluster_id:
-            # Фильтр по кусту (доступно только OWNER и ADMIN)
             if current_user.role in [UserRole.OWNER, UserRole.ADMIN]:
                 subquery = db.query(User.id).filter(
                     User.cluster_id == cluster_id,
@@ -149,7 +132,6 @@ class CRUDRejection:
                 query = query.filter(Rejection.user_id.in_(subquery))
         
         if mentor_id:
-            # Фильтр по ментору (доступно только OWNER и ADMIN)
             if current_user.role in [UserRole.OWNER, UserRole.ADMIN]:
                 subquery = db.query(User.id).filter(
                     User.mentor_id == mentor_id,
@@ -157,7 +139,164 @@ class CRUDRejection:
                 ).subquery()
                 query = query.filter(Rejection.user_id.in_(subquery))
         
-        return query.order_by(Rejection.created_at.desc()).offset(skip).limit(limit).all()
+        # Получаем результат
+        result = query.order_by(Rejection.created_at.desc()).offset(skip).limit(limit).all()
+        
+        return result
+    
+    def _get_users_to_notify_for_rejection(self, db: Session, user_id: int) -> List[int]:
+        """
+        Получить пользователей, которые могут проверить брак (админы и владельцы)
+        """
+        # Получаем информацию о пользователе, создавшем брак
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return []
+        
+        users_to_notify = []
+        
+        # 1. Владелец (OWNER) - всегда получает уведомления
+        owners = db.query(User.id).filter(
+            User.role == UserRole.OWNER,
+            User.is_active == True
+        ).all()
+        users_to_notify.extend([owner[0] for owner in owners])
+        
+        # 2. Администраторы (ADMIN) - если они управляют кустом пользователя
+        if user.cluster_id:
+            admins = db.query(User).filter(
+                User.role == UserRole.ADMIN,
+                User.is_active == True
+            ).all()
+            
+            for admin in admins:
+                # Проверяем, есть ли у администратора этот куст
+                admin_clusters = []
+                if admin.admin_clusters:
+                    try:
+                        if isinstance(admin.admin_clusters, str):
+                            admin_clusters = json.loads(admin.admin_clusters)
+                        elif isinstance(admin.admin_clusters, list):
+                            admin_clusters = admin.admin_clusters
+                    except Exception as e:
+                        print(f"Error parsing admin_clusters: {e}")
+                        continue
+                
+                # Приводим cluster_id пользователя к int для сравнения
+                user_cluster_id = int(user.cluster_id) if user.cluster_id else None
+                
+                # Проверяем, есть ли куст пользователя в списке админа
+                if admin_clusters and user_cluster_id:
+                    # Пробуем разные типы сравнения
+                    if (user_cluster_id in admin_clusters or 
+                        str(user_cluster_id) in [str(c) for c in admin_clusters]):
+                        users_to_notify.append(admin.id)
+        
+        # Убираем дубликаты и исключаем самого пользователя
+        users_to_notify = list(set(users_to_notify))
+        if user_id in users_to_notify:
+            users_to_notify.remove(user_id)
+        
+        return users_to_notify
+    
+    def _create_rejection_request_notifications(
+        self, 
+        db: Session, 
+        rejection: Rejection, 
+        user: User
+    ):
+        """
+        Создать уведомления о создании запроса на брак
+        """
+        # Получаем пользователей для уведомления
+        users_to_notify = self._get_users_to_notify_for_rejection(db, rejection.user_id)
+        
+        if not users_to_notify:
+            return
+        
+        notification_data = []
+        
+        for notify_user_id in users_to_notify:
+            notification_data.append({
+                'user_id': notify_user_id,
+                'type': NotificationType.REJECTION_REQUEST,
+                'title': 'Новый запрос на брак',
+                'message': f'Пользователь {user.full_name} создал запрос на брак #{rejection.id} и ожидает вашего утверждения',
+                'data': {
+                    'rejection_id': rejection.id,
+                    'user_id': rejection.user_id,
+                    'user_name': user.full_name,
+                    'status': rejection.status.value
+                },
+                'entity_type': 'rejection',
+                'entity_id': rejection.id,
+                'priority': 4
+            })
+        
+        if notification_data:
+            crud_notification.create_multiple(
+                db,
+                notifications_data=notification_data,
+                sender_id=rejection.user_id
+            )
+
+    def _create_rejection_status_notifications(
+        self, 
+        db: Session, 
+        rejection: Rejection, 
+        reviewer: User,
+        old_status: RejectionStatus,
+        new_status: RejectionStatus
+    ):
+        """
+        Создать уведомления об изменении статуса брака
+        """
+        # Уведомляем только создателя брака
+        if old_status == new_status or new_status == RejectionStatus.CANCELLED:
+            return
+        
+        notification_data = []
+        
+        if new_status == RejectionStatus.APPROVED:
+            notification_data.append({
+                'user_id': rejection.user_id,
+                'type': NotificationType.REJECTION_APPROVED,
+                'title': 'Брак утвержден',
+                'message': f'Ваш запрос на брак #{rejection.id} утвержден пользователем {reviewer.full_name}',
+                'data': {
+                    'rejection_id': rejection.id,
+                    'reviewed_by': reviewer.id,
+                    'reviewer_name': reviewer.full_name,
+                    'status': 'APPROVED'
+                },
+                'entity_type': 'rejection',
+                'entity_id': rejection.id,
+                'priority': 3
+            })
+        
+        elif new_status == RejectionStatus.REJECTED:
+            notification_data.append({
+                'user_id': rejection.user_id,
+                'type': NotificationType.REJECTION_REJECTED,
+                'title': 'Брак отклонен',
+                'message': f'Ваш запрос на брак #{rejection.id} отклонен пользователем {reviewer.full_name}',
+                'data': {
+                    'rejection_id': rejection.id,
+                    'reviewed_by': reviewer.id,
+                    'reviewer_name': reviewer.full_name,
+                    'status': 'REJECTED'
+                },
+                'entity_type': 'rejection',
+                'entity_id': rejection.id,
+                'priority': 3
+            })
+        
+        if notification_data:
+            crud_notification.create_multiple(
+                db,
+                notifications_data=notification_data,
+                sender_id=reviewer.id
+            )
     
     def create(
         self,
@@ -233,6 +372,16 @@ class CRUDRejection:
             db.commit()
             db.refresh(db_rejection)
             
+            # Получаем пользователя для уведомления
+            user = db.query(User).filter(User.id == user_id).first()
+            
+            # Загружаем товары для уведомления
+            db_rejection = self.get(db, db_rejection.id)
+            
+            # СОЗДАЕМ УВЕДОМЛЕНИЯ
+            if db_rejection:
+                self._create_rejection_request_notifications(db, db_rejection, user)
+            
             return db_rejection
             
         except Exception as e:
@@ -276,7 +425,16 @@ class CRUDRejection:
         
         # Получаем обновленный объект со всеми связями
         db.refresh(db_rejection)
-        return self.get(db, rejection_id)  # Используем get для загрузки связей
+        updated_rejection = self.get(db, rejection_id)
+        
+        # Получаем пользователя, который изменил статус
+        reviewer = db.query(User).filter(User.id == reviewer_id).first()
+        
+        # СОЗДАЕМ УВЕДОМЛЕНИЯ ОБ ИЗМЕНЕНИИ СТАТУСА
+        if reviewer and old_status != status:
+            self._create_rejection_status_notifications(db, updated_rejection, reviewer, old_status, status)
+        
+        return updated_rejection
     
     def _apply_rejection(self, db: Session, rejection: Rejection):
         """Списать товары из инвентаря"""
@@ -441,7 +599,8 @@ class CRUDRejection:
         except Exception as e:
             print(f"Error in get_combined_rejection_stats: {str(e)}")
             traceback.print_exc()
-            raise Exception(f"Ошибка при получении статистики: {str(e)}")    
+            raise Exception(f"Ошибка при получении статистики: {str(e)}")
+                
     
     def _get_visible_user_ids(self, db: Session, current_user: User) -> List[int]:
         """

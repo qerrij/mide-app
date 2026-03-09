@@ -49,7 +49,7 @@ import {
   AttachMoney,
   Close,
 } from '@mui/icons-material';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   User, 
   UserRole, 
@@ -62,11 +62,12 @@ import {
   CreateClusterDto,
   UpdateGroupDto,
   UpdateClusterDto
-} from '../types';
-import { assignmentsService } from '../api/assignmentsService';
-import { userService } from '../api/userService';
-import { groupService } from '../api/groupService';
-import { clusterService } from '../api/clusterService';
+} from '../../types';
+import { assignmentsService } from '../../api/assignmentsService';
+import { userService } from '../../api/userService';
+import { groupService } from '../../api/groupService';
+import { clusterService } from '../../api/clusterService';
+import AccountantAssignmentDialog from './AccountantAssignmentDialog';
 
 interface SnackbarState {
   open: boolean;
@@ -117,6 +118,13 @@ const StaffPage: React.FC = () => {
     user: User | null;
     type: 'mentor' | 'group' | 'cluster' | 'admin' | null;
   }>({ open: false, user: null, type: null });
+
+  // Диалог назначения бухгалтера
+  const [openAccountantAssignmentDialog, setOpenAccountantAssignmentDialog] = useState<{
+    open: boolean;
+    accountantId: number;
+    accountantName: string;
+  }>({ open: false, accountantId: 0, accountantName: '' });
 
   // Формы
   const [newUser, setNewUser] = useState<CreateUserDto>({
@@ -561,6 +569,19 @@ const StaffPage: React.FC = () => {
     if (type === 'admin') setSelectedClustersForAdmin(user.adminClusterIds || []);
   };
 
+  const handleOpenAccountantAssignment = (accountant: User) => {
+    setOpenAccountantAssignmentDialog({
+      open: true,
+      accountantId: accountant.id,
+      accountantName: accountant.fullName,
+    });
+  };
+
+  const handleAccountantAssignmentSuccess = () => {
+    showSnackbar('Назначения успешно сохранены', 'success');
+    loadUsers(); // Перезагружаем пользователей, чтобы обновить accountantUserIds
+  };
+
   const handleAssign = async () => {
     const { user, type } = openAssignDialog;
     if (!user || !type) return;
@@ -757,6 +778,45 @@ const StaffPage: React.FC = () => {
             );
           })}
         </Box>
+      </Box>
+    );
+  };
+
+  // Функция для отображения привязанных пользователей бухгалтера
+  const renderAccountantAssignments = (user: User) => {
+    if (!user.accountantUserIds || user.accountantUserIds.length === 0) {
+      return null;
+    }
+    
+    return (
+      <Box sx={{ mb: 1 }}>
+        <Typography variant="body2">
+          <strong>Привязано пользователей:</strong> {user.accountantUserIds.length}
+        </Typography>
+        {user.accountantUserIds.length > 0 && (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+            {user.accountantUserIds.slice(0, 3).map((userId: number) => {
+              const assignedUser = users.find(u => u.id === userId);
+              return assignedUser ? (
+                <Chip
+                  key={userId}
+                  label={assignedUser.fullName}
+                  size="small"
+                  variant="outlined"
+                  sx={{ height: 20, fontSize: '0.7rem' }}
+                />
+              ) : null;
+            })}
+            {user.accountantUserIds.length > 3 && (
+              <Chip
+                label={`+${user.accountantUserIds.length - 3}`}
+                size="small"
+                variant="outlined"
+                sx={{ height: 20, fontSize: '0.7rem' }}
+              />
+            )}
+          </Box>
+        )}
       </Box>
     );
   };
@@ -1036,6 +1096,9 @@ const StaffPage: React.FC = () => {
                       )}
                       
                       {user.role === UserRole.ADMIN && renderAdminClusters(user)}
+                      
+                      {/* Отображение привязанных пользователей для бухгалтера */}
+                      {user.role === UserRole.ACCOUNTANT && renderAccountantAssignments(user)}
 
                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
                         {/* Кнопки управления связями в зависимости от роли */}
@@ -1095,6 +1158,19 @@ const StaffPage: React.FC = () => {
                             disabled={loading}
                           >
                             Управление кустами
+                          </Button>
+                        )}
+                        
+                        {/* Кнопка для бухгалтера */}
+                        {user.role === UserRole.ACCOUNTANT && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleOpenAccountantAssignment(user)}
+                            sx={{ color: '#ff9800', borderColor: '#ff9800' }}
+                            disabled={loading}
+                          >
+                            Назначить пользователей
                           </Button>
                         )}
                         
@@ -1916,6 +1992,15 @@ const StaffPage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Диалог назначения бухгалтера */}
+      <AccountantAssignmentDialog
+        open={openAccountantAssignmentDialog.open}
+        onClose={() => setOpenAccountantAssignmentDialog({ open: false, accountantId: 0, accountantName: '' })}
+        accountantId={openAccountantAssignmentDialog.accountantId}
+        accountantName={openAccountantAssignmentDialog.accountantName}
+        onSuccess={handleAccountantAssignmentSuccess}
+      />
 
       {/* Snackbar */}
       <Snackbar

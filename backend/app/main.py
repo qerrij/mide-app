@@ -2,26 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
-from app.api.endpoints import auth, users, products, reports, groups, clusters, assignments, categories, revisions, notifications, transfers, rejections
+from app.api.endpoints import auth, users, products, reports, groups, clusters, assignments, categories, revisions, notifications, transfers, rejections, accountant_assignments
 from app.database import engine
-# from app.models import user, product, report, group, cluster, inventory, company, category
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import os
-
-# Создаем директории для загрузки файлов
-os.makedirs("uploads/reports", exist_ok=True)
-
-# Создаем все таблицы в базе данных
-# Важно: создавать в правильном порядке чтобы избежать проблем с внешними ключами
-# user.Base.metadata.create_all(bind=engine)
-# category.Base.metadata.create_all(bind=engine)
-# product.Base.metadata.create_all(bind=engine)
-# group.Base.metadata.create_all(bind=engine)
-# cluster.Base.metadata.create_all(bind=engine)
-# inventory.Base.metadata.create_all(bind=engine)
-# report.Base.metadata.create_all(bind=engine)
-# company.Base.metadata.create_all(bind=engine)
 
 # Создаем FastAPI приложение
 app = FastAPI(
@@ -59,6 +44,7 @@ app.include_router(revisions.router, prefix="/api")
 app.include_router(groups.router, prefix="/api")
 app.include_router(clusters.router, prefix="/api")
 app.include_router(assignments.router, prefix="/api")
+app.include_router(accountant_assignments.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(rejections.router)
 

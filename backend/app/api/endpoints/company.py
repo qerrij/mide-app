@@ -1,9 +1,10 @@
+# endpoints/company.py
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.crud.company import crud_company
-from app.api.dependencies import get_current_user, require_role
+from app.api.dependencies import get_current_user, require_roles  # Изменен импорт
 from app.models.user import UserRole
 from datetime import datetime, timedelta
 
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/company", tags=["company"])
 @router.get("/balance")
 def get_company_balance(
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(UserRole.OWNER))
+    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))  # Изменено
 ):
     """Получить текущий баланс компании"""
     balance = crud_company.get_balance(db)
@@ -26,7 +27,7 @@ def get_company_transactions(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(UserRole.OWNER))
+    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))  # Изменено
 ):
     """Получить историю транзакций"""
     # Преобразуем даты
@@ -60,7 +61,7 @@ def get_company_transactions(
 def get_balance_history(
     days: int = Query(30, ge=1, le=365),
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(UserRole.OWNER))
+    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))  # Изменено
 ):
     """Получить историю баланса за последние N дней"""
     history = crud_company.get_balance_history(db, days=days)
@@ -73,7 +74,7 @@ def add_company_income(
     reference_id: Optional[int] = None,
     reference_type: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(UserRole.OWNER))
+    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))  # Изменено
 ):
     """Добавить доход в общий банк"""
     try:
@@ -100,7 +101,7 @@ def add_company_expense(
     reference_id: Optional[int] = None,
     reference_type: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role(UserRole.OWNER))
+    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))  # Изменено
 ):
     """Добавить расход из общего банка"""
     try:

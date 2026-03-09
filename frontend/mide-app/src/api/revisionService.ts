@@ -333,57 +333,25 @@ export const revisionService = {
   },
 
   // Получить URL для фото
-  getPhotoUrl: (photoPath: string): string => {
-    if (!photoPath) return '';
+  getPhotoUrl: (path: string): string => {
+    if (!path) return '';
     
     // Если уже полный URL
-    if (photoPath.startsWith('http')) {
-      return photoPath;
+    if (path.startsWith('http')) {
+      return path;
     }
     
-    const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-    
-    // Убираем лишний uploads/ если есть
-    let cleanPath = photoPath;
+    // Используем тот же S3 бакет, что и для отчетов
+    // Убираем возможные префиксы
+    let cleanPath = path;
     if (cleanPath.startsWith('uploads/')) {
       cleanPath = cleanPath.substring(8); // Убираем 'uploads/'
     }
-    
-    // Формируем полный URL
-    return `${API_URL}/uploads/${cleanPath}`;
-  },
-
-  // Старая версия заполнения (для обратной совместимости)
-  fillRevisionOld: async (
-    revisionId: number,
-    items: Array<{ productId: number; categoryId: number; quantity: number }>,
-    photos: File[],
-  ): Promise<Revision> => {
-    try {
-      const formData = new FormData();
-      
-      const itemsForApi = items.map(item => ({
-        product_id: item.productId,
-        category_id: item.categoryId,
-        quantity: item.quantity,
-      }));
-      
-      formData.append('items_data', JSON.stringify(itemsForApi));
-      
-      photos.forEach((photo) => {
-        formData.append('photos', photo);
-      });
-      
-      const response = await axiosMultipartInstance.post<any>(
-        `/api/revisions/${revisionId}/fill-old`,
-        formData
-      );
-      
-      return transformRevisionFromApi(response.data);
-    } catch (error) {
-      console.error('Error filling revision (old):', error);
-      throw error;
+    if (cleanPath.startsWith('revisions/')) {
+      cleanPath = cleanPath; // Оставляем как есть, если уже с revisions/
     }
+    
+    return `https://storage.yandexcloud.net/mide-app/${cleanPath}`;
   },
 
   // Получить расхождения по пользователям

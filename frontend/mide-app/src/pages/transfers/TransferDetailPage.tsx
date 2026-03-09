@@ -26,6 +26,7 @@ import {
   AccordionDetails,
   TextField,
   Snackbar,
+  Divider,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -49,6 +50,8 @@ import {
   Work as ExecutorIcon,
   ExpandMore as ExpandMoreIcon,
   Description as DescriptionIcon,
+  Comment as CommentIcon,
+  ThumbDown as RejectIcon,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -87,9 +90,6 @@ const TransferDetailPage: React.FC = () => {
     notes: '',
   });
   const [showStartDialog, setShowStartDialog] = useState(false);
-  const [startData, setStartData] = useState({
-    notes: '',
-  });
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
@@ -97,9 +97,9 @@ const TransferDetailPage: React.FC = () => {
   });
   const [showPhotoDialog, setShowPhotoDialog] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<{ photos: string[], index: number } | null>(null);
-  const [expandedDiscrepancies, setExpandedDiscrepancies] = useState<number[]>([]);
   const [expandedItems, setExpandedItems] = useState(true);
-
+  const [expandedApprovals, setExpandedApprovals] = useState(false);
+  const [expandedRejection, setExpandedRejection] = useState(true);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -218,7 +218,7 @@ const TransferDetailPage: React.FC = () => {
 
   const handleStart = async () => {
     try {
-      await transferService.startTransfer(Number(id),);
+      await transferService.startTransfer(Number(id));
       setShowStartDialog(false);
       showSnackbar('Перемещение начато', 'success');
       loadTransfer();
@@ -237,12 +237,13 @@ const TransferDetailPage: React.FC = () => {
   };
 
   const handleViewPhoto = (photos: string[], index: number) => {
-    setSelectedPhoto({ photos, index });
+    const processedPhotos = photos.map(photo => transferService.getPhotoUrl(photo));
+    setSelectedPhoto({ photos: processedPhotos, index });
     setShowPhotoDialog(true);
   };
 
   const viewFile = (filePath: string) => {
-    const url = `http://localhost:8000/uploads/${filePath}`;
+    const url = transferService.getPhotoUrl(filePath);
     window.open(url, '_blank');
   };
 
@@ -418,14 +419,6 @@ const TransferDetailPage: React.FC = () => {
     return buttons;
   };
 
-  const handleAccordionChange = (productId: number) => {
-    setExpandedDiscrepancies(prev => 
-      prev.includes(productId) 
-        ? prev.filter(id => id !== productId)
-        : [...prev, productId]
-    );
-  };
-
   const calculateTotalDiscrepancy = () => {
     if (!transfer?.discrepancyItems || transfer.discrepancyItems.length === 0) return 0;
     return transfer.discrepancyItems.reduce((sum, item) => sum + item.discrepancy, 0);
@@ -433,8 +426,48 @@ const TransferDetailPage: React.FC = () => {
 
   const hasDiscrepancies = transfer?.discrepancyItems && transfer.discrepancyItems.length > 0;
   const totalDiscrepancy = calculateTotalDiscrepancy();
-  const isTransferCompleted = transfer?.status === TransferStatus.COMPLETED || transfer?.status === TransferStatus.CHECKING;
-  const isCompletedWithoutDiscrepancies = isTransferCompleted && !hasDiscrepancies;
+  
+  const getItemDiscrepancy = (productId: number) => {
+    if (!transfer?.discrepancyItems) return null;
+    return transfer.discrepancyItems.find(item => item.productId === productId);
+  };
+
+  const getSortedItems = () => {
+    if (!transfer) return [];
+    
+    const itemsWithDiscrepancy: typeof transfer.items = [];
+    const itemsWithoutDiscrepancy: typeof transfer.items = [];
+    
+    transfer.items.forEach(item => {
+      if (hasDiscrepancies && transfer.discrepancyItems.some(d => d.productId === item.productId)) {
+        itemsWithDiscrepancy.push(item);
+      } else {
+        itemsWithoutDiscrepancy.push(item);
+      }
+    });
+    
+    return [...itemsWithDiscrepancy, ...itemsWithoutDiscrepancy];
+  };
+
+  const sortedItems = getSortedItems();
+
+  const getStatusText = () => {
+    if (!transfer) return '';
+    
+    if (transfer.status === TransferStatus.CHECKING) {
+      return 'Перемещение имеет расхождения';
+    }
+    return getTransferStatusText(transfer.status);
+  };
+
+  const getStatusColor = () => {
+    if (!transfer) return '#4c5454';
+    
+    if (transfer.status === TransferStatus.CHECKING) {
+      return '#ff9800';
+    }
+    return getTransferStatusColor(transfer.status);
+  };
 
   if (loading) {
     return (
@@ -470,6 +503,10 @@ const TransferDetailPage: React.FC = () => {
       </Box>
     );
   }
+
+  const hasRejection = transfer.rejectionReason && 
+    (transfer.status === TransferStatus.REJECTED || 
+     transfer.status === TransferStatus.CANCELLED);
 
   return (
     <Box sx={{ minHeight: '100vh', py: 3, position: 'relative', background: '#f5f3f6' }}>
@@ -558,11 +595,11 @@ const TransferDetailPage: React.FC = () => {
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
               <Chip
-                label={getTransferStatusText(transfer.status)}
+                label={getStatusText()}
                 size="small"
                 sx={{
-                  backgroundColor: `${getTransferStatusColor(transfer.status)}15`,
-                  color: getTransferStatusColor(transfer.status),
+                  backgroundColor: `${getStatusColor()}15`,
+                  color: getStatusColor(),
                   fontWeight: 500,
                   borderRadius: 6,
                   fontSize: '0.7rem',
@@ -711,46 +748,75 @@ const TransferDetailPage: React.FC = () => {
                 </Typography>
               </Box>
             )}
-
-            {/* Причина отклонения */}
-            {transfer.rejectionReason && (
-              <Box>
-                <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
-                  Причина отклонения
-                </Typography>
-                <Typography variant="body2" color="#f44336" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {transfer.rejectionReason}
-                </Typography>
-              </Box>
-            )}
-
-            {/* Подтверждения */}
-            {transfer.approvals.length > 0 && (
-              <Box>
-                <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
-                  Подтвердили ({transfer.approvals.filter(a => a.approved).length})
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {transfer.approvals
-                    .filter(a => a.approved)
-                    .map(approval => (
-                      <Chip
-                        key={approval.id}
-                        label={users[approval.userId] || `Пользователь ${approval.userId}`}
-                        size="small"
-                        icon={<CheckCircleIcon />}
-                        sx={{
-                          backgroundColor: 'rgba(76, 175, 80, 0.15)',
-                          color: '#4caf50',
-                          borderRadius: 6,
-                        }}
-                      />
-                    ))}
-                </Box>
-              </Box>
-            )}
           </Stack>
         </Card>
+
+        {/* 🔴 ИСПРАВЛЕНО: Блок с причиной отклонения */}
+        {hasRejection && (
+          <Card 
+            sx={{ 
+              p: { xs: 2, sm: 2.5 },
+              mb: 3,
+              borderRadius: 8,
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+              border: '2px solid #f44336',
+            }}
+          >
+            <Accordion
+              expanded={expandedRejection}
+              onChange={() => setExpandedRejection(!expandedRejection)}
+              sx={{
+                boxShadow: 'none',
+                '&:before': { display: 'none' },
+                backgroundColor: 'transparent',
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                sx={{
+                  minHeight: 48,
+                  '&.Mui-expanded': { minHeight: 48 },
+                  px: 0,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Avatar
+                    sx={{ 
+                      width: 40, 
+                      height: 40, 
+                      bgcolor: '#f44336',
+                      fontSize: '1rem',
+                    }}
+                  >
+                    <RejectIcon />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
+                      Перемещение отклонено
+                    </Typography>
+                    <Typography variant="caption" color="#4c5454">
+                      Причина указана ниже
+                    </Typography>
+                  </Box>
+                </Box>
+              </AccordionSummary>
+              
+              <AccordionDetails sx={{ px: 0, pt: 1 }}>
+                <Box sx={{ 
+                  p: 2, 
+                  backgroundColor: '#f5f3f6', 
+                  borderRadius: 8,
+                  border: '1px solid rgba(244, 67, 54, 0.2)',
+                }}>
+                  <Typography variant="body2" color="#2a0f35" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {transfer.rejectionReason}
+                  </Typography>
+                </Box>
+              </AccordionDetails>
+            </Accordion>
+          </Card>
+        )}
 
         {/* Блок статуса перемещения */}
         <Card 
@@ -787,20 +853,27 @@ const TransferDetailPage: React.FC = () => {
           </Box>
           
           <Box sx={{ position: 'relative', zIndex: 1, py: { xs: 2, sm: 3 } }}>
-            {isCompletedWithoutDiscrepancies ? (
+            {transfer.status === TransferStatus.CHECKING ? (
               <Box>
+                <Typography variant="body2" color="#ff9800" gutterBottom sx={{ fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                  Требуется проверка расхождений
+                </Typography>
                 <Typography 
-                  variant="h2" 
-                  color="#4caf50"
+                  variant="h1" 
+                  color="#ff9800"
                   sx={{ 
-                    fontWeight: 'bold',
-                    fontSize: { xs: '2rem', sm: '2.5rem' }
+                    fontWeight: 'bold', 
+                    my: 1,
+                    fontSize: { xs: '2.5rem', sm: '3.5rem' }
                   }}
                 >
-                  Расхождений нет
+                  {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
+                </Typography>
+                <Typography variant="body2" color="#4c5454">
+                  {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
                 </Typography>
               </Box>
-            ) : isTransferCompleted && hasDiscrepancies ? (
+            ) : transfer.status === TransferStatus.COMPLETED && hasDiscrepancies ? (
               <Box>
                 <Typography variant="body2" color="#4c5454" gutterBottom>
                   Перемещение завершено с расхождениями
@@ -817,7 +890,33 @@ const TransferDetailPage: React.FC = () => {
                   {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
                 </Typography>
                 <Typography variant="caption" color="#4c5454">
-                  {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
+                  {totalDiscrepancy > 0 ? 'Итоговый излишек' : 'Итоговая недостача'}
+                </Typography>
+              </Box>
+            ) : transfer.status === TransferStatus.COMPLETED && !hasDiscrepancies ? (
+              <Box>
+                <Typography 
+                  variant="h2" 
+                  color="#4caf50"
+                  sx={{ 
+                    fontWeight: 'bold',
+                    fontSize: { xs: '2rem', sm: '2.5rem' }
+                  }}
+                >
+                  Расхождений нет
+                </Typography>
+              </Box>
+            ) : transfer.status === TransferStatus.REJECTED ? (
+              <Box>
+                <Typography 
+                  variant="h2" 
+                  color="#f44336"
+                  sx={{ 
+                    fontWeight: 'bold',
+                    fontSize: { xs: '2rem', sm: '2.5rem' }
+                  }}
+                >
+                  Отклонено
                 </Typography>
               </Box>
             ) : (
@@ -851,155 +950,28 @@ const TransferDetailPage: React.FC = () => {
           </Box>
         </Card>
 
-        {/* Блок с товарами (показываем всегда, если нет расхождений) */}
-        {!hasDiscrepancies && (
-          <Card 
-            sx={{ 
-              p: 0,
-              mb: 3,
-              borderRadius: 8,
-              backgroundColor: '#ffffff',
-              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-              width: '100%',
-              overflow: 'hidden',
-            }}
-          >
-            <Box sx={{ 
-              p: { xs: 2, sm: 2.5 },
-              pb: 2,
-              borderBottom: '1px solid rgba(0,0,0,0.05)',
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
-                  Товары в перемещении ({transfer.items.length})
-                </Typography>
-              </Box>
-            </Box>
-
-            <Box sx={{ width: '100%' }}>
-              <Accordion 
-                expanded={expandedItems}
-                onChange={() => setExpandedItems(!expandedItems)}
-                sx={{
-                  boxShadow: 'none',
-                  '&:before': { display: 'none' },
-                  '&.Mui-expanded': { margin: 0 },
-                  width: '100%',
-                  backgroundColor: 'transparent',
-                }}
-              >
-                <AccordionSummary
-                  expandIcon={<ExpandMoreIcon />}
-                  sx={{
-                    minHeight: 56,
-                    '&.Mui-expanded': { minHeight: 56 },
-                    px: { xs: 2, sm: 2.5 },
-                    py: 1,
-                    width: '100%',
-                    borderBottom: '1px solid rgba(0,0,0,0.05)',
-                  }}
-                >
-                  <Typography variant="body2" color="#4c5454">
-                    {expandedItems ? 'Скрыть товары' : 'Показать товары'}
-                  </Typography>
-                </AccordionSummary>
-                
-                <AccordionDetails sx={{ 
-                  px: { xs: 2, sm: 2.5 }, 
-                  pb: 3, 
-                  pt: 2,
-                  width: '100%',
-                  backgroundColor: '#f5f3f6',
-                }}>
-                  <Grid container spacing={2}>
-                    {transfer.items.map((item, index) => {
-                      const productInfo = getProductInfo(item.productId);
-                      
-                      return (
-                        <Grid size={{ xs: 12, sm: 6, md: 4 }} key={index}>
-                          <Card
-                            sx={{
-                              p: 2,
-                              borderRadius: 8,
-                              backgroundColor: '#ffffff',
-                              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-                              height: '100%',
-                              transition: 'transform 0.2s ease',
-                              '&:hover': {
-                                transform: 'translateY(-2px)',
-                                boxShadow: '0 6px 16px rgba(106, 61, 122, 0.15)',
-                              },
-                            }}
-                          >
-                            <Typography variant="body2" color="#2a0f35" fontWeight={600} gutterBottom>
-                              {productInfo.name}
-                            </Typography>
-                            
-                            {productInfo.categoryName && (
-                              <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
-                                {productInfo.categoryName}
-                              </Typography>
-                            )}
-                            
-                            <Box sx={{ 
-                              display: 'flex', 
-                              justifyContent: 'space-between', 
-                              alignItems: 'center',
-                              mt: 2,
-                              pt: 1,
-                              borderTop: '1px dashed rgba(0,0,0,0.1)'
-                            }}>
-                              <Box>
-                                <Typography variant="caption" color="#4c5454" display="block">
-                                  Ожидалось
-                                </Typography>
-                                <Typography variant="body2" fontWeight={600}>
-                                  {item.expectedQuantity} шт.
-                                </Typography>
-                              </Box>
-                              
-                              <Box sx={{ textAlign: 'right' }}>
-                                <Typography variant="caption" color="#4c5454" display="block">
-                                  Получено
-                                </Typography>
-                                <Typography variant="body2" fontWeight={600} color="#4caf50">
-                                  {item.receivedQuantity || 0} шт.
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </Card>
-                        </Grid>
-                      );
-                    })}
-                  </Grid>
-                </AccordionDetails>
-              </Accordion>
-            </Box>
-          </Card>
-        )}
-
-        {/* Детали расхождений (если есть) */}
-        {hasDiscrepancies && (
-          <Card 
-            sx={{ 
-              p: 0,
-              mb: 3,
-              borderRadius: 8,
-              backgroundColor: '#ffffff',
-              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-              width: '100%',
-              overflow: 'hidden',
-            }}
-          >
-            <Box sx={{ 
-              p: { xs: 2, sm: 2.5 },
-              pb: 2,
-              borderBottom: '1px solid rgba(0,0,0,0.05)',
-            }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
-                  Детали расхождений ({transfer.discrepancyItems.length})
-                </Typography>
+        {/* Блок с товарами - ЕДИНЫЙ СПИСОК */}
+        <Card 
+          sx={{ 
+            p: 0,
+            mb: 3,
+            borderRadius: 8,
+            backgroundColor: '#ffffff',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+            width: '100%',
+            overflow: 'hidden',
+          }}
+        >
+          <Box sx={{ 
+            p: { xs: 2, sm: 2.5 },
+            pb: 2,
+            borderBottom: '1px solid rgba(0,0,0,0.05)',
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
+                Товары в перемещении ({transfer.items.length})
+              </Typography>
+              {hasDiscrepancies && (
                 <Chip
                   label={`${totalDiscrepancy > 0 ? '+' : ''}${totalDiscrepancy}`}
                   size="small"
@@ -1010,143 +982,154 @@ const TransferDetailPage: React.FC = () => {
                     borderRadius: 8,
                   }}
                 />
-              </Box>
+              )}
             </Box>
+          </Box>
 
-            <Box sx={{ width: '100%' }}>
-              {transfer.discrepancyItems.map((item) => {
-                const isExpanded = expandedDiscrepancies.includes(item.productId);
-                const productInfo = getProductInfo(item.productId);
-                
-                return (
-                  <Box
-                    key={item.productId}
-                    sx={{
-                      borderBottom: '1px solid rgba(0,0,0,0.05)',
-                      '&:last-child': { borderBottom: 'none' },
-                      width: '100%',
-                    }}
-                  >
-                    <Accordion 
-                      expanded={isExpanded}
-                      onChange={() => handleAccordionChange(item.productId)}
-                      sx={{
-                        boxShadow: 'none',
-                        '&:before': { display: 'none' },
-                        '&.Mui-expanded': { margin: 0 },
-                        width: '100%',
-                        backgroundColor: 'transparent',
-                      }}
-                    >
-                      <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        sx={{
-                          minHeight: 72,
-                          '&.Mui-expanded': { minHeight: 72 },
-                          px: { xs: 2, sm: 2.5 },
-                          py: 2,
-                          width: '100%',
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
-                          <Avatar
-                            sx={{ 
-                              width: 44, 
-                              height: 44, 
-                              bgcolor: item.discrepancy > 0 ? '#2196f3' : '#ca0ec0',
-                              fontSize: '1rem',
-                            }}
-                          >
-                            <InventoryIcon />
-                          </Avatar>
-                          
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
-                              {productInfo.name}
-                            </Typography>
-                            <Typography variant="caption" color="#4c5454" noWrap>
-                              {productInfo.categoryName || 'Без категории'}
-                            </Typography>
-                          </Box>
-                          
-                          <Box sx={{ flexShrink: 0 }}>
-                            <Chip
-                              label={`${item.discrepancy > 0 ? '+' : ''}${item.discrepancy}`}
-                              size="small"
-                              sx={{
-                                backgroundColor: item.discrepancy > 0 
-                                  ? 'rgba(33, 150, 243, 0.15)' 
-                                  : 'rgba(202, 14, 192, 0.15)',
-                                color: item.discrepancy > 0 ? '#2196f3' : '#ca0ec0',
-                                fontWeight: 600,
-                                fontSize: '0.85rem',
-                                minWidth: 60,
-                              }}
-                            />
-                          </Box>
-                        </Box>
-                      </AccordionSummary>
-                      
-                      <AccordionDetails sx={{ 
-                        px: { xs: 2, sm: 2.5 }, 
-                        pb: 3, 
-                        width: '100%',
-                        backgroundColor: '#f5f3f6',
-                      }}>
+          <Box sx={{ width: '100%' }}>
+            <Accordion 
+              expanded={expandedItems}
+              onChange={() => setExpandedItems(!expandedItems)}
+              sx={{
+                boxShadow: 'none',
+                '&:before': { display: 'none' },
+                '&.Mui-expanded': { margin: 0 },
+                width: '100%',
+                backgroundColor: 'transparent',
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                sx={{
+                  minHeight: 56,
+                  '&.Mui-expanded': { minHeight: 56 },
+                  px: { xs: 2, sm: 2.5 },
+                  py: 1,
+                  width: '100%',
+                  borderBottom: '1px solid rgba(0,0,0,0.05)',
+                }}
+              >
+                <Typography variant="body2" color="#4c5454">
+                  {expandedItems ? 'Скрыть товары' : 'Показать товары'}
+                </Typography>
+              </AccordionSummary>
+              
+              <AccordionDetails sx={{ 
+                px: { xs: 2, sm: 2.5 }, 
+                pb: 3, 
+                pt: 2,
+                width: '100%',
+                backgroundColor: '#f5f3f6',
+              }}>
+                <Grid container spacing={2}>
+                  {sortedItems.map((item, index) => {
+                    const productInfo = getProductInfo(item.productId);
+                    const discrepancy = getItemDiscrepancy(item.productId);
+                    
+                    return (
+                      <Grid size={{ xs: 12, sm: 6, md: 4 }} key={index}>
                         <Card
                           sx={{
                             p: 2,
                             borderRadius: 8,
                             backgroundColor: '#ffffff',
                             boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-                            width: '100%',
+                            height: '100%',
+                            transition: 'transform 0.2s ease',
+                            border: discrepancy ? `2px solid ${discrepancy.discrepancy > 0 ? '#2196f3' : '#ca0ec0'}` : 'none',
+                            '&:hover': {
+                              transform: 'translateY(-2px)',
+                              boxShadow: '0 6px 16px rgba(106, 61, 122, 0.15)',
+                            },
                           }}
                         >
-                          <Grid container spacing={2}>
-                            <Grid size={{ xs: 4 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                            <Typography variant="body2" color="#2a0f35" fontWeight={600} sx={{ flex: 1 }}>
+                              {productInfo.name}
+                            </Typography>
+                            {discrepancy && (
+                              <Chip
+                                label={`${discrepancy.discrepancy > 0 ? '+' : ''}${discrepancy.discrepancy}`}
+                                size="small"
+                                sx={{
+                                  ml: 1,
+                                  backgroundColor: discrepancy.discrepancy > 0 
+                                    ? 'rgba(33, 150, 243, 0.15)' 
+                                    : 'rgba(202, 14, 192, 0.15)',
+                                  color: discrepancy.discrepancy > 0 ? '#2196f3' : '#ca0ec0',
+                                  fontWeight: 600,
+                                  fontSize: '0.7rem',
+                                  height: 20,
+                                }}
+                              />
+                            )}
+                          </Box>
+                          
+                          {productInfo.categoryName && (
+                            <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
+                              {productInfo.categoryName}
+                            </Typography>
+                          )}
+                          
+                          <Box sx={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            mt: 2,
+                            pt: 1,
+                            borderTop: '1px dashed rgba(0,0,0,0.1)'
+                          }}>
+                            <Box>
                               <Typography variant="caption" color="#4c5454" display="block">
                                 Ожидалось
                               </Typography>
-                              <Typography variant="body1" color="#2a0f35" fontWeight={600}>
+                              <Typography variant="body2" fontWeight={600}>
                                 {item.expectedQuantity} шт.
                               </Typography>
-                            </Grid>
-                            <Grid size={{ xs: 4 }}>
+                            </Box>
+                            
+                            <Box sx={{ textAlign: 'right' }}>
                               <Typography variant="caption" color="#4c5454" display="block">
-                                Фактически
-                              </Typography>
-                              <Typography variant="body1" color="#2a0f35" fontWeight={600}>
-                                {item.actualQuantity} шт.
-                              </Typography>
-                            </Grid>
-                            <Grid size={{ xs: 4 }}>
-                              <Typography variant="caption" color="#4c5454" display="block">
-                                Разница
+                                Получено
                               </Typography>
                               <Typography 
-                                variant="body1" 
+                                variant="body2" 
                                 fontWeight={600}
-                                sx={{ 
-                                  color: item.discrepancy > 0 ? '#2196f3' : 
-                                         item.discrepancy < 0 ? '#ca0ec0' : '#4c5454'
-                                }}
+                                color={discrepancy ? (discrepancy.discrepancy > 0 ? '#2196f3' : '#ca0ec0') : '#4caf50'}
                               >
-                                {item.discrepancy > 0 ? '+' : ''}{item.discrepancy} шт.
+                                {item.receivedQuantity || 0} шт.
                               </Typography>
-                            </Grid>
-                          </Grid>
-                        </Card>
-                      </AccordionDetails>
-                    </Accordion>
-                  </Box>
-                );
-              })}
-            </Box>
-          </Card>
-        )}
+                            </Box>
+                          </Box>
 
-        {/* Принятие и подтверждение расхождений */}
-        {hasDiscrepancies && (
+                          {discrepancy?.notes && (
+                            <Box sx={{ 
+                              mt: 1.5, 
+                              pt: 1, 
+                              borderTop: '1px dashed rgba(0,0,0,0.1)',
+                              fontSize: '0.75rem',
+                              color: '#4c5454'
+                            }}>
+                              <Typography variant="caption" color="#4c5454" display="block" fontWeight={500}>
+                                Примечание:
+                              </Typography>
+                              <Typography variant="caption" color="#4c5454">
+                                {discrepancy.notes}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Card>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              </AccordionDetails>
+            </Accordion>
+          </Box>
+        </Card>
+
+        {/* 🔴 ИСПРАВЛЕНО: Принятие и подтверждение расхождений - показываем только если есть расхождения и перемещение не отклонено */}
+        {hasDiscrepancies && transfer.status !== TransferStatus.REJECTED as TransferStatus && (
           <Grid container spacing={3} sx={{ mb: 3 }}>
             {/* Принятие с расхождениями */}
             <Grid size={{ xs: 12, md: 6 }}>
@@ -1175,7 +1158,7 @@ const TransferDetailPage: React.FC = () => {
                       Принятие с расхождениями
                     </Typography>
                     {transfer.discrepancyAcceptedById ? (
-                      <Typography variant="caption" color="#4c5454">
+                      <Typography variant="caption" color="#4caf50">
                         Принято с расхождениями
                       </Typography>
                     ) : (
@@ -1241,6 +1224,10 @@ const TransferDetailPage: React.FC = () => {
                       <Typography variant="caption" color="#4caf50">
                         Расхождения подтверждены
                       </Typography>
+                    ) : transfer.status === TransferStatus.REJECTED ? (
+                      <Typography variant="caption" color="#f44336">
+                        Расхождения отклонены
+                      </Typography>
                     ) : (
                       <Typography variant="caption" color="#ff9800">
                         Ожидает подтверждения
@@ -1263,6 +1250,12 @@ const TransferDetailPage: React.FC = () => {
                         {formatDateTime(transfer.discrepancyApprovedAt)}
                       </Typography>
                     </Box>
+                  </Box>
+                ) : transfer.status === TransferStatus.REJECTED ? (
+                  <Box sx={{ pl: { xs: 0, sm: 7 } }}>
+                    <Typography variant="body2" color="#f44336" fontWeight={500}>
+                      Расхождения были отклонены
+                    </Typography>
                   </Box>
                 ) : (
                   <Box sx={{ pl: { xs: 0, sm: 7 } }}>
@@ -1318,21 +1311,22 @@ const TransferDetailPage: React.FC = () => {
                     {transfer.arrivalFiles.map((file, index) => {
                       const fileName = getFileName(file);
                       const isImage = isImageFile(fileName);
+                      const photoUrl = transferService.getPhotoUrl(file);
                       
                       return (
                         <Grid size={{ xs: 6, sm: 4, md: 3 }} key={`arrival-${index}`}>
                           <Box
-                            onClick={() => isImage ? handleViewPhoto(transfer.arrivalFiles, index) : viewFile(file)}
+                            onClick={() => isImage ? handleViewPhoto([file], 0) : viewFile(file)}
                             sx={{
                               position: 'relative',
                               width: '100%',
-                              paddingBottom: '100%', // Делаем квадратными
+                              paddingBottom: '100%',
                               borderRadius: 8,
                               overflow: 'hidden',
                               cursor: 'pointer',
                               backgroundColor: '#f5f3f6',
                               ...(isImage && {
-                                backgroundImage: `url(http://localhost:8000/uploads/${file})`,
+                                backgroundImage: `url(${photoUrl})`,
                                 backgroundSize: 'cover',
                                 backgroundPosition: 'center',
                               }),
@@ -1403,6 +1397,7 @@ const TransferDetailPage: React.FC = () => {
                     {transfer.discrepancyFiles.map((file, index) => {
                       const fileName = getFileName(file);
                       const isImage = isImageFile(fileName);
+                      const photoUrl = transferService.getPhotoUrl(file);
                       
                       return (
                         <Grid size={{ xs: 6, sm: 4, md: 3 }} key={`discrepancy-${index}`}>
@@ -1411,13 +1406,13 @@ const TransferDetailPage: React.FC = () => {
                             sx={{
                               position: 'relative',
                               width: '100%',
-                              paddingBottom: '100%', // Делаем квадратными
+                              paddingBottom: '100%',
                               borderRadius: 8,
                               overflow: 'hidden',
                               cursor: 'pointer',
                               backgroundColor: '#f5f3f6',
                               ...(isImage && {
-                                backgroundImage: `url(http://localhost:8000/uploads/${file})`,
+                                backgroundImage: `url(${photoUrl})`,
                                 backgroundSize: 'cover',
                                 backgroundPosition: 'center',
                               }),
@@ -1519,6 +1514,7 @@ const TransferDetailPage: React.FC = () => {
                 {transfer.files.map((file, index) => {
                   const fileName = getFileName(file);
                   const isImage = isImageFile(fileName);
+                  const photoUrl = transferService.getPhotoUrl(file);
                   
                   return (
                     <Grid size={{ xs: 6, sm: 4, md: 3 }} key={index}>
@@ -1527,13 +1523,13 @@ const TransferDetailPage: React.FC = () => {
                         sx={{
                           position: 'relative',
                           width: '100%',
-                          paddingBottom: '100%', // Делаем квадратными
+                          paddingBottom: '100%',
                           borderRadius: 8,
                           overflow: 'hidden',
                           cursor: 'pointer',
                           backgroundColor: '#f5f3f6',
                           ...(isImage && {
-                            backgroundImage: `url(http://localhost:8000/uploads/${file})`,
+                            backgroundImage: `url(${photoUrl})`,
                             backgroundSize: 'cover',
                             backgroundPosition: 'center',
                           }),
@@ -1593,6 +1589,114 @@ const TransferDetailPage: React.FC = () => {
                 })}
               </Grid>
             </Box>
+          </Card>
+        )}
+
+        {/* 🔴 ИСПРАВЛЕНО: Блок с подтверждениями и комментариями */}
+        {transfer.approvals.length > 0 && (
+          <Card 
+            sx={{ 
+              p: { xs: 2, sm: 2.5 },
+              mb: 3,
+              borderRadius: 8,
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+            }}
+          >
+            <Accordion
+              expanded={expandedApprovals}
+              onChange={() => setExpandedApprovals(!expandedApprovals)}
+              sx={{
+                boxShadow: 'none',
+                '&:before': { display: 'none' },
+                backgroundColor: 'transparent',
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                sx={{
+                  minHeight: 48,
+                  '&.Mui-expanded': { minHeight: 48 },
+                  px: 0,
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Avatar
+                    sx={{ 
+                      width: 40, 
+                      height: 40, 
+                      bgcolor: '#674fb6',
+                      fontSize: '1rem',
+                    }}
+                  >
+                    <CommentIcon />
+                  </Avatar>
+                  <Box>
+                    <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
+                      Подтверждения и комментарии ({transfer.approvals.length})
+                    </Typography>
+                    <Typography variant="caption" color="#4c5454">
+                      {transfer.approvals.filter(a => a.approved).length} подтвердили
+                    </Typography>
+                  </Box>
+                </Box>
+              </AccordionSummary>
+              
+              <AccordionDetails sx={{ px: 0, pt: 2 }}>
+                <Stack spacing={2}>
+                  {transfer.approvals.map((approval, index) => (
+                    <Card
+                      key={approval.id}
+                      sx={{
+                        p: 2,
+                        borderRadius: 8,
+                        backgroundColor: approval.approved ? 'rgba(76, 175, 80, 0.04)' : 'rgba(244, 67, 54, 0.04)',
+                        border: `1px solid ${approval.approved ? '#4caf50' : '#f44336'}20`,
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+                        <Avatar
+                          sx={{ 
+                            width: 32, 
+                            height: 32, 
+                            bgcolor: approval.approved ? '#4caf50' : '#f44336',
+                            fontSize: '0.8rem',
+                          }}
+                        >
+                          {users[approval.userId]?.charAt(0) || 'П'}
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                            <Typography variant="body2" fontWeight={600} color="#2a0f35">
+                              {users[approval.userId] || `Пользователь ${approval.userId}`}
+                            </Typography>
+                            <Typography variant="caption" color="#4c5454">
+                              {formatDateTime(approval.approvedAt)}
+                            </Typography>
+                          </Box>
+                          <Typography variant="body2" color="#4c5454" sx={{ mb: 1 }}>
+                            {approval.approved ? 'Подтвердил' : 'Отклонил'}
+                          </Typography>
+                          {approval.notes && (
+                            <Box sx={{ 
+                              mt: 1, 
+                              p: 1.5, 
+                              backgroundColor: '#f5f3f6', 
+                              borderRadius: 4,
+                              border: '1px solid rgba(0,0,0,0.05)',
+                            }}>
+                              <Typography variant="caption" color="#2a0f35" sx={{ whiteSpace: 'pre-wrap' }}>
+                                {approval.notes}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      </Box>
+                    </Card>
+                  ))}
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
           </Card>
         )}
 
@@ -1737,6 +1841,32 @@ const TransferDetailPage: React.FC = () => {
                 </Box>
               </Box>
             )}
+
+            {/* Отклонено */}
+            {transfer.cancelledAt && (
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                <Box sx={{ 
+                  width: 32, 
+                  height: 32, 
+                  borderRadius: '50%', 
+                  backgroundColor: 'rgba(244, 67, 54, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <CloseIcon sx={{ fontSize: 18, color: '#f44336' }} />
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="body2" color="#2a0f35" fontWeight={500}>
+                    Отменено
+                  </Typography>
+                  <Typography variant="caption" color="#4c5454">
+                    {formatDateTime(transfer.cancelledAt)}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
           </Stack>
         </Card>
       </Container>
@@ -1811,7 +1941,7 @@ const TransferDetailPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Диалог начала перемещения */}
+      {/* 🔴 ИСПРАВЛЕНО: Диалог начала перемещения - убран комментарий */}
       <Dialog 
         open={showStartDialog} 
         onClose={() => setShowStartDialog(false)} 
@@ -1827,26 +1957,9 @@ const TransferDetailPage: React.FC = () => {
           </Typography>
         </DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2, color: '#4c5454' }}>
+          <Typography variant="body2" sx={{ color: '#4c5454' }}>
             Вы уверены, что хотите начать это перемещение? Статус изменится на "В пути", и товары будут отмечены как переданные курьеру.
           </Typography>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Комментарий (необязательно)"
-            type="text"
-            fullWidth
-            multiline
-            rows={2}
-            value={startData.notes}
-            onChange={(e) => setStartData({ notes: e.target.value })}
-            placeholder="Дополнительная информация о начале перемещения"
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 8,
-              }
-            }}
-          />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
           <Button 
@@ -1886,7 +1999,7 @@ const TransferDetailPage: React.FC = () => {
           currentIndex={selectedPhoto.index}
           onClose={() => setShowPhotoDialog(false)}
           onIndexChange={(index) => setSelectedPhoto({ ...selectedPhoto, index })}
-          getPhotoUrl={(photo) => `http://localhost:8000/uploads/${photo}`}
+          getPhotoUrl={(photo) => photo}
         />
       )}
 

@@ -13,7 +13,7 @@ from app.schemas.revision import (
 )
 from app.api.dependencies import get_current_user, require_roles
 from app.models.user import User, UserRole
-from app.core.file_utils import save_uploaded_files, validate_files
+from app.core.file_utils import save_revision_files, save_uploaded_files, validate_files
 import json
 import uuid
 from pathlib import Path
@@ -238,7 +238,7 @@ async def fill_revision(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Заполнить ревизию данными (новая версия с заполнениями)"""
+    """Заполнить ревизию данными"""
     
     try:
         # Парсим JSON с товарами
@@ -259,11 +259,13 @@ async def fill_revision(
                 detail="; ".join(errors)
             )
         
-        # Создаем временный ID для папки
-        temp_folder_id = str(uuid.uuid4().hex)[:8]
+        # Получаем ревизию для проверки существования
+        revision = crud_revision.get(db, revision_id)
+        if not revision:
+            raise HTTPException(status_code=404, detail="Ревизия не найдена")
         
-        # Сохраняем фото
-        photo_paths = save_uploaded_files(photos, f"revisions/{temp_folder_id}")
+        # Сохраняем фото в Yandex Cloud с правильной структурой папок
+        photo_paths = save_revision_files(photos, f"{revision_id}/{current_user.id}")
         
         # Создаем DTO для заполнения
         fill_data = RevisionFillingCreate(
@@ -272,7 +274,7 @@ async def fill_revision(
                     'category_id': item['category_id'], 
                     'quantity': item['quantity']} 
                    for item in items_json],
-            photos=photo_paths
+            photos=photo_paths  # Теперь это относительные пути в облаке
         )
         
         # Заполняем ревизию
@@ -283,34 +285,6 @@ async def fill_revision(
             user_id=current_user.id
         )
         
-        # Получаем ревизию для переименования папки
-        revision = crud_revision.get(db, revision_id)
-        if revision:
-            # Переименовываем папку с фото на реальные ID
-            import os
-            temp_dir = Path(f"uploads/revisions/{temp_folder_id}")
-            real_dir = Path(f"uploads/revisions/{revision_id}/{current_user.id}")
-            
-            if temp_dir.exists():
-                # Создаем целевую директорию
-                real_dir.parent.mkdir(parents=True, exist_ok=True)
-                
-                # Обновляем пути в БД
-                new_photo_paths = []
-                for old_path in photo_paths:
-                    new_path = old_path.replace(temp_folder_id, f"{revision_id}/{current_user.id}")
-                    new_photo_paths.append(new_path)
-                
-                # Обновляем фото в БД
-                filling.photos = new_photo_paths
-                db.commit()
-                
-                # Переименовываем папку
-                try:
-                    os.rename(str(temp_dir), str(real_dir))
-                except Exception as e:
-                    print(f"Не удалось переименовать папку: {e}")
-        
         return filling
         
     except json.JSONDecodeError as e:
@@ -318,6 +292,8 @@ async def fill_revision(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ошибка сервера: {str(e)}")
 
 
@@ -823,7 +799,12 @@ def _calculate_discrepancies_for_revision(db: Session, revision: Revision):
                 UserInventory.product_id == item.product_id
             ).first()
             
-            expected = inventory.quantity if inventory else 0
+            # ИСПРАВЛЕНИЕ: Используем доступное количество (общее минус зарезервированное)
+            total_quantity = inventory.quantity if inventory else 0
+            reserved_quantity = inventory.reserved_quantity if inventory else 0
+            available_quantity = total_quantity - reserved_quantity
+            
+            expected = available_quantity  # Используем доступное количество
             actual = item.quantity
             discrepancy = actual - expected
             
@@ -844,7 +825,7 @@ def _calculate_discrepancies_for_revision(db: Session, revision: Revision):
                 'is_positive': discrepancy > 0,
                 'product_name': product.name if product else f'Товар {item.product_id}',
                 'product_sku': product.sku if product else f'SKU{item.product_id}',
-                'category_name': product.category.name if product and product.category else 'Категория'
+                'category_name': product.category.name if product and product.category else 'Категория',
             })
     
     return discrepancies

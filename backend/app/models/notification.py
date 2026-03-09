@@ -7,13 +7,17 @@ from app.database import Base
 
 class NotificationType(str, enum.Enum):
     """Типы уведомлений"""
+    # Ревизии
     REVISION_REQUEST = "REVISION_REQUEST"      # Запрос на ревизию
     REVISION_COMPLETED = "REVISION_COMPLETED"  # Ревизия заполнена
     REVISION_VERIFIED = "REVISION_VERIFIED"    # Ревизия проверена
+
+    # Отчеты
     REPORT_SUBMITTED = "REPORT_SUBMITTED"      # Отчет отправлен
     REPORT_APPROVED = "REPORT_APPROVED"        # Отчет утвержден
     REPORT_REJECTED = "REPORT_REJECTED"        # Отчет отклонен
     REPORT_ACCOUNTANT = "REPORT_ACCOUNTANT"    # Отчет на проверке бухгалтера
+
     INVENTORY_LOW = "INVENTORY_LOW"            # Низкий остаток
     SYSTEM_MESSAGE = "SYSTEM_MESSAGE"          # Системное сообщение
     
@@ -26,6 +30,11 @@ class NotificationType(str, enum.Enum):
     TRANSFER_REJECTED = "TRANSFER_REJECTED"         # Перемещение отклонено
     TRANSFER_MANAGER_REQUEST = "TRANSFER_MANAGER_REQUEST"  # Запрос от руководителя
     TRANSFER_STATUS = "TRANSFER_STATUS"             # Изменение статуса перемещения
+
+    # Браки
+    REJECTION_REQUEST = "REJECTION_REQUEST"      # Запрос на брак
+    REJECTION_APPROVED = "REJECTION_APPROVED"    # Брак утвержден
+    REJECTION_REJECTED = "REJECTION_REJECTED"    # Брак отклонен
     
     OTHER = "OTHER"                            # Прочее
 
