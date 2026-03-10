@@ -477,7 +477,7 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
         </Container>
       </MuiAppBar>
       
-      <Box sx={{ height: 80 }} />
+      <Box sx={{ height: 10 }} />
     </>
   );
 };
