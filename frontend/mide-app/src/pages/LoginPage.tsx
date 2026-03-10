@@ -26,13 +26,11 @@ const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // ВАЖНО: Убираем пробелы в начале и конце
     const trimmedUsername = username.trim();
     const trimmedPassword = password.trim();
     
-    // Валидация
     if (!trimmedUsername || !trimmedPassword) {
-      setError('Введите логин и пароль');
+      setError('Пожалуйста, заполните все поля');
       return;
     }
     
@@ -40,21 +38,19 @@ const LoginPage: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-      // Используем очищенные значения
       await login(trimmedUsername, trimmedPassword);
       navigate('/');
     } catch (error: any) {
       console.error('Login failed:', error);
       
-      // Обработка ошибок
       if (error.response?.status === 401) {
         setError('Неверный логин или пароль');
       } else if (error.response?.status === 400) {
         setError(error.response.data?.detail || 'Ошибка в запросе');
       } else if (error.response?.status === 422) {
         setError('Неверный формат данных');
-      } else if (!error.response) {
-        setError('Сервер не отвечает. Проверьте подключение.');
+      } else if (error.code === 'ERR_NETWORK' || !error.response) {
+        setError('Сервер не отвечает. Проверьте подключение к интернету.');
       } else {
         setError('Ошибка авторизации. Попробуйте позже.');
       }
@@ -113,8 +109,15 @@ const LoginPage: React.FC = () => {
               sx={{ 
                 width: '100%', 
                 mb: 2,
+                animation: 'shake 0.5s ease-in-out',
+                '@keyframes shake': {
+                  '0%, 100%': { transform: 'translateX(0)' },
+                  '10%, 30%, 50%, 70%, 90%': { transform: 'translateX(-2px)' },
+                  '20%, 40%, 60%, 80%': { transform: 'translateX(2px)' },
+                },
                 '& .MuiAlert-message': {
-                  width: '100%'
+                  width: '100%',
+                  fontWeight: 500,
                 }
               }}
             >
@@ -135,7 +138,7 @@ const LoginPage: React.FC = () => {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={isSubmitting}
-              // Добавляем trim на onChange для удобства
+              error={!!error}
               onBlur={(e) => setUsername(e.target.value.trim())}
               sx={{
                 '& .MuiOutlinedInput-root': {
@@ -158,6 +161,7 @@ const LoginPage: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={isSubmitting}
+              error={!!error}
               sx={{
                 '& .MuiOutlinedInput-root': {
                   '&:hover fieldset': {
@@ -192,30 +196,7 @@ const LoginPage: React.FC = () => {
               )}
             </Button>
           </Box>
-
-          <Typography 
-            variant="body2" 
-            color="#4c5454" 
-            sx={{ mt: 2, textAlign: 'center' }}
-          >
-            Тестовые пользователи:
-            <br />
-            <strong>owner</strong> / owner123
-            <br />
-            <strong>admin</strong> / admin123
-            <br />
-            <strong>seller</strong> / seller123
-          </Typography>
         </Paper>
-
-        <Box sx={{ mt: 4, textAlign: 'center' }}>
-          <Typography variant="body2" color="#6d3f57">
-            Система управления отчетами и товарами
-          </Typography>
-          <Typography variant="caption" color="#4c5454">
-            v1.0.0
-          </Typography>
-        </Box>
       </Box>
     </Container>
   );

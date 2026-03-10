@@ -113,18 +113,6 @@ const DashboardPage: React.FC = () => {
 
   ];
 
-  const getRoleName = (role: UserRole): string => {
-    const names = {
-      [UserRole.OWNER]: 'Владелец',
-      [UserRole.ADMIN]: 'Администратор',
-      [UserRole.SENIOR_SELLER]: 'Старший продавец',
-      [UserRole.MENTOR]: 'Наставник',
-      [UserRole.SELLER]: 'Продавец',
-      [UserRole.ACCOUNTANT]: 'Продавец',
-    };
-    return names[role];
-  };
-
   const filteredMenuItems = menuItems.filter((item) =>
     item.roles.includes(user?.role || UserRole.SELLER)
   );
@@ -138,24 +126,10 @@ const DashboardPage: React.FC = () => {
               Панель управления
             </Typography>
             <Typography variant="subtitle1" color="#4c5454">
-              Добро пожаловать, {user?.username} ({getRoleName(user?.role || UserRole.SELLER)})
+              Добро пожаловать, {user?.fullName}
             </Typography>
           </Grid>
           <Grid size={{ xs: 12, md: 6 }} sx={{ textAlign: { md: 'right' } }}>
-            <Button
-              variant="outlined"
-              onClick={logout}
-              sx={{
-                borderColor: '#ca0ec0',
-                color: '#ca0ec0',
-                '&:hover': {
-                  borderColor: '#950090',
-                  backgroundColor: 'rgba(202, 14, 192, 0.04)',
-                },
-              }}
-            >
-              Выйти
-            </Button>
           </Grid>
         </Grid>
       </Box>
@@ -209,87 +183,6 @@ const DashboardPage: React.FC = () => {
           </Grid>
         ))}
       </Grid>
-
-      {/* Статистика для административных ролей */}
-      {(user?.role === UserRole.OWNER ||
-        user?.role === UserRole.ADMIN ||
-        user?.role === UserRole.SENIOR_SELLER) && (
-        <Box sx={{ mt: 6 }}>
-          <Typography variant="h5" gutterBottom color="#3f1f4b">
-            Быстрый обзор
-          </Typography>
-          <Grid container spacing={3} sx={{ mt: 2 }}>
-            <Grid size={{ xs: 12, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#674fb610',
-                  border: '1px solid #674fb630',
-                }}
-              >
-                <Typography variant="h4" color="#674fb6">
-                  24
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Активных продавцов
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#56b8d110',
-                  border: '1px solid #56b8d130',
-                }}
-              >
-                <Typography variant="h4" color="#56b8d1">
-                  156
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Отчетов сегодня
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#ca0ec010',
-                  border: '1px solid #ca0ec030',
-                }}
-              >
-                <Typography variant="h4" color="#ca0ec0">
-                  5
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Новых браков
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
-              <Paper
-                sx={{
-                  p: 3,
-                  textAlign: 'center',
-                  backgroundColor: '#2a436d10',
-                  border: '1px solid #2a436d30',
-                }}
-              >
-                <Typography variant="h4" color="#2a436d">
-                  12
-                </Typography>
-                <Typography variant="body2" color="#4c5454">
-                  Перемещений
-                </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-        </Box>
-      )}
     </Container>
   );
 };

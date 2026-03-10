@@ -21,12 +21,16 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
-  Tabs,
-  Tab,
   Card,
   CardContent,
   Checkbox,
   Chip,
+  alpha,
+  useTheme,
+  useMediaQuery,
+  Divider,
+  Tooltip,
+  Stack,
 } from '@mui/material';
 import {
   Add,
@@ -48,6 +52,10 @@ import {
   BusinessCenter,
   AttachMoney,
   Close,
+  LinkOff,
+  Error as ErrorIcon,
+  Info as InfoIcon,
+  Assignment as AssignmentIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
@@ -69,29 +77,922 @@ import { groupService } from '../../api/groupService';
 import { clusterService } from '../../api/clusterService';
 import AccountantAssignmentDialog from './AccountantAssignmentDialog';
 
+// iOS стили
+const iOSStyles = {
+  button: {
+    borderRadius: 6,
+    textTransform: 'none',
+    fontWeight: 600,
+    padding: '6px 12px',
+  },
+  tabChip: {
+    borderRadius: 4,
+    height: 36,
+    fontWeight: 500,
+    fontSize: '0.85rem',
+    padding: '8px 16px',
+  },
+  card: {
+    borderRadius: 8,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+    transition: 'transform 0.15s, box-shadow 0.15s',
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    '&:hover': {
+      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
+    },
+  },
+  cardContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
+    p: 2,
+  },
+  infoRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    py: 0.5,
+    borderBottom: '1px dashed',
+    borderColor: 'divider',
+  },
+  roleChip: {
+    borderRadius: 4,
+    height: 24,
+    fontWeight: 500,
+    fontSize: '0.75rem',
+  },
+  actionButton: {
+    fontSize: '0.7rem',
+    minWidth: 70,
+    height: 28,
+  },
+  unassignButton: {
+    fontSize: '0.65rem',
+    minWidth: 60,
+    height: 24,
+    color: '#d32f2f',
+    borderColor: '#d32f2f',
+    '&:hover': {
+      backgroundColor: alpha('#d32f2f', 0.05),
+      borderColor: '#d32f2f',
+    },
+  },
+};
+
 interface SnackbarState {
   open: boolean;
   message: string;
   severity: 'success' | 'error' | 'info';
 }
 
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
+interface UnassignDialogState {
+  open: boolean;
+  user: User | null;
+  type: string;
+  data?: any;
 }
 
-const TabPanel = (props: TabPanelProps) => {
-  const { children, value, index, ...other } = props;
+// Компонент пинов-табов
+interface TabChipsProps {
+  value: number;
+  onChange: (newValue: number) => void;
+  tabs: Array<{
+    label: string;
+    icon: React.ReactNode;
+    value: number;
+    count?: number;
+    color?: string;
+  }>;
+}
+
+const TabChips: React.FC<TabChipsProps> = ({ value, onChange, tabs }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   return (
-    <div role="tabpanel" hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
-    </div>
+    <Box 
+      sx={{ 
+        display: 'flex', 
+        gap: 1, 
+        p: 1.5,
+        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        flexWrap: 'wrap',
+      }}
+    >
+      {tabs.map((tab) => (
+        <Button
+          key={tab.value}
+          onClick={() => onChange(tab.value)}
+          variant={value === tab.value ? 'contained' : 'outlined'}
+          startIcon={tab.icon}
+          sx={{
+            ...iOSStyles.tabChip,
+            flex: isMobile ? 1 : '0 1 auto',
+            backgroundColor: value === tab.value 
+              ? (tab.color || theme.palette.primary.main) 
+              : 'transparent',
+            borderColor: value === tab.value 
+              ? 'transparent' 
+              : alpha(tab.color || theme.palette.primary.main, 0.3),
+            color: value === tab.value ? 'white' : theme.palette.text.primary,
+            '&:hover': {
+              backgroundColor: value === tab.value 
+                ? (tab.color || theme.palette.primary.dark)
+                : alpha(tab.color || theme.palette.primary.main, 0.08),
+            },
+          }}
+        >
+          {tab.label}
+          {tab.count !== undefined && (
+            <Chip
+              label={tab.count}
+              size="small"
+              sx={{
+                ml: 1,
+                height: 20,
+                minWidth: 20,
+                fontSize: '0.7rem',
+                backgroundColor: value === tab.value 
+                  ? alpha('#fff', 0.2)
+                  : alpha(tab.color || theme.palette.primary.main, 0.1),
+                color: value === tab.value ? '#fff' : 'inherit',
+              }}
+            />
+          )}
+        </Button>
+      ))}
+    </Box>
   );
 };
 
+// Компонент карточки пользователя
+interface UserCardProps {
+  user: User;
+  groups: Group[];
+  clusters: Cluster[];
+  users: User[];
+  loading: boolean;
+  onEdit: (user: User) => void;
+  onDelete: (user: User) => void;
+  onAssign: (user: User, type: 'mentor' | 'group' | 'cluster' | 'admin') => void;
+  onUnassignClick: (user: User, type: string, data?: any) => void;
+  onOpenAccountantAssignment: (user: User) => void;
+  getRoleColor: (role: UserRole) => string;
+  getRoleIcon: (role: UserRole) => React.ReactNode;
+}
+
+const UserCard: React.FC<UserCardProps> = ({
+  user,
+  groups,
+  clusters,
+  users,
+  loading,
+  onEdit,
+  onDelete,
+  onAssign,
+  onUnassignClick,
+  onOpenAccountantAssignment,
+  getRoleColor,
+  getRoleIcon,
+}) => {
+  const theme = useTheme();
+  
+  const getUserGroupInfo = () => {
+    const group = groups.find(g => g.id === user.groupId);
+    const cluster = clusters.find(c => c.id === user.clusterId);
+    const mentor = users.find(u => u.id === user.mentorId);
+    const seniorSeller = users.find(u => u.id === user.seniorSellerId);
+    return { group, cluster, mentor, seniorSeller };
+  };
+
+  const { group, cluster, mentor, seniorSeller } = getUserGroupInfo();
+  const sellersCount = users.filter(u => u.mentorId === user.id).length;
+
+  const renderAdminClusters = () => {
+    if (!user.adminClusterIds || user.adminClusterIds.length === 0) return null;
+    
+    return (
+      <Box sx={{ mt: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+          Кусты под управлением:
+        </Typography>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {user.adminClusterIds.map((clusterId: number) => {
+            const cluster = clusters.find(c => c.id === clusterId);
+            return (
+              <Box key={clusterId} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="body2">
+                  • {cluster ? cluster.name : `Куст #${clusterId}`}
+                </Typography>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => onUnassignClick(user, 'admin', { clusterId })}
+                  sx={iOSStyles.unassignButton}
+                >
+                  Отвязать
+                </Button>
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
+    );
+  };
+
+  const renderAccountantAssignments = () => {
+    if (!user.accountantUserIds || user.accountantUserIds.length === 0) return null;
+    
+    return (
+      <Box sx={{ mt: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+          Привязано пользователей: {user.accountantUserIds.length}
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {user.accountantUserIds.slice(0, 3).map((userId: number) => {
+            const assignedUser = users.find(u => u.id === userId);
+            return assignedUser ? (
+              <Chip
+                key={userId}
+                label={assignedUser.fullName}
+                size="small"
+                variant="outlined"
+                sx={{ height: 20, fontSize: '0.7rem' }}
+              />
+            ) : null;
+          })}
+          {user.accountantUserIds.length > 3 && (
+            <Chip
+              label={`+${user.accountantUserIds.length - 3}`}
+              size="small"
+              variant="outlined"
+              sx={{ height: 20, fontSize: '0.7rem' }}
+            />
+          )}
+        </Box>
+      </Box>
+    );
+  };
+
+  return (
+    <Card sx={iOSStyles.card}>
+      <CardContent sx={iOSStyles.cardContent}>
+        {/* Заголовок с аватаром и ролью */}
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+          <Avatar 
+            sx={{ 
+              bgcolor: getRoleColor(user.role), 
+              mr: 2,
+              width: 48,
+              height: 48,
+            }}
+          >
+            {user.fullName.charAt(0)}
+          </Avatar>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography variant="subtitle1" fontWeight="bold" noWrap>
+              {user.fullName}
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {getRoleIcon(user.role)}
+              <Typography variant="body2" color="text.secondary" noWrap>
+                {getRoleName(user.role)}
+              </Typography>
+            </Box>
+          </Box>
+          <Chip
+            label={user.username}
+            size="small"
+            sx={{ 
+              ...iOSStyles.roleChip,
+              backgroundColor: alpha(getRoleColor(user.role), 0.1),
+              color: getRoleColor(user.role),
+            }}
+          />
+        </Box>
+
+        {/* Основная информация */}
+        <Box sx={{ mb: 2 }}>
+          {user.telegram && (
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              <strong>Telegram:</strong> {user.telegram}
+            </Typography>
+          )}
+          
+          {user.city && (
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              <strong>Город:</strong> {user.city}
+            </Typography>
+          )}
+          
+          {user.rate !== undefined && user.rate > 0 && (
+            <Typography variant="body2" sx={{ mb: 0.5 }}>
+              <strong>Ставка:</strong> {user.rate}₽ за товар
+            </Typography>
+          )}
+        </Box>
+
+        <Divider sx={{ my: 1 }} />
+
+        {/* Связи - прокручиваемая область если много контента */}
+        <Box sx={{ 
+          flex: 1,
+          overflowY: 'auto',
+          maxHeight: 200,
+          pr: 0.5,
+          mb: 1,
+        }}>
+          {/* Для продавца */}
+          {user.role === UserRole.SELLER && (
+            <Stack spacing={1}>
+              {group && (
+                <Box sx={iOSStyles.infoRow}>
+                  <Typography variant="body2">
+                    <strong>Группа:</strong> {group.name}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => onUnassignClick(user, 'group')}
+                    sx={iOSStyles.unassignButton}
+                  >
+                    Отвязать
+                  </Button>
+                </Box>
+              )}
+              {mentor && (
+                <Box sx={iOSStyles.infoRow}>
+                  <Typography variant="body2">
+                    <strong>Наставник:</strong> {mentor.fullName}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => onUnassignClick(user, 'mentor')}
+                    sx={iOSStyles.unassignButton}
+                  >
+                    Отвязать
+                  </Button>
+                </Box>
+              )}
+              {cluster && (
+                <Box sx={iOSStyles.infoRow}>
+                  <Typography variant="body2">
+                    <strong>Куст:</strong> {cluster.name}
+                  </Typography>
+                </Box>
+              )}
+              {seniorSeller && (
+                <Typography variant="body2">
+                  <strong>Старший продавец:</strong> {seniorSeller.fullName}
+                </Typography>
+              )}
+            </Stack>
+          )}
+
+          {/* Для наставника */}
+          {user.role === UserRole.MENTOR && (
+            <Stack spacing={1}>
+              {group && (
+                <Box sx={iOSStyles.infoRow}>
+                  <Typography variant="body2">
+                    <strong>Управляет группой:</strong> {group.name}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => onUnassignClick(user, 'mentorFromGroup')}
+                    sx={iOSStyles.unassignButton}
+                  >
+                    Отвязать
+                  </Button>
+                </Box>
+              )}
+              {cluster && (
+                <Box sx={iOSStyles.infoRow}>
+                  <Typography variant="body2">
+                    <strong>Куст:</strong> {cluster.name}
+                  </Typography>
+                </Box>
+              )}
+              {seniorSeller && (
+                <Typography variant="body2">
+                  <strong>Старший продавец:</strong> {seniorSeller.fullName}
+                </Typography>
+              )}
+              <Typography variant="body2">
+                <strong>Продавцов в группе:</strong> {sellersCount}
+              </Typography>
+            </Stack>
+          )}
+
+          {/* Для старшего продавца */}
+          {user.role === UserRole.SENIOR_SELLER && (
+            <Stack spacing={1}>
+              {cluster && (
+                <Box sx={iOSStyles.infoRow}>
+                  <Typography variant="body2">
+                    <strong>Управляет кустом:</strong> {cluster.name}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => onUnassignClick(user, 'seniorFromCluster')}
+                    sx={iOSStyles.unassignButton}
+                  >
+                    Отвязать
+                  </Button>
+                </Box>
+              )}
+              {cluster && (
+                <Typography variant="body2">
+                  <strong>Групп в кусте:</strong> {groups.filter(g => g.clusterId === cluster.id).length}
+                </Typography>
+              )}
+            </Stack>
+          )}
+
+          {/* Для администратора */}
+          {user.role === UserRole.ADMIN && renderAdminClusters()}
+
+          {/* Для бухгалтера */}
+          {user.role === UserRole.ACCOUNTANT && renderAccountantAssignments()}
+        </Box>
+
+        <Divider sx={{ my: 1 }} />
+
+        {/* Кнопки действий - всегда внизу */}
+        <Box sx={{ 
+          display: 'flex', 
+          flexWrap: 'wrap', 
+          gap: 0.5,
+          mt: 'auto',
+        }}>
+          {/* Кнопки назначения */}
+          {user.role === UserRole.SELLER && (
+            <>
+              {!user.mentorId && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => onAssign(user, 'mentor')}
+                  disabled={loading}
+                  sx={iOSStyles.actionButton}
+                >
+                  Наставник
+                </Button>
+              )}
+              {!user.groupId && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => onAssign(user, 'group')}
+                  disabled={loading}
+                  sx={iOSStyles.actionButton}
+                >
+                  В группу
+                </Button>
+              )}
+            </>
+          )}
+          
+          {user.role === UserRole.MENTOR && !user.clusterId && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onAssign(user, 'cluster')}
+              disabled={loading}
+              sx={iOSStyles.actionButton}
+            >
+              В куст
+            </Button>
+          )}
+          
+          {user.role === UserRole.SENIOR_SELLER && !user.clusterId && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onAssign(user, 'cluster')}
+              disabled={loading}
+              sx={iOSStyles.actionButton}
+            >
+              Назначить
+            </Button>
+          )}
+          
+          {user.role === UserRole.ADMIN && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onAssign(user, 'admin')}
+              disabled={loading}
+              sx={iOSStyles.actionButton}
+            >
+              Кусты
+            </Button>
+          )}
+          
+          {user.role === UserRole.ACCOUNTANT && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onOpenAccountantAssignment(user)}
+              sx={{ 
+                ...iOSStyles.actionButton,
+                color: '#ff9800', 
+                borderColor: '#ff9800',
+                '&:hover': {
+                  backgroundColor: alpha('#ff9800', 0.1),
+                },
+              }}
+              disabled={loading}
+            >
+              Назначить
+            </Button>
+          )}
+          
+          {/* Кнопки редактирования и удаления */}
+          <Button
+            size="small"
+            startIcon={<Edit />}
+            onClick={() => onEdit(user)}
+            disabled={loading}
+            sx={iOSStyles.actionButton}
+          />
+          
+          <Button
+            size="small"
+            startIcon={<Delete />}
+            color="error"
+            onClick={() => onDelete(user)}
+            disabled={user.role === UserRole.OWNER || loading}
+            sx={iOSStyles.actionButton}
+          />
+        </Box>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Компонент карточки группы
+interface GroupCardProps {
+  group: Group;
+  users: User[];
+  groups: Group[];
+  clusters: Cluster[];
+  loading: boolean;
+  onEdit: (group: Group) => void;
+  onDelete: (group: Group) => void;
+  onAddToCluster: (group: Group) => void;
+  onRemoveFromCluster: (group: Group, clusterId: number) => void;
+  onUnassignClick: (user: User, type: string, data?: any) => void;
+  getRoleColor: (role: UserRole) => string;
+}
+
+const GroupCard: React.FC<GroupCardProps> = ({
+  group,
+  users,
+  groups,
+  clusters,
+  loading,
+  onEdit,
+  onDelete,
+  onAddToCluster,
+  onRemoveFromCluster,
+  onUnassignClick,
+  getRoleColor,
+}) => {
+  const theme = useTheme();
+  
+  const mentor = users.find(u => u.id === group.mentorId);
+  const cluster = clusters.find(c => c.id === group.clusterId);
+  const seniorSeller = users.find(u => u.id === group.seniorSellerId);
+  const sellersInGroup = users.filter(u => u.groupId === group.id);
+  const groupsInSameCluster = cluster ? groups.filter(g => g.clusterId === cluster.id) : [];
+
+  return (
+    <Card sx={iOSStyles.card}>
+      <CardContent sx={iOSStyles.cardContent}>
+        <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }} noWrap>
+          {group.name}
+        </Typography>
+        
+        {group.description && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {group.description}
+          </Typography>
+        )}
+        
+        <Box sx={{ flex: 1, mb: 2 }}>
+          {/* Наставник */}
+          <Box sx={iOSStyles.infoRow}>
+            <Typography variant="body2">
+              <strong>Наставник:</strong>{' '}
+              {mentor ? (
+                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                  <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(mentor.role) }}>
+                    {mentor.fullName.charAt(0)}
+                  </Avatar>
+                  {mentor.fullName}
+                </Box>
+              ) : 'Не назначен'}
+            </Typography>
+          </Box>
+          
+          {/* Куст */}
+          <Box sx={iOSStyles.infoRow}>
+            <Typography variant="body2">
+              <strong>Куст:</strong> {cluster ? cluster.name : 'Не назначен'}
+            </Typography>
+            {cluster && (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onRemoveFromCluster(group, cluster.id)}
+                sx={iOSStyles.unassignButton}
+              >
+                Отвязать
+              </Button>
+            )}
+          </Box>
+          
+          {/* Старший продавец */}
+          {seniorSeller && (
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>Старший продавец:</strong> {seniorSeller.fullName}
+            </Typography>
+          )}
+          
+          {/* Статистика */}
+          <Typography variant="body2" sx={{ mb: 0.5 }}>
+            <strong>Продавцов в группе:</strong> {sellersInGroup.length}
+          </Typography>
+          
+          {cluster && (
+            <Typography variant="body2">
+              <strong>Групп в кусте:</strong> {groupsInSameCluster.length}
+            </Typography>
+          )}
+        </Box>
+        
+        {/* Продавцы в группе */}
+        {sellersInGroup.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+              Продавцы:
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 60, overflowY: 'auto' }}>
+              {sellersInGroup.map(seller => (
+                <Chip
+                  key={seller.id}
+                  label={seller.fullName}
+                  size="small"
+                  sx={{ height: 20, fontSize: '0.7rem' }}
+                />
+              ))}
+            </Box>
+          </Box>
+        )}
+        
+        <Divider sx={{ my: 1 }} />
+        
+        {/* Кнопки действий */}
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 'auto' }}>
+          {!group.clusterId && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onAddToCluster(group)}
+              disabled={loading}
+              sx={iOSStyles.actionButton}
+            >
+              В куст
+            </Button>
+          )}
+          
+          <Button
+            size="small"
+            startIcon={<Edit />}
+            onClick={() => onEdit(group)}
+            disabled={loading}
+            sx={iOSStyles.actionButton}
+          />
+          
+          <Button
+            size="small"
+            startIcon={<Delete />}
+            color="error"
+            onClick={() => onDelete(group)}
+            disabled={sellersInGroup.length > 0 || loading}
+            sx={iOSStyles.actionButton}
+          />
+        </Box>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Компонент карточки куста
+interface ClusterCardProps {
+  cluster: Cluster;
+  users: User[];
+  groups: Group[];
+  clusters: Cluster[];
+  loading: boolean;
+  onEdit: (cluster: Cluster) => void;
+  onDelete: (cluster: Cluster) => void;
+  onAddGroup: (cluster: Cluster, groupId: number) => void;
+  onRemoveGroup: (cluster: Cluster, groupId: number) => void;
+  onUnassignClick: (user: User, type: string, data?: any) => void;
+  getRoleColor: (role: UserRole) => string;
+}
+
+const ClusterCard: React.FC<ClusterCardProps> = ({
+  cluster,
+  users,
+  groups,
+  loading,
+  onEdit,
+  onDelete,
+  onAddGroup,
+  onRemoveGroup,
+  onUnassignClick,
+  getRoleColor,
+}) => {
+  const theme = useTheme();
+  
+  const seniorSeller = users.find(u => u.id === cluster.seniorSellerId);
+  const admin = users.find(u => u.id === cluster.adminId);
+  const groupsInCluster = groups.filter(group => group.clusterId === cluster.id);
+  const sellersInCluster = users.filter(u => u.clusterId === cluster.id);
+  const groupsWithoutCluster = groups.filter(g => !g.clusterId);
+
+  return (
+    <Card sx={iOSStyles.card}>
+      <CardContent sx={iOSStyles.cardContent}>
+        <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }} noWrap>
+          {cluster.name}
+        </Typography>
+        
+        {cluster.description && (
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {cluster.description}
+          </Typography>
+        )}
+        
+        <Box sx={{ flex: 1, mb: 2 }}>
+          {/* Старший продавец */}
+          <Box sx={iOSStyles.infoRow}>
+            <Typography variant="body2">
+              <strong>Старший продавец:</strong>{' '}
+              {seniorSeller ? (
+                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                  <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(seniorSeller.role) }}>
+                    {seniorSeller.fullName.charAt(0)}
+                  </Avatar>
+                  {seniorSeller.fullName}
+                </Box>
+              ) : 'Не назначен'}
+            </Typography>
+            {seniorSeller && (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onUnassignClick(seniorSeller, 'seniorFromCluster')}
+                sx={iOSStyles.unassignButton}
+              >
+                Отвязать
+              </Button>
+            )}
+          </Box>
+          
+          {/* Администратор */}
+          <Box sx={iOSStyles.infoRow}>
+            <Typography variant="body2">
+              <strong>Администратор:</strong>{' '}
+              {admin ? (
+                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                  <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(admin.role) }}>
+                    {admin.fullName.charAt(0)}
+                  </Avatar>
+                  {admin.fullName}
+                </Box>
+              ) : 'Не назначен'}
+            </Typography>
+            {admin && (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onUnassignClick(admin, 'admin', { clusterId: cluster.id })}
+                sx={iOSStyles.unassignButton}
+              >
+                Отвязать
+              </Button>
+            )}
+          </Box>
+          
+          {/* Статистика */}
+          <Typography variant="body2" sx={{ mb: 0.5 }}>
+            <strong>Групп в кусте:</strong> {groupsInCluster.length}
+          </Typography>
+          
+          <Typography variant="body2">
+            <strong>Продавцов в кусте:</strong> {sellersInCluster.length}
+          </Typography>
+        </Box>
+        
+        {/* Группы в кусте */}
+        {groupsInCluster.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+              Группы в кусте:
+            </Typography>
+            <Box sx={{ maxHeight: 80, overflowY: 'auto', pr: 0.5 }}>
+              {groupsInCluster.map(group => {
+                const groupMentor = users.find(u => u.id === group.mentorId);
+                return (
+                  <Box key={group.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2" noWrap sx={{ maxWidth: 150 }}>
+                      • {group.name}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => onRemoveGroup(cluster, group.id)}
+                      sx={iOSStyles.unassignButton}
+                    >
+                      Отвязать
+                    </Button>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+        )}
+        
+        {/* Доступные группы для добавления */}
+        {groupsWithoutCluster.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+              Добавить группу:
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 60, overflowY: 'auto' }}>
+              {groupsWithoutCluster.slice(0, 3).map(group => (
+                <Chip
+                  key={group.id}
+                  label={group.name}
+                  size="small"
+                  onClick={() => onAddGroup(cluster, group.id)}
+                  disabled={loading}
+                  sx={{ height: 24, fontSize: '0.7rem' }}
+                />
+              ))}
+              {groupsWithoutCluster.length > 3 && (
+                <Chip
+                  label={`+${groupsWithoutCluster.length - 3}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ height: 24, fontSize: '0.7rem' }}
+                />
+              )}
+            </Box>
+          </Box>
+        )}
+        
+        <Divider sx={{ my: 1 }} />
+        
+        {/* Кнопки действий */}
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 'auto' }}>
+          <Button
+            size="small"
+            startIcon={<Edit />}
+            onClick={() => onEdit(cluster)}
+            disabled={loading}
+            sx={iOSStyles.actionButton}
+          />
+          
+          <Button
+            size="small"
+            startIcon={<Delete />}
+            color="error"
+            onClick={() => onDelete(cluster)}
+            disabled={groupsInCluster.length > 0 || sellersInCluster.length > 0 || loading}
+            sx={iOSStyles.actionButton}
+          />
+        </Box>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Основной компонент (остается без изменений, только импорты обновлены)
 const StaffPage: React.FC = () => {
   const { user: currentUser } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(false);
   const [snackbar, setSnackbar] = useState<SnackbarState>({
@@ -118,6 +1019,14 @@ const StaffPage: React.FC = () => {
     user: User | null;
     type: 'mentor' | 'group' | 'cluster' | 'admin' | null;
   }>({ open: false, user: null, type: null });
+
+  // Диалоги подтверждения отвязки
+  const [unassignDialog, setUnassignDialog] = useState<UnassignDialogState>({
+    open: false,
+    user: null,
+    type: '',
+    data: undefined
+  });
 
   // Диалог назначения бухгалтера
   const [openAccountantAssignmentDialog, setOpenAccountantAssignmentDialog] = useState<{
@@ -482,73 +1391,53 @@ const StaffPage: React.FC = () => {
   };
 
   // ================ ФУНКЦИИ ОТВЯЗКИ ================
-  const handleUnassignMentor = async (user: User) => {
-    try {
-      setLoading(true);
-      await assignmentsService.removeSellerFromGroup(user.id);
-      showSnackbar('Пользователь отвязан от наставника', 'success');
-      await loadAllData();
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
-      showSnackbar(errorMessage, 'error');
-    } finally {
-      setLoading(false);
-    }
+  const handleUnassignClick = (user: User, type: string, data?: any) => {
+    setUnassignDialog({ open: true, user, type, data });
   };
 
-  const handleUnassignGroup = async (user: User) => {
-    try {
-      setLoading(true);
-      await assignmentsService.removeSellerFromGroup(user.id);
-      showSnackbar('Пользователь отвязан от группы', 'success');
-      await loadAllData();
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
-      showSnackbar(errorMessage, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleConfirmUnassign = async () => {
+    const { user, type, data } = unassignDialog;
+    if (!user) return;
 
-  const handleUnassignMentorFromGroup = async (user: User) => {
+    setLoading(true);
     try {
-      setLoading(true);
-      await assignmentsService.removeMentorFromGroup(user.id);
-      showSnackbar('Наставник отвязан от группы', 'success');
+      switch (type) {
+        case 'mentor':
+          await assignmentsService.removeSellerFromGroup(user.id);
+          showSnackbar('Продавец отвязан от наставника', 'success');
+          break;
+        case 'group':
+          await assignmentsService.removeSellerFromGroup(user.id);
+          showSnackbar('Продавец удален из группы', 'success');
+          break;
+        case 'mentorFromGroup':
+          await assignmentsService.removeMentorFromGroup(user.id);
+          showSnackbar('Наставник отвязан от группы', 'success');
+          break;
+        case 'seniorFromCluster':
+          await assignmentsService.removeSeniorFromCluster(user.id);
+          showSnackbar('Старший продавец отвязан от куста', 'success');
+          break;
+        case 'admin':
+          if (data?.clusterId) {
+            await assignmentsService.removeAdminFromCluster(user.id, data.clusterId);
+            showSnackbar('Администратор отвязан от куста', 'success');
+          }
+          break;
+        case 'groupFromCluster':
+          if (data?.groupId && data?.clusterId) {
+            await clusterService.removeGroupFromCluster(data.clusterId, data.groupId);
+            showSnackbar('Группа удалена из куста', 'success');
+          }
+          break;
+      }
       await loadAllData();
     } catch (error: any) {
       const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleUnassignSeniorFromCluster = async (user: User) => {
-    try {
-      setLoading(true);
-      await assignmentsService.removeSeniorFromCluster(user.id);
-      showSnackbar('Старший продавец отвязан от куста', 'success');
-      await loadAllData();
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
-      showSnackbar(errorMessage, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUnassignAdminFromCluster = async (user: User, clusterId: number) => {
-    try {
-      setLoading(true);
-      await assignmentsService.removeAdminFromCluster(user.id, clusterId);
-      showSnackbar('Администратор отвязан от куста', 'success');
-      await loadAllData();
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке';
-      showSnackbar(errorMessage, 'error');
-    } finally {
-      setLoading(false);
+      setUnassignDialog({ open: false, user: null, type: '' });
     }
   };
 
@@ -558,7 +1447,6 @@ const StaffPage: React.FC = () => {
     
     // Устанавливаем начальные значения
     if (type === 'mentor') {
-      // Если у наставника уже есть группа, показываем его текущую группу
       if (user.role === UserRole.MENTOR && user.groupId) {
         setSelectedGroup(user.groupId);
       }
@@ -579,7 +1467,7 @@ const StaffPage: React.FC = () => {
 
   const handleAccountantAssignmentSuccess = () => {
     showSnackbar('Назначения успешно сохранены', 'success');
-    loadUsers(); // Перезагружаем пользователей, чтобы обновить accountantUserIds
+    loadUsers();
   };
 
   const handleAssign = async () => {
@@ -596,14 +1484,11 @@ const StaffPage: React.FC = () => {
             return;
           }
           
-          // Проверяем, есть ли у наставника уже группа
           const mentor = users.find(u => u.id === selectedMentor);
           if (mentor?.groupId) {
-            // Если у наставника есть группа, добавляем продавца в эту группу
             await assignmentsService.assignSellerToGroup(user.id, mentor.groupId);
             showSnackbar('Продавец добавлен в группу наставника', 'success');
           } else {
-            // Если у наставника нет группы, создаем новую группу
             await assignmentsService.assignSellerToMentor(user.id, selectedMentor);
             showSnackbar('Продавец назначен наставнику и создана новая группа', 'success');
           }
@@ -640,7 +1525,6 @@ const StaffPage: React.FC = () => {
             return;
           }
           
-          // Для админа добавляем каждый выбранный куст
           const currentClusters = user.adminClusterIds || [];
           const clustersToAdd = selectedClustersForAdmin.filter(id => !currentClusters.includes(id));
           
@@ -655,7 +1539,6 @@ const StaffPage: React.FC = () => {
       await loadAllData();
       setOpenAssignDialog({ open: false, user: null, type: null });
       
-      // Сбрасываем выбранные значения
       setSelectedMentor(0);
       setSelectedGroup(0);
       setSelectedCluster(0);
@@ -663,9 +1546,7 @@ const StaffPage: React.FC = () => {
       
     } catch (error: any) {
       console.error('Ошибка при назначении:', error);
-      const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при назначении';
+      const errorMessage = error.response?.data?.detail || 'Ошибка при назначении';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -688,30 +1569,11 @@ const StaffPage: React.FC = () => {
   };
 
   const handleRemoveGroupFromCluster = async (cluster: Cluster, groupId: number) => {
-    try {
-      setLoading(true);
-      await clusterService.removeGroupFromCluster(cluster.id, groupId);
-      showSnackbar('Группа удалена из куста', 'success');
-      await loadAllData();
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Ошибка при удалении группы из куста';
-      showSnackbar(errorMessage, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ================ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ================
-  const getUserGroupInfo = (userId: number) => {
-    const user = users.find(u => u.id === userId);
-    if (!user) return null;
-    
-    const group = groups.find(g => g.id === user.groupId);
-    const cluster = clusters.find(c => c.id === user.clusterId);
-    const mentor = users.find(u => u.id === user.mentorId);
-    const seniorSeller = users.find(u => u.id === user.seniorSellerId);
-
-    return { user, group, cluster, mentor, seniorSeller };
+    handleUnassignClick(
+      { id: 0, fullName: '' } as User, 
+      'groupFromCluster', 
+      { groupId, clusterId: cluster.id }
+    );
   };
 
   // Фильтрация пользователей
@@ -731,105 +1593,27 @@ const StaffPage: React.FC = () => {
   // Фильтры для диалогов
   const availableMentors = users.filter(u => u.role === UserRole.MENTOR);
   const availableSeniorSellers = users.filter(u => u.role === UserRole.SENIOR_SELLER && !u.clusterId);
-  const sellersWithoutGroup = users.filter(u => u.role === UserRole.SELLER && !u.groupId);
   const groupsWithoutCluster = groups.filter(g => !g.clusterId);
 
-  // Статистика
+  // Подсчеты для табов
   const stats = {
-    totalUsers: users.length,
-    sellers: users.filter(u => u.role === UserRole.SELLER).length,
-    mentors: users.filter(u => u.role === UserRole.MENTOR).length,
-    seniors: users.filter(u => u.role === UserRole.SENIOR_SELLER).length,
-    admins: users.filter(u => u.role === UserRole.ADMIN).length,
-    accountants: users.filter(u => u.role === UserRole.ACCOUNTANT).length,
-    owners: users.filter(u => u.role === UserRole.OWNER).length,
+    users: users.length,
     groups: groups.length,
     clusters: clusters.length,
   };
 
-  // Функция для отображения кустов администратора
-  const renderAdminClusters = (user: User) => {
-    if (!user.adminClusterIds || user.adminClusterIds.length === 0) {
-      return null;
-    }
-    
-    return (
-      <Box sx={{ mb: 1 }}>
-        <Typography variant="body2">
-          <strong>Кусты под управлением:</strong>
-        </Typography>
-        <Box sx={{ ml: 2, mt: 0.5 }}>
-          {user.adminClusterIds.map((clusterId: number) => {
-            const cluster = clusters.find(c => c.id === clusterId);
-            return (
-              <Box key={clusterId} sx={{ display: 'flex', alignItems: 'center' }}>
-                <Typography variant="body2">
-                  • {cluster ? cluster.name : `Куст #${clusterId}`}
-                </Typography>
-                <IconButton 
-                  size="small" 
-                  sx={{ ml: 0.5, p: 0 }}
-                  onClick={() => handleUnassignAdminFromCluster(user, clusterId)}
-                  disabled={loading}
-                >
-                  <Close fontSize="small" />
-                </IconButton>
-              </Box>
-            );
-          })}
-        </Box>
-      </Box>
-    );
+  // Цвета для табов
+  const tabColors = {
+    0: '#674fb6', // Пользователи
+    1: '#56b8d1', // Группы
+    2: '#3f1f4b', // Кусты
   };
 
-  // Функция для отображения привязанных пользователей бухгалтера
-  const renderAccountantAssignments = (user: User) => {
-    if (!user.accountantUserIds || user.accountantUserIds.length === 0) {
-      return null;
-    }
-    
-    return (
-      <Box sx={{ mb: 1 }}>
-        <Typography variant="body2">
-          <strong>Привязано пользователей:</strong> {user.accountantUserIds.length}
-        </Typography>
-        {user.accountantUserIds.length > 0 && (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
-            {user.accountantUserIds.slice(0, 3).map((userId: number) => {
-              const assignedUser = users.find(u => u.id === userId);
-              return assignedUser ? (
-                <Chip
-                  key={userId}
-                  label={assignedUser.fullName}
-                  size="small"
-                  variant="outlined"
-                  sx={{ height: 20, fontSize: '0.7rem' }}
-                />
-              ) : null;
-            })}
-            {user.accountantUserIds.length > 3 && (
-              <Chip
-                label={`+${user.accountantUserIds.length - 3}`}
-                size="small"
-                variant="outlined"
-                sx={{ height: 20, fontSize: '0.7rem' }}
-              />
-            )}
-          </Box>
-        )}
-      </Box>
-    );
-  };
-
-  // Функция для получения групп в кусте
-  const getGroupsInCluster = (clusterId: number) => {
-    return groups.filter(group => group.clusterId === clusterId);
-  };
-
-  // Функция для получения продавцов в группе
-  const getSellersInGroup = (groupId: number) => {
-    return users.filter(user => user.groupId === groupId);
-  };
+  const tabs = [
+    { label: 'Пользователи', icon: <People />, value: 0, count: stats.users, color: tabColors[0] },
+    { label: 'Группы', icon: <GroupsIcon />, value: 1, count: stats.groups, color: tabColors[1] },
+    { label: 'Кусты', icon: <Business />, value: 2, count: stats.clusters, color: tabColors[2] },
+  ];
 
   if (loading && users.length === 0) {
     return (
@@ -842,10 +1626,11 @@ const StaffPage: React.FC = () => {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+      {/* Заголовок */}
       <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
         <Grid size={{ xs: 12, md: 8 }}>
           <Typography variant="h4" component="h1" color="#2a0f35">
-            🏢 Управление персоналом
+            Управление персоналом
           </Typography>
           <Typography variant="body1" color="#4c5454">
             Управление пользователями, группами и кустами
@@ -856,47 +1641,11 @@ const StaffPage: React.FC = () => {
             variant="outlined"
             startIcon={<Refresh />}
             onClick={loadAllData}
-            sx={{ mr: 1 }}
+            sx={iOSStyles.button}
             disabled={loading}
           >
             {loading ? 'Обновление...' : 'Обновить'}
           </Button>
-        </Grid>
-      </Grid>
-
-      {/* Статистика */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="#674fb6">{stats.totalUsers}</Typography>
-            <Typography variant="caption" color="#4c5454">
-              Всего пользователей
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="#56b8d1">{stats.groups}</Typography>
-            <Typography variant="caption" color="#4c5454">
-              Групп
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="#3f1f4b">{stats.clusters}</Typography>
-            <Typography variant="caption" color="#4c5454">
-              Кустов
-            </Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="#ff9800">{stats.accountants}</Typography>
-            <Typography variant="caption" color="#4c5454">
-              Бухгалтеров
-            </Typography>
-          </Paper>
         </Grid>
       </Grid>
 
@@ -914,619 +1663,179 @@ const StaffPage: React.FC = () => {
         />
       </Paper>
 
-      {/* Вкладки */}
+      {/* Пины-табы */}
       <Paper sx={{ mb: 3 }}>
-        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-          <Tab icon={<People />} label={`Пользователи (${users.length})`} />
-          <Tab icon={<GroupsIcon />} label={`Группы (${groups.length})`} />
-          <Tab icon={<Business />} label={`Кусты (${clusters.length})`} />
-        </Tabs>
+        <TabChips value={activeTab} onChange={setActiveTab} tabs={tabs} />
 
         {/* Вкладка пользователей */}
-        <TabPanel value={activeTab} index={0}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-            <Button
-              variant="contained"
-              startIcon={<PersonAdd />}
-              onClick={() => setOpenCreateDialog(true)}
-              sx={{ backgroundColor: '#674fb6' }}
-              disabled={loading}
-            >
-              Добавить пользователя
-            </Button>
-          </Box>
+        {activeTab === 0 && (
+          <Box sx={{ p: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Button
+                variant="contained"
+                startIcon={<PersonAdd />}
+                onClick={() => setOpenCreateDialog(true)}
+                sx={{ 
+                  ...iOSStyles.button,
+                  backgroundColor: tabColors[0],
+                  '&:hover': { backgroundColor: alpha(tabColors[0], 0.8) },
+                }}
+                disabled={loading}
+              >
+                Добавить пользователя
+              </Button>
+            </Box>
 
-          <Grid container spacing={2}>
-            {filteredUsers.map(user => {
-              const info = getUserGroupInfo(user.id);
-              const sellersCount = users.filter(u => u.mentorId === user.id).length;
-              
-              return (
+            <Grid container spacing={2}>
+              {filteredUsers.map(user => (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={user.id}>
-                  <Card sx={{ 
-                    transition: 'all 0.3s ease',
-                    '&:hover': {
-                      transform: 'translateY(-4px)',
-                      boxShadow: '0 6px 20px rgba(0,0,0,0.1)',
-                    },
-                    height: '100%'
-                  }}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                        <Avatar sx={{ bgcolor: getRoleColor(user.role), mr: 2 }}>
-                          {user.fullName.charAt(0)}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="subtitle1" fontWeight="bold">
-                            {user.fullName}
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            {getRoleIcon(user.role)}
-                            <Typography variant="body2" color="text.secondary">
-                              {getRoleName(user.role)}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </Box>
-                      
-                      <Typography variant="body2" sx={{ mb: 1 }}>
-                        <strong>Логин:</strong> {user.username}
-                      </Typography>
-                      
-                      {user.telegram && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Telegram:</strong> {user.telegram}
-                        </Typography>
-                      )}
-                      
-                      {user.city && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Город:</strong> {user.city}
-                        </Typography>
-                      )}
-                      
-                      {user.rate !== undefined && user.rate > 0 && (
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Ставка:</strong> {user.rate}₽ за товар
-                        </Typography>
-                      )}
-                      
-                      {/* Показываем связи */}
-                      {user.role === UserRole.SELLER && (
-                        <>
-                          {info?.group && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Группа:</strong> {info.group.name}
-                              <IconButton 
-                                size="small" 
-                                sx={{ ml: 0.5, p: 0 }}
-                                onClick={() => handleUnassignGroup(user)}
-                                disabled={loading}
-                              >
-                                <Close fontSize="small" />
-                              </IconButton>
-                            </Typography>
-                          )}
-                          {info?.mentor && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Наставник:</strong> {info.mentor.fullName}
-                              <IconButton 
-                                size="small" 
-                                sx={{ ml: 0.5, p: 0 }}
-                                onClick={() => handleUnassignMentor(user)}
-                                disabled={loading}
-                              >
-                                <Close fontSize="small" />
-                              </IconButton>
-                            </Typography>
-                          )}
-                          {info?.cluster && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Куст:</strong> {info.cluster.name}
-                            </Typography>
-                          )}
-                          {info?.seniorSeller && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Старший продавец:</strong> {info.seniorSeller.fullName}
-                            </Typography>
-                          )}
-                        </>
-                      )}
-                      
-                      {user.role === UserRole.MENTOR && (
-                        <>
-                          {info?.group && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Управляет группой:</strong> {info.group.name}
-                              <IconButton 
-                                size="small" 
-                                sx={{ ml: 0.5, p: 0 }}
-                                onClick={() => handleUnassignMentorFromGroup(user)}
-                                disabled={loading}
-                              >
-                                <Close fontSize="small" />
-                              </IconButton>
-                            </Typography>
-                          )}
-                          
-                          {info?.cluster && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Куст:</strong> {info.cluster.name}
-                            </Typography>
-                          )}
-                          
-                          {info?.seniorSeller && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Старший продавец:</strong> {info.seniorSeller.fullName}
-                            </Typography>
-                          )}
-                          
-                          {/* Количество подопечных */}
-                          <Typography variant="body2" sx={{ mb: 1 }}>
-                            <strong>Продавцов в группе:</strong> {sellersCount}
-                          </Typography>
-                        </>
-                      )}
-                      
-                      {user.role === UserRole.SENIOR_SELLER && (
-                        <>
-                          {info?.cluster && (
-                            <Typography variant="body2" sx={{ mb: 1 }}>
-                              <strong>Управляет кустом:</strong> {info.cluster.name}
-                              <IconButton 
-                                size="small" 
-                                sx={{ ml: 0.5, p: 0 }}
-                                onClick={() => handleUnassignSeniorFromCluster(user)}
-                                disabled={loading}
-                              >
-                                <Close fontSize="small" />
-                              </IconButton>
-                            </Typography>
-                          )}
-                          
-                          {/* Группы в кусте */}
-                          {info?.cluster && (
-                            <Box sx={{ mb: 1 }}>
-                              <Typography variant="body2">
-                                <strong>Групп в кусте:</strong> {groups.filter(g => g.clusterId === info.cluster?.id).length}
-                              </Typography>
-                            </Box>
-                          )}
-                        </>
-                      )}
-                      
-                      {user.role === UserRole.ADMIN && renderAdminClusters(user)}
-                      
-                      {/* Отображение привязанных пользователей для бухгалтера */}
-                      {user.role === UserRole.ACCOUNTANT && renderAccountantAssignments(user)}
-
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
-                        {/* Кнопки управления связями в зависимости от роли */}
-                        {user.role === UserRole.SELLER && (
-                          <>
-                            {!user.mentorId && (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => openAssignmentDialog(user, 'mentor')}
-                                disabled={loading}
-                              >
-                                Назначить наставника
-                              </Button>
-                            )}
-                            
-                            {!user.groupId && (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => openAssignmentDialog(user, 'group')}
-                                disabled={loading}
-                              >
-                                Добавить в группу
-                              </Button>
-                            )}
-                          </>
-                        )}
-                        
-                        {user.role === UserRole.MENTOR && !user.clusterId && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => openAssignmentDialog(user, 'cluster')}
-                            disabled={loading}
-                          >
-                            Добавить в куст
-                          </Button>
-                        )}
-                        
-                        {user.role === UserRole.SENIOR_SELLER && !user.clusterId && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => openAssignmentDialog(user, 'cluster')}
-                            disabled={loading}
-                          >
-                            Назначить куст
-                          </Button>
-                        )}
-                        
-                        {user.role === UserRole.ADMIN && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => openAssignmentDialog(user, 'admin')}
-                            disabled={loading}
-                          >
-                            Управление кустами
-                          </Button>
-                        )}
-                        
-                        {/* Кнопка для бухгалтера */}
-                        {user.role === UserRole.ACCOUNTANT && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => handleOpenAccountantAssignment(user)}
-                            sx={{ color: '#ff9800', borderColor: '#ff9800' }}
-                            disabled={loading}
-                          >
-                            Назначить пользователей
-                          </Button>
-                        )}
-                        
-                        {/* Кнопки редактирования и удаления */}
-                        <Button
-                          size="small"
-                          startIcon={<Edit />}
-                          onClick={() => {
-                            setOpenEditDialog(user);
-                            setEditUser({
-                              username: user.username,
-                              fullName: user.fullName,
-                              telegram: user.telegram,
-                              city: user.city,
-                              role: user.role,
-                              rate: user.rate,
-                            });
-                          }}
-                          disabled={loading}
-                        >
-                          Редактировать
-                        </Button>
-                        <Button
-                          size="small"
-                          startIcon={<Delete />}
-                          color="error"
-                          onClick={() => setOpenDeleteDialog(user)}
-                          disabled={user.role === UserRole.OWNER || user.id === currentUser?.id || loading}
-                        >
-                          Удалить
-                        </Button>
-                      </Box>
-                    </CardContent>
-                  </Card>
+                  <UserCard
+                    user={user}
+                    groups={groups}
+                    clusters={clusters}
+                    users={users}
+                    loading={loading}
+                    onEdit={(user) => {
+                      setOpenEditDialog(user);
+                      setEditUser({
+                        username: user.username,
+                        fullName: user.fullName,
+                        telegram: user.telegram,
+                        city: user.city,
+                        role: user.role,
+                        rate: user.rate,
+                      });
+                    }}
+                    onDelete={(user) => setOpenDeleteDialog(user)}
+                    onAssign={openAssignmentDialog}
+                    onUnassignClick={handleUnassignClick}
+                    onOpenAccountantAssignment={handleOpenAccountantAssignment}
+                    getRoleColor={getRoleColor}
+                    getRoleIcon={getRoleIcon}
+                  />
                 </Grid>
-              );
-            })}
-          </Grid>
-        </TabPanel>
+              ))}
+            </Grid>
+          </Box>
+        )}
 
         {/* Вкладка групп */}
-        <TabPanel value={activeTab} index={1}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-            <Button
-              variant="contained"
-              startIcon={<GroupsIcon />}
-              onClick={() => setOpenCreateGroupDialog(true)}
-              sx={{ backgroundColor: '#56b8d1' }}
-              disabled={loading}
-            >
-              Создать группу
-            </Button>
-          </Box>
+        {activeTab === 1 && (
+          <Box sx={{ p: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Button
+                variant="contained"
+                startIcon={<GroupsIcon />}
+                onClick={() => setOpenCreateGroupDialog(true)}
+                sx={{ 
+                  ...iOSStyles.button,
+                  backgroundColor: tabColors[1],
+                  '&:hover': { backgroundColor: alpha(tabColors[1], 0.8) },
+                }}
+                disabled={loading}
+              >
+                Создать группу
+              </Button>
+            </Box>
 
-          <Grid container spacing={2}>
-            {groups.map((group) => {
-              const mentor = users.find(u => u.id === group.mentorId);
-              const cluster = clusters.find(c => c.id === group.clusterId);
-              const seniorSeller = users.find(u => u.id === group.seniorSellerId);
-              const sellersInGroup = users.filter(u => u.groupId === group.id);
-              const groupsInSameCluster = cluster ? groups.filter(g => g.clusterId === cluster.id) : [];
-              
-              return (
+            <Grid container spacing={2}>
+              {groups.map(group => (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={group.id}>
-                  <Card sx={{ height: '100%' }}>
-                    <CardContent>
-                      <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }}>
-                        {group.name}
-                      </Typography>
-                      
-                      {group.description && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          {group.description}
-                        </Typography>
-                      )}
-                      
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Наставник:</strong>{' '}
-                          {mentor ? (
-                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                              <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(mentor.role) }}>
-                                {mentor.fullName.charAt(0)}
-                              </Avatar>
-                              {mentor.fullName}
-                            </Box>
-                          ) : 'Не назначен'}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Куст:</strong>{' '}
-                          {cluster ? cluster.name : 'Не назначен'}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Старший продавец:</strong>{' '}
-                          {seniorSeller ? seniorSeller.fullName : 'Не назначен'}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Продавцов в группе:</strong> {sellersInGroup.length}
-                        </Typography>
-                        
-                        {cluster && (
-                          <Typography variant="body2" sx={{ mb: 1 }}>
-                            <strong>Групп в кусте:</strong> {groupsInSameCluster.length}
-                          </Typography>
-                        )}
-                      </Box>
-                      
-                      {/* Продавцы в группе */}
-                      {sellersInGroup.length > 0 && (
-                        <Box sx={{ mb: 2 }}>
-                          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-                            Продавцы в группе:
-                          </Typography>
-                          <Box sx={{ pl: 2 }}>
-                            {sellersInGroup.map(seller => (
-                              <Typography key={seller.id} variant="body2" sx={{ mb: 0.5 }}>
-                                • {seller.fullName}
-                              </Typography>
-                            ))}
-                          </Box>
-                        </Box>
-                      )}
-                      
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                        {/* Кнопка добавления в куст */}
-                        {!group.clusterId && groupsWithoutCluster.length > 0 && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => {
-                              const dialog = window.prompt(
-                                'Выберите куст для добавления группы:\n' +
-                                clusters.map(c => `${c.id}: ${c.name}`).join('\n') +
-                                '\n\nВведите ID куста:'
-                              );
-                              if (dialog && !isNaN(Number(dialog))) {
-                                const selectedCluster = clusters.find(c => c.id === Number(dialog));
-                                if (selectedCluster) {
-                                  handleAddGroupToCluster(selectedCluster, group.id);
-                                }
-                              }
-                            }}
-                            disabled={loading}
-                          >
-                            Добавить в куст
-                          </Button>
-                        )}
-                        
-                        {/* Кнопка удаления из куста */}
-                        {group.clusterId && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="error"
-                            onClick={() => {
-                              const cluster = clusters.find(c => c.id === group.clusterId);
-                              if (cluster && window.confirm(`Удалить группу "${group.name}" из куста "${cluster.name}"?`)) {
-                                handleRemoveGroupFromCluster(cluster, group.id);
-                              }
-                            }}
-                            disabled={loading}
-                          >
-                            Удалить из куста
-                          </Button>
-                        )}
-                        
-                        <Button
-                          size="small"
-                          startIcon={<Edit />}
-                          onClick={() => {
-                            setOpenEditGroupDialog(group);
-                            setEditGroup({
-                              name: group.name,
-                              description: group.description,
-                            });
-                          }}
-                          disabled={loading}
-                        >
-                          Редактировать
-                        </Button>
-                        
-                        <Button
-                          size="small"
-                          startIcon={<Delete />}
-                          color="error"
-                          onClick={() => {
-                            if (window.confirm(`Удалить группу "${group.name}"? Это действие нельзя отменить.`)) {
-                              handleDeleteGroup(group);
-                            }
-                          }}
-                          disabled={sellersInGroup.length > 0 || loading}
-                        >
-                          Удалить
-                        </Button>
-                      </Box>
-                    </CardContent>
-                  </Card>
+                  <GroupCard
+                    group={group}
+                    users={users}
+                    groups={groups}
+                    clusters={clusters}
+                    loading={loading}
+                    onEdit={(group) => {
+                      setOpenEditGroupDialog(group);
+                      setEditGroup({
+                        name: group.name,
+                        description: group.description,
+                      });
+                    }}
+                    onDelete={handleDeleteGroup}
+                    onAddToCluster={(group) => {
+                      const cluster = clusters.find(c => c.id === group.clusterId);
+                      if (!cluster && groupsWithoutCluster.length > 0) {
+                        const dialog = window.prompt(
+                          'Выберите куст для добавления группы:\n' +
+                          clusters.map(c => `${c.id}: ${c.name}`).join('\n') +
+                          '\n\nВведите ID куста:'
+                        );
+                        if (dialog && !isNaN(Number(dialog))) {
+                          const selectedCluster = clusters.find(c => c.id === Number(dialog));
+                          if (selectedCluster) {
+                            handleAddGroupToCluster(selectedCluster, group.id);
+                          }
+                        }
+                      }
+                    }}
+                    onRemoveFromCluster={(group, clusterId) => {
+                      handleUnassignClick(
+                        {} as User,
+                        'groupFromCluster',
+                        { groupId: group.id, clusterId }
+                      );
+                    }}
+                    onUnassignClick={handleUnassignClick}
+                    getRoleColor={getRoleColor}
+                  />
                 </Grid>
-              );
-            })}
-          </Grid>
-        </TabPanel>
+              ))}
+            </Grid>
+          </Box>
+        )}
 
         {/* Вкладка кустов */}
-        <TabPanel value={activeTab} index={2}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-            <Button
-              variant="contained"
-              startIcon={<Domain />}
-              onClick={() => setOpenCreateClusterDialog(true)}
-              sx={{ backgroundColor: '#3f1f4b' }}
-              disabled={loading}
-            >
-              Создать куст
-            </Button>
-          </Box>
+        {activeTab === 2 && (
+          <Box sx={{ p: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+              <Button
+                variant="contained"
+                startIcon={<Domain />}
+                onClick={() => setOpenCreateClusterDialog(true)}
+                sx={{ 
+                  ...iOSStyles.button,
+                  backgroundColor: tabColors[2],
+                  '&:hover': { backgroundColor: alpha(tabColors[2], 0.8) },
+                }}
+                disabled={loading}
+              >
+                Создать куст
+              </Button>
+            </Box>
 
-          <Grid container spacing={2}>
-            {clusters.map((cluster) => {
-              const seniorSeller = users.find(u => u.id === cluster.seniorSellerId);
-              const admin = users.find(u => u.id === cluster.adminId);
-              const groupsInCluster = getGroupsInCluster(cluster.id);
-              const sellersInCluster = users.filter(u => u.clusterId === cluster.id);
-              
-              return (
+            <Grid container spacing={2}>
+              {clusters.map(cluster => (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={cluster.id}>
-                  <Card sx={{ height: '100%' }}>
-                    <CardContent>
-                      <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }}>
-                        {cluster.name}
-                      </Typography>
-                      
-                      {cluster.description && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          {cluster.description}
-                        </Typography>
-                      )}
-                      
-                      <Box sx={{ mb: 2 }}>
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Старший продавец:</strong>{' '}
-                          {seniorSeller ? (
-                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                              <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(seniorSeller.role) }}>
-                                {seniorSeller.fullName.charAt(0)}
-                              </Avatar>
-                              {seniorSeller.fullName}
-                            </Box>
-                          ) : 'Не назначен'}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Администратор:</strong>{' '}
-                          {admin ? (
-                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                              <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(admin.role) }}>
-                                {admin.fullName.charAt(0)}
-                              </Avatar>
-                              {admin.fullName}
-                            </Box>
-                          ) : 'Не назначен'}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Групп в кусте:</strong> {groupsInCluster.length}
-                        </Typography>
-                        
-                        <Typography variant="body2" sx={{ mb: 1 }}>
-                          <strong>Продавцов в кусте:</strong> {sellersInCluster.length}
-                        </Typography>
-                      </Box>
-                      
-                      {/* Группы в кусте */}
-                      {groupsInCluster.length > 0 && (
-                        <Box sx={{ mb: 2 }}>
-                          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-                            Группы в кусте:
-                          </Typography>
-                          <Box sx={{ pl: 2 }}>
-                            {groupsInCluster.map(group => (
-                              <Box key={group.id} sx={{ mb: 1 }}>
-                                <Typography variant="body2" fontWeight="medium">
-                                  • {group.name}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  Наставник: {users.find(u => u.id === group.mentorId)?.fullName || 'Не назначен'}
-                                </Typography>
-                              </Box>
-                            ))}
-                          </Box>
-                        </Box>
-                      )}
-                      
-                      {/* Доступные группы для добавления */}
-                      {groupsWithoutCluster.length > 0 && (
-                        <Box sx={{ mb: 2 }}>
-                          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-                            Добавить группу в куст:
-                          </Typography>
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                            {groupsWithoutCluster.map(group => (
-                              <Chip
-                                key={group.id}
-                                label={group.name}
-                                size="small"
-                                onClick={() => handleAddGroupToCluster(cluster, group.id)}
-                                disabled={loading}
-                              />
-                            ))}
-                          </Box>
-                        </Box>
-                      )}
-                      
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                        <Button
-                          size="small"
-                          startIcon={<Edit />}
-                          onClick={() => {
-                            setOpenEditClusterDialog(cluster);
-                            setEditCluster({
-                              name: cluster.name,
-                              description: cluster.description,
-                            });
-                          }}
-                          disabled={loading}
-                        >
-                          Редактировать
-                        </Button>
-                        
-                        <Button
-                          size="small"
-                          startIcon={<Delete />}
-                          color="error"
-                          onClick={() => {
-                            if (window.confirm(`Удалить куст "${cluster.name}"? Это действие нельзя отменить.`)) {
-                              handleDeleteCluster(cluster);
-                            }
-                          }}
-                          disabled={groupsInCluster.length > 0 || sellersInCluster.length > 0 || loading}
-                        >
-                          Удалить
-                        </Button>
-                      </Box>
-                    </CardContent>
-                  </Card>
+                  <ClusterCard
+                    cluster={cluster}
+                    users={users}
+                    groups={groups}
+                    clusters={clusters}
+                    loading={loading}
+                    onEdit={(cluster) => {
+                      setOpenEditClusterDialog(cluster);
+                      setEditCluster({
+                        name: cluster.name,
+                        description: cluster.description,
+                      });
+                    }}
+                    onDelete={handleDeleteCluster}
+                    onAddGroup={handleAddGroupToCluster}
+                    onRemoveGroup={handleRemoveGroupFromCluster}
+                    onUnassignClick={handleUnassignClick}
+                    getRoleColor={getRoleColor}
+                  />
                 </Grid>
-              );
-            })}
-          </Grid>
-        </TabPanel>
+              ))}
+            </Grid>
+          </Box>
+        )}
       </Paper>
 
-      {/* Диалог создания пользователя */}
+      {/* Диалоги (без изменений) */}
       <Dialog open={openCreateDialog} onClose={() => setOpenCreateDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Создать пользователя</DialogTitle>
         <DialogContent>
@@ -1855,7 +2164,6 @@ const StaffPage: React.FC = () => {
                   label="Выберите наставника"
                   onChange={(e) => {
                     setSelectedMentor(Number(e.target.value));
-                    // Если у наставника уже есть группа, показываем информацию о ней
                     const mentor = users.find(u => u.id === Number(e.target.value));
                     if (mentor?.groupId) {
                       const group = groups.find(g => g.id === mentor.groupId);
@@ -1989,6 +2297,75 @@ const StaffPage: React.FC = () => {
             disabled={loading}
           >
             {loading ? <CircularProgress size={24} /> : 'Назначить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог подтверждения отвязки */}
+      <Dialog
+        open={unassignDialog.open}
+        onClose={() => setUnassignDialog({ open: false, user: null, type: '' })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ color: theme.palette.error.main }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ErrorIcon />
+            Подтверждение отвязки
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mb: 2 }}>
+            Вы уверены, что хотите отвязать:
+          </Typography>
+          {unassignDialog.type === 'mentor' && (
+            <Typography>
+              Продавца <strong>{unassignDialog.user?.fullName}</strong> от наставника?
+            </Typography>
+          )}
+          {unassignDialog.type === 'group' && (
+            <Typography>
+              Продавца <strong>{unassignDialog.user?.fullName}</strong> от группы?
+            </Typography>
+          )}
+          {unassignDialog.type === 'mentorFromGroup' && (
+            <Typography>
+              Наставника <strong>{unassignDialog.user?.fullName}</strong> от группы?
+            </Typography>
+          )}
+          {unassignDialog.type === 'seniorFromCluster' && (
+            <Typography>
+              Старшего продавца <strong>{unassignDialog.user?.fullName}</strong> от куста?
+            </Typography>
+          )}
+          {unassignDialog.type === 'admin' && (
+            <Typography>
+              Администратора <strong>{unassignDialog.user?.fullName}</strong> от куста?
+            </Typography>
+          )}
+          {unassignDialog.type === 'groupFromCluster' && (
+            <Typography>
+              Группу из куста?
+            </Typography>
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Это действие можно отменить позже через повторное назначение.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setUnassignDialog({ open: false, user: null, type: '' })}
+            disabled={loading}
+          >
+            Отмена
+          </Button>
+          <Button 
+            onClick={handleConfirmUnassign}
+            color="error"
+            variant="contained"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Отвязать'}
           </Button>
         </DialogActions>
       </Dialog>

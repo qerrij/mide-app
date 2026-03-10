@@ -50,6 +50,7 @@ def _check_manager_access(db: Session, report: Report, user: User) -> bool:
     if report.seller_id == user.id:
         return False
     
+    # OWNER имеет полный доступ
     if user.role == UserRole.OWNER:
         return True
     
@@ -57,18 +58,38 @@ def _check_manager_access(db: Session, report: Report, user: User) -> bool:
     if not seller:
         return False
     
+    # ADMIN - проверяем по кластерам
     if user.role == UserRole.ADMIN:
-        if not user.admin_clusters:
-            return False
-        try:
-            admin_clusters = json.loads(user.admin_clusters)
-            return seller.cluster_id in admin_clusters
-        except:
-            return False
+        # Получаем все кластеры, к которым имеет доступ админ
+        admin_cluster_ids = []
+        
+        # 1. Кластеры из поля admin_clusters (JSON массив)
+        if user.admin_clusters:
+            try:
+                if isinstance(user.admin_clusters, str):
+                    parsed = json.loads(user.admin_clusters)
+                    if isinstance(parsed, list):
+                        admin_cluster_ids.extend(parsed)
+                elif isinstance(user.admin_clusters, list):
+                    admin_cluster_ids.extend(user.admin_clusters)
+            except Exception as e:
+                print(f"Error parsing admin_clusters: {e}")
+        
+        # 2. Кластеры, где пользователь является прямым администратором
+        if user.cluster_id:
+            admin_cluster_ids.append(user.cluster_id)
+        
+        # Проверяем, входит ли кластер продавца в список доступных
+        if admin_cluster_ids and seller.cluster_id:
+            return seller.cluster_id in admin_cluster_ids
+        
+        return False
     
+    # SENIOR_SELLER - проверяем по кластеру
     if user.role == UserRole.SENIOR_SELLER:
         return seller.cluster_id == user.cluster_id
     
+    # MENTOR - проверяем по наставничеству
     if user.role == UserRole.MENTOR:
         return seller.mentor_id == user.id
     
