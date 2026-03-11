@@ -665,15 +665,34 @@ class CRUDTransfer:
                     if not transfer_item:
                         raise ValueError(f"Товар ID {product_id} не найден в перемещении")
                     
-                    # Проверяем что у отправителя достаточно товара для списания
-                    available_quantity = crud_inventory.get_user_product_quantity(
-                        db, transfer.from_user_id, product_id
-                    )
+                    # 🔴 ИСПРАВЛЕНИЕ: Получаем информацию о запасах отправителя
+                    inventory = db.query(UserInventory).filter(
+                        UserInventory.user_id == transfer.from_user_id,
+                        UserInventory.product_id == product_id
+                    ).first()
                     
-                    if actual_quantity > available_quantity:
+                    if not inventory:
+                        total_quantity = 0
+                        reserved_quantity = 0
+                    else:
+                        total_quantity = inventory.quantity
+                        reserved_quantity = inventory.reserved_quantity
+                    
+                    # Общее количество товара (в наличии + в резерве)
+                    total_available = total_quantity + reserved_quantity
+                    
+                    # Проверяем, что не пытаемся списать больше, чем есть всего у отправителя
+                    if actual_quantity > total_available:
                         raise ValueError(
                             f"У отправителя недостаточно товара ID {product_id}. "
-                            f"Доступно всего: {available_quantity}, требуется списать: {actual_quantity}"
+                            f"Всего товара (в наличии + в резерве): {total_available}, "
+                            f"требуется списать: {actual_quantity}"
+                        )
+                    
+                    # Проверяем, что не пытаемся списать больше ожидаемого (с запасом)
+                    if actual_quantity > transfer_item.expected_quantity * 1.5:  # разрешаем превышение до 50%
+                        raise ValueError(
+                            f"Полученное количество ({actual_quantity}) значительно превышает ожидаемое ({transfer_item.expected_quantity})"
                         )
                 
                 # Обрабатываем полученные количества
@@ -747,15 +766,34 @@ class CRUDTransfer:
                     if not transfer_item:
                         raise ValueError(f"Товар ID {product_id} не найден в перемещении")
                     
-                    # Проверяем что у отправителя достаточно товара
-                    available_quantity = crud_inventory.get_user_product_quantity(
-                        db, transfer.from_user_id, product_id
-                    )
+                    # 🔴 ИСПРАВЛЕНИЕ: Получаем информацию о запасах отправителя
+                    inventory = db.query(UserInventory).filter(
+                        UserInventory.user_id == transfer.from_user_id,
+                        UserInventory.product_id == product_id
+                    ).first()
                     
-                    if actual_quantity > available_quantity:
+                    if not inventory:
+                        total_quantity = 0
+                        reserved_quantity = 0
+                    else:
+                        total_quantity = inventory.quantity
+                        reserved_quantity = inventory.reserved_quantity
+                    
+                    # Общее количество товара (в наличии + в резерве)
+                    total_available = total_quantity + reserved_quantity
+                    
+                    # Проверяем, что не пытаемся списать больше, чем есть всего у отправителя
+                    if actual_quantity > total_available:
                         raise ValueError(
                             f"У отправителя недостаточно товара ID {product_id}. "
-                            f"Доступно: {available_quantity}, требуется: {actual_quantity}"
+                            f"Всего товара (в наличии + в резерве): {total_available}, "
+                            f"требуется списать: {actual_quantity}"
+                        )
+                    
+                    # Проверяем, что не пытаемся списать больше ожидаемого (с запасом)
+                    if actual_quantity > transfer_item.expected_quantity * 1.5:  # разрешаем превышение до 50%
+                        raise ValueError(
+                            f"Полученное количество ({actual_quantity}) значительно превышает ожидаемое ({transfer_item.expected_quantity})"
                         )
                 
                 # Сохраняем файлы для расхождений в discrepancy_files
