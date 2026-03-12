@@ -1,5 +1,5 @@
 import axiosInstance from './axios';
-import { InventoryItem, InventoryResponse } from '../types';
+import { InventoryItem, InventoryResponse, ProductReservationsResponse } from '../types';
 
 // Функция для трансформации snake_case в camelCase
 const transformInventoryItemFromApi = (item: any): InventoryItem => {
@@ -30,6 +30,36 @@ const inventoryServiceMethods = {
       };
     } catch (error) {
       console.error('Error fetching my inventory:', error);
+      throw error;
+    }
+  },
+
+  getProductReservations: async (userId: number, productId: number): Promise<ProductReservationsResponse[]> => {
+    try {
+      const response = await axiosInstance.get<any[]>(`/api/inventory/reservations/${userId}/${productId}`);
+      
+      return response.data.map(item => ({
+        id: item.id,
+        userId: item.user_id,
+        productId: item.product_id,
+        productName: item.product_name,
+        productSku: item.product_sku,
+        quantity: item.quantity,
+        reservationType: item.reservation_type,
+        reservationTypeDisplay: item.reservation_type_display,
+        reservationId: item.reservation_id,
+        entityInfo: item.entity_info,
+        entityDetails: item.entity_details ? {
+          id: item.entity_details.id,
+          title: item.entity_details.title,
+          createdAt: item.entity_details.created_at, // Оставляем как есть, имя поля совпадает с интерфейсом
+          status: item.entity_details.status,
+        } : undefined,
+        createdAt: item.created_at, // Оставляем строкой, не преобразуем в Date
+        status: item.status,
+      }));
+    } catch (error) {
+      console.error('Error fetching product reservations:', error);
       throw error;
     }
   },

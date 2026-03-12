@@ -341,6 +341,25 @@ class CRUDUser:
         # Только теперь обогащаем данные
         self._enrich_user_data(db, db_user)
         return db_user
-
+    
+    def change_password(self, db: Session, user_id: int, new_password: str) -> Optional[User]:
+        """Изменить пароль пользователя"""
+        try:
+            user = self.get(db, user_id=user_id)
+            if not user:
+                return None
+            
+            # Хешируем новый пароль
+            from app.core.security import get_password_hash
+            user.password_hash = get_password_hash(new_password)
+            
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            
+            return user
+        except Exception as e:
+            db.rollback()
+            raise ValueError(f"Ошибка при смене пароля: {str(e)}")
 
 crud_user = CRUDUser()

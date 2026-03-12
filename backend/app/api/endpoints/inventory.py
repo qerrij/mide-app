@@ -1,15 +1,21 @@
 from typing import List, Dict
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.crud.inventory import crud_inventory
 from app.crud.product import crud_product
+from app.models.inventory import InventoryReservation, ReservationStatus, ReservationType
+from app.models.product import Product
+from app.models.report import Report
+from app.models.transfer import Transfer
 from app.schemas.product import ProductCreate
-from app.schemas.inventory import ReplenishRequest, InventoryResponse
+from app.schemas.inventory import ReplenishRequest, ReplenishResponse, InventoryResponse
 from app.api.dependencies import get_current_user, require_role
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+
 
 @router.get("/my", response_model=InventoryResponse)
 def get_my_inventory(
@@ -18,6 +24,7 @@ def get_my_inventory(
 ):
     """Получить свой инвентарь"""
     return crud_inventory.get_total_inventory_for_user(db, current_user.id)
+
 
 @router.get("/user/{user_id}", response_model=InventoryResponse)
 def get_user_inventory(
@@ -31,6 +38,7 @@ def get_user_inventory(
     
     return crud_inventory.get_total_inventory_for_user(db, user_id)
 
+
 @router.get("/company-total", response_model=InventoryResponse)
 def get_company_total_inventory(
     db: Session = Depends(get_db),
@@ -42,7 +50,8 @@ def get_company_total_inventory(
     
     return crud_inventory.get_total_inventory_for_user(db, current_user.id)
 
-@router.post("/replenish", status_code=status.HTTP_201_CREATED)
+
+@router.post("/replenish", response_model=ReplenishResponse, status_code=status.HTTP_201_CREATED)
 def replenish_inventory(
     replenish_data: ReplenishRequest,
     db: Session = Depends(get_db),
@@ -50,10 +59,32 @@ def replenish_inventory(
 ):
     """
     Пополнить инвентарь (только OWNER)
+    
+    Для существующего товара:
+    {
+        "product_id": 1,
+        "quantity": 10,
+        "is_new_product": false
+    }
+    
+    Для нового товара:
+    {
+        "product_id": 0,
+        "quantity": 10,
+        "is_new_product": true,
+        "new_product_data": {
+            "name": "Название товара",
+            "sku": "ART-12345",
+            "category_id": 1,
+            "price": 999.99,
+            "description": "Описание"
+        }
+    }
     """
     try:
         product_id = replenish_data.product_id
         quantity = replenish_data.quantity
+        created_product = None
         
         if not quantity or quantity <= 0:
             raise HTTPException(status_code=400, detail="Неверное количество")
@@ -82,6 +113,13 @@ def replenish_inventory(
             
             product = crud_product.create(db, product_in=product_in)
             product_id = product.id
+            created_product = {
+                "id": product.id,
+                "name": product.name,
+                "sku": product.sku,
+                "price": product.price,
+                "category_id": product.category_id
+            }
         
         # Проверяем существование товара
         if not product_id:
@@ -99,10 +137,190 @@ def replenish_inventory(
             quantity_change=quantity
         )
         
-        return {
-            "message": f"Товар успешно пополнен на {quantity} единиц",
-            "inventory": inventory
+        # Получаем обновленный инвентарь для ответа
+        inventory_data = {
+            "id": inventory.id,
+            "user_id": inventory.user_id,
+            "product_id": inventory.product_id,
+            "quantity": inventory.quantity,
+            "product_name": product.name,
+            "product_sku": product.sku,
+            "product_price": product.price
         }
+        
+        response = {
+            "message": f"Товар успешно пополнен на {quantity} единиц",
+            "inventory": inventory_data
+        }
+        
+        if created_product:
+            response["product"] = created_product
+        
+        return response
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Внутренняя ошибка: {str(e)}")
+    
+@router.get("/reservations/all", response_model=List[Dict])
+def get_all_reservations(
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """Получить все активные резервы (только OWNER)"""
+    reservations = db.query(
+        InventoryReservation,
+        Product.name.label('product_name'),
+        Product.sku.label('product_sku'),
+        User.full_name.label('user_name')
+    ).join(
+        Product, InventoryReservation.product_id == Product.id
+    ).join(
+        User, InventoryReservation.user_id == User.id
+    ).filter(
+        InventoryReservation.status == ReservationStatus.ACTIVE
+    ).all()
+    
+    result = []
+    for reservation, product_name, product_sku, user_name in reservations:
+        entity_info = ""
+        if reservation.reservation_type == ReservationType.REPORT:
+            # Получаем информацию об отчете
+            report = db.query(Report).filter(Report.id == reservation.reservation_id).first()
+            entity_info = f"Отчет #{reservation.reservation_id}"
+            if report:
+                entity_info += f" от {report.created_at.strftime('%d.%m.%Y')}"
+        elif reservation.reservation_type == ReservationType.TRANSFER:
+            transfer = db.query(Transfer).filter(Transfer.id == reservation.reservation_id).first()
+            entity_info = f"Перемещение #{reservation.reservation_id}"
+            if transfer:
+                entity_info += f" '{transfer.title}'"
+        elif reservation.reservation_type == ReservationType.REJECTION:
+            entity_info = f"Брак #{reservation.reservation_id}"
+        elif reservation.reservation_type == ReservationType.REVISION:
+            entity_info = f"Ревизия #{reservation.reservation_id}"
+        
+        result.append({
+            "id": reservation.id,
+            "user_id": reservation.user_id,
+            "user_name": user_name,
+            "product_id": reservation.product_id,
+            "product_name": product_name,
+            "product_sku": product_sku,
+            "quantity": reservation.quantity,
+            "reservation_type": reservation.reservation_type.value,
+            "reservation_id": reservation.reservation_id,
+            "entity_info": entity_info,
+            "created_at": reservation.created_at,
+            "status": reservation.status.value
+        })
+    
+    return result
+
+@router.get("/reservations/{user_id}/{product_id}", response_model=List[Dict])
+def get_product_reservations(
+    user_id: int,
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Получить все активные резервы для конкретного товара пользователя
+    """
+    # Проверка прав доступа
+    if current_user.id != user_id:
+        if current_user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]:
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    # Получаем резервы с дополнительной информацией - используем DISTINCT
+    reservations = db.query(
+        InventoryReservation,
+        Product.name.label('product_name'),
+        Product.sku.label('product_sku')
+    ).join(
+        Product, InventoryReservation.product_id == Product.id
+    ).filter(
+        InventoryReservation.user_id == user_id,
+        InventoryReservation.product_id == product_id,
+        InventoryReservation.status == ReservationStatus.ACTIVE
+    ).distinct(InventoryReservation.id).all()  # Добавляем distinct по ID
+    
+    result = []
+    seen_ids = set()  # Добавляем дополнительную проверку на дубликаты
+    
+    for reservation, product_name, product_sku in reservations:
+        # Проверяем, не обрабатывали ли мы уже этот резерв
+        if reservation.id in seen_ids:
+            continue
+        seen_ids.add(reservation.id)
+        
+        entity_info = ""
+        entity_details = {}
+        
+        if reservation.reservation_type == ReservationType.REPORT:
+            report = db.query(Report).filter(Report.id == reservation.reservation_id).first()
+            if report:
+                entity_info = f"Отчет #{reservation.reservation_id}"
+                if report.created_at:
+                    entity_info += f" от {report.created_at.strftime('%d.%m.%Y %H:%M')}"
+                entity_details = {
+                    "id": report.id,
+                    "title": f"Отчет #{report.id}",
+                    "created_at": report.created_at.isoformat() if report.created_at else None,
+                    "status": report.status.value if hasattr(report, 'status') else None
+                }
+        
+        elif reservation.reservation_type == ReservationType.TRANSFER:
+            transfer = db.query(Transfer).filter(Transfer.id == reservation.reservation_id).first()
+            if transfer:
+                entity_info = f"Перемещение #{reservation.reservation_id}"
+                if transfer.title:
+                    entity_info += f" '{transfer.title}'"
+                if transfer.created_at:
+                    entity_info += f" от {transfer.created_at.strftime('%d.%m.%Y %H:%M')}"
+                entity_details = {
+                    "id": transfer.id,
+                    "title": transfer.title or f"Перемещение #{transfer.id}",
+                    "created_at": transfer.created_at.isoformat() if transfer.created_at else None,
+                    "status": transfer.status.value if hasattr(transfer, 'status') else None
+                }
+        
+        elif reservation.reservation_type == ReservationType.REJECTION:
+            entity_info = f"Брак #{reservation.reservation_id}"
+            entity_details = {
+                "id": reservation.reservation_id,
+                "title": f"Брак #{reservation.reservation_id}",
+                "created_at": None
+            }
+        
+        elif reservation.reservation_type == ReservationType.REVISION:
+            entity_info = f"Ревизия #{reservation.reservation_id}"
+            entity_details = {
+                "id": reservation.reservation_id,
+                "title": f"Ревизия #{reservation.reservation_id}",
+                "created_at": None
+            }
+        
+        result.append({
+            "id": reservation.id,
+            "user_id": reservation.user_id,
+            "product_id": reservation.product_id,
+            "product_name": product_name,
+            "product_sku": product_sku,
+            "quantity": reservation.quantity,
+            "reservation_type": reservation.reservation_type.value,
+            "reservation_type_display": {
+                "report": "Отчет",
+                "transfer": "Перемещение",
+                "rejection": "Брак",
+                "revision": "Ревизия"
+            }.get(reservation.reservation_type.value, reservation.reservation_type.value),
+            "reservation_id": reservation.reservation_id,
+            "entity_info": entity_info,
+            "entity_details": entity_details,
+            "created_at": reservation.created_at,
+            "status": reservation.status.value
+        })
+    
+    return result

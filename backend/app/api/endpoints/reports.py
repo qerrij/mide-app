@@ -406,11 +406,11 @@ async def create_report(
             # Вычитаем ставку продавца из каждой единицы товара
             amount_after_rate = max(0, sold_amount - seller_rate)
             
-            report_products.append(ReportProductCreate(
-                product_id=product_id,
-                quantity=quantity,
-                sold_amount=amount_after_rate
-            ))
+            report_products.append({
+                'product_id': product_id,
+                'quantity': quantity,
+                'sold_amount': amount_after_rate
+            })
             total_amount += amount_after_rate * quantity
         
         # Проверяем фото
@@ -421,15 +421,7 @@ async def create_report(
         if errors:
             raise HTTPException(status_code=400, detail="; ".join(errors))
         
-        # Создаем отчет
-        report_in = ReportCreate(
-            transfer_amount=total_amount,
-            comment=comment,
-            accountant_amount=accountant_amount,
-            products=report_products
-        )
-        
-        # Сохраняем фото (сначала создаем отчет, чтобы получить ID)
+        # Создаем отчет (СНАЧАЛА создаем, чтобы получить ID)
         db_report = Report(
             seller_id=current_user.id,
             transfer_amount=total_amount,
@@ -452,18 +444,26 @@ async def create_report(
         for product_in in report_products:
             db_product_report = ReportProduct(
                 report_id=db_report.id,
-                product_id=product_in.product_id,
-                quantity=product_in.quantity,
-                sold_amount=product_in.sold_amount
+                product_id=product_in['product_id'],
+                quantity=product_in['quantity'],
+                sold_amount=product_in['sold_amount']
             )
             db.add(db_product_report)
         
         db.commit()
         
-        # Резервируем товары
+        # 🔴 ИСПРАВЛЕНИЕ: Резервируем товары с указанием report_id
         try:
-            crud_inventory.reserve_products_for_report(db, current_user.id, products_json)
+            crud_inventory.reserve_products_for_report(
+                db, 
+                user_id=current_user.id, 
+                products=products_json,
+                report_id=db_report.id  # Передаем ID созданного отчета
+            )
         except ValueError as e:
+            # Если не удалось зарезервировать, удаляем отчет
+            db.delete(db_report)
+            db.commit()
             raise HTTPException(status_code=400, detail=str(e))
         
         # Уведомляем бухгалтеров
@@ -489,7 +489,7 @@ async def fix_report(
     report_id: int,
     products_data: str = Form(...),
     accountant_amount: float = Form(...),
-    comment: str = Form(None),
+    comment: Optional[str] = Form(None),
     photos: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
@@ -541,7 +541,7 @@ async def fix_report(
             ))
             total_amount += amount_after_rate * quantity
         
-        # Проверяем фото - теперь они ОБЯЗАТЕЛЬНЫ при исправлении
+        # Проверяем фото
         if not photos:
             raise HTTPException(status_code=400, detail="Требуется прикрепить фотографии при исправлении отчета")
         
@@ -559,10 +559,10 @@ async def fix_report(
         
         # Обновляем отчет, СОХРАНЯЯ старые фото и ДОБАВЛЯЯ новые
         existing_photos = report.transfer_photos or []
-        all_photos = existing_photos + new_photo_paths  # Объединяем, но НЕ удаляем старые
+        all_photos = existing_photos + new_photo_paths
         
         report.transfer_amount = total_amount
-        report.transfer_photos = all_photos  # Сохраняем все фото (старые + новые)
+        report.transfer_photos = all_photos
         report.comment = comment
         report.accountant_amount = accountant_amount
         report.status = ReportStatus.AWAITING_ACCOUNTANT
@@ -587,9 +587,16 @@ async def fix_report(
         
         db.commit()
         
-        # Резервируем товары заново
+        # 🔴 ИСПРАВЛЕНИЕ: Резервируем товары заново с использованием нового метода
         try:
-            crud_inventory.reserve_products_for_report(db, current_user.id, products_json)
+            for product_in in report_products:
+                crud_inventory.reserve_for_report(
+                    db,
+                    user_id=current_user.id,
+                    product_id=product_in.product_id,
+                    quantity=product_in.quantity,
+                    report_id=report.id
+                )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         
@@ -675,14 +682,7 @@ def accountant_review_report(
         report = crud_report.get(db, report_id=report_id)
         
         # Освобождаем зарезервированные товары
-        products_data = [
-            {
-                "product_id": rp.product_id,
-                "quantity": rp.quantity
-            }
-            for rp in report.products
-        ]
-        crud_inventory.release_reserved_products(db, report.seller_id, products_data)
+        crud_inventory.release_report_reservations(db, report.seller_id, report.id)
         
         # Уведомляем ТОЛЬКО продавца об отклонении
         _notify_seller_about_rejection(db, report, current_user, is_accountant=True)
@@ -731,15 +731,8 @@ def final_approve_report(
         # Перезагружаем отчет со всеми связанными объектами
         report = crud_report.get(db, report_id=report_id)
         
-        # Списываем товары окончательно
-        products_data = [
-            {
-                "product_id": rp.product_id,
-                "quantity": rp.quantity
-            }
-            for rp in report.products
-        ]
-        crud_inventory.finalize_report_products(db, report.seller_id, products_data)
+        # 🔴 ИСПРАВЛЕНИЕ: Используем новый метод finalize_report_reservations
+        crud_inventory.finalize_report_reservations(db, report.seller_id, report.id)
         
         # Добавляем деньги в общий банк
         description = f"Отчет №{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
@@ -766,15 +759,8 @@ def final_approve_report(
         # Перезагружаем отчет со всеми связанными объектами
         report = crud_report.get(db, report_id=report_id)
         
-        # Освобождаем зарезервированные товары
-        products_data = [
-            {
-                "product_id": rp.product_id,
-                "quantity": rp.quantity
-            }
-            for rp in report.products
-        ]
-        crud_inventory.release_reserved_products(db, report.seller_id, products_data)
+        # 🔴 ИСПРАВЛЕНИЕ: Используем новый метод release_report_reservations
+        crud_inventory.release_report_reservations(db, report.seller_id, report.id)
         
         # Уведомляем продавца об отклонении
         _notify_seller_about_rejection(db, report, current_user, is_accountant=False)

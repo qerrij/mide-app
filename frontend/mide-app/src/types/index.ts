@@ -686,12 +686,50 @@ export const getReportActionText = (status: ReportStatus, role?: UserRole): stri
 
 // ==== ОСТАТКИ ==== //
 
+export interface ReservationDetail {
+  type: string;  // 'Отчет', 'Перемещение', 'Брак', 'Ревизия'
+  typeCode: string; // 'report', 'transfer', 'rejection', 'revision'
+  id: number;
+  quantity: number;
+  entityInfo?: string;
+  entityDetails?: {
+    id: number;
+    title?: string;
+    createdAt?: string;  // должно совпадать с тем, что приходит из API
+    status?: string;
+  };
+  createdAt: string;  // должно быть string, а не Date
+}
+
+export interface ProductReservationsResponse {
+  id: number;
+  userId: number;
+  productId: number;
+  productName: string;
+  productSku: string;
+  quantity: number;
+  reservationType: string;
+  reservationTypeDisplay: string;
+  reservationId: number;
+  entityInfo: string;
+  entityDetails?: {
+    id: number;
+    title?: string;
+    createdAt?: string;  // должно совпадать
+    status?: string;
+  };
+  createdAt: string;  // должно быть string
+  status: string;
+}
+
 export interface InventoryItem {
   id: number;
   userId: number;
   productId: number;
   quantity: number;
   reservedQuantity: number;
+  availableQuantity?: number;  // Добавлено
+  reservedDetails?: ReservationDetail[];  // Добавлено - детали резервов
   productName?: string;
   productSku?: string;
   productPrice?: number;

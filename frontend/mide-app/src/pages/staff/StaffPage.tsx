@@ -23,7 +23,6 @@ import {
   CircularProgress,
   Card,
   CardContent,
-  Checkbox,
   Chip,
   alpha,
   useTheme,
@@ -31,6 +30,9 @@ import {
   Divider,
   Tooltip,
   Stack,
+  Badge,
+  Fade,
+  Checkbox,
 } from '@mui/material';
 import {
   Add,
@@ -52,14 +54,15 @@ import {
   BusinessCenter,
   AttachMoney,
   Close,
-  LinkOff,
   Error as ErrorIcon,
-  Info as InfoIcon,
   Assignment as AssignmentIcon,
   Phone as PhoneIcon,
   Email as EmailIcon,
   LocationOn as LocationIcon,
-  Link as LinkIcon,
+  Lock as LockIcon,
+  LockReset as LockResetIcon,
+  Close as CloseIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
@@ -100,32 +103,21 @@ const iOSStyles = {
     minWidth: { xs: 'auto', sm: 100 },
     flex: { xs: 1, sm: '0 1 auto' },
   },
-  card: {
+  compactCard: {
     borderRadius: 8,
-    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
     transition: 'transform 0.15s, box-shadow 0.15s',
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
+    cursor: 'pointer',
     '&:hover': {
-      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+      transform: 'translateY(-2px)',
     },
   },
-  cardContent: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    p: { xs: 2, sm: 2 },
-  },
-  infoRow: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    py: 0.5,
-    borderBottom: '1px dashed',
-    borderColor: 'divider',
-    flexWrap: { xs: 'wrap', sm: 'nowrap' },
-    gap: { xs: 1, sm: 1 },
+  compactCardContent: {
+    p: { xs: 1.5, sm: 1.5 },
+    '&:last-child': {
+      pb: { xs: 1.5, sm: 1.5 },
+    },
   },
   roleChip: {
     borderRadius: 4,
@@ -133,36 +125,6 @@ const iOSStyles = {
     fontWeight: 500,
     fontSize: { xs: '0.8rem', sm: '0.75rem' },
     maxWidth: { xs: 120, sm: 'none' },
-  },
-  actionButton: {
-    fontSize: { xs: '0.8rem', sm: '0.7rem' },
-    minWidth: { xs: 44, sm: 70 },
-    height: { xs: 44, sm: 28 },
-    padding: { xs: '8px 12px', sm: '4px 8px' },
-    border: '1px solid',
-    borderRadius: 6,
-  },
-  iconButton: {
-    width: { xs: 44, sm: 28 },
-    height: { xs: 44, sm: 28 },
-    minWidth: { xs: 44, sm: 28 },
-    border: '1px solid',
-    borderRadius: 6,
-    padding: 0,
-  },
-  unassignButton: {
-    fontSize: { xs: '0.8rem', sm: '0.7rem' },
-    minWidth: { xs: 44, sm: 28 },
-    height: { xs: 44, sm: 28 },
-    width: { xs: 44, sm: 28 },
-    color: '#d32f2f',
-    borderColor: '#d32f2f',
-    '&:hover': {
-      backgroundColor: alpha('#d32f2f', 0.05),
-      borderColor: '#d32f2f',
-    },
-    borderRadius: 6,
-    padding: 0,
   },
 };
 
@@ -178,6 +140,845 @@ interface UnassignDialogState {
   type: string;
   data?: any;
 }
+
+// Компонент компактной карточки пользователя
+interface CompactUserCardProps {
+  user: User;
+  onClick: (user: User) => void;
+  getRoleColor: (role: UserRole) => string;
+  getRoleIcon: (role: UserRole) => React.ReactNode;
+}
+
+const CompactUserCard: React.FC<CompactUserCardProps> = ({ 
+  user, 
+  onClick, 
+  getRoleColor, 
+  getRoleIcon 
+}) => {
+  const theme = useTheme();
+  
+  return (
+    <Card 
+      sx={iOSStyles.compactCard} 
+      onClick={() => onClick(user)}
+    >
+      <CardContent sx={iOSStyles.compactCardContent}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Badge
+            overlap="circular"
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            badgeContent={
+              <Box
+                sx={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  bgcolor: getRoleColor(user.role),
+                  border: `2px solid ${theme.palette.background.paper}`,
+                }}
+              />
+            }
+          >
+            <Avatar 
+              sx={{ 
+                bgcolor: alpha(getRoleColor(user.role), 0.1),
+                color: getRoleColor(user.role),
+                width: 44,
+                height: 44,
+                fontSize: '1.1rem',
+                fontWeight: 600,
+              }}
+            >
+              {user.fullName.charAt(0)}
+            </Avatar>
+          </Badge>
+          
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography 
+              variant="subtitle2" 
+              fontWeight={600}
+              sx={{
+                fontSize: { xs: '1rem', sm: '0.95rem' },
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                mb: 0.5,
+              }}
+            >
+              {user.fullName}
+            </Typography>
+            
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Chip
+                label={`@${user.username}`}
+                size="small"
+                sx={{
+                  height: 22,
+                  fontSize: '0.7rem',
+                  backgroundColor: alpha(theme.palette.text.secondary, 0.1),
+                  color: theme.palette.text.secondary,
+                }}
+              />
+              
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {getRoleIcon(user.role)}
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                  {getRoleName(user.role)}
+                </Typography>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Компонент модального окна с детальной информацией
+interface UserDetailsDialogProps {
+  open: boolean;
+  user: User | null;
+  onClose: () => void;
+  onEdit: (user: User) => void;
+  onDelete: (user: User) => void;
+  onAssign: (user: User, type: 'mentor' | 'group' | 'cluster' | 'admin') => void;
+  onUnassignClick: (user: User, type: string, data?: any) => void;
+  onOpenAccountantAssignment: (user: User) => void;
+  onChangePassword: (userId: number, newPassword: string) => Promise<void>;
+  // Добавить пропс для открытия диалога смены пароля
+  onOpenPasswordDialog?: (userId: number, userName: string) => void;
+  groups: Group[];
+  clusters: Cluster[];
+  users: User[];
+  loading: boolean;
+  getRoleColor: (role: UserRole) => string;
+  getRoleIcon: (role: UserRole) => React.ReactNode;
+}
+
+const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
+  open,
+  user,
+  onClose,
+  onEdit,
+  onDelete,
+  onAssign,
+  onUnassignClick,
+  onOpenAccountantAssignment,
+  onChangePassword,
+  groups,
+  clusters,
+  users,
+  loading,
+  getRoleColor,
+  getRoleIcon,
+}) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { user: currentUser } = useAuth();
+  
+  const [assignedUsers, setAssignedUsers] = useState<User[]>([]);
+  const [loadingAssigned, setLoadingAssigned] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  
+  useEffect(() => {
+    if (user?.role === UserRole.ACCOUNTANT && user.accountantUserIds && user.accountantUserIds.length > 0) {
+      const loadUsers = async () => {
+        setLoadingAssigned(true);
+        try {
+          const usersData = await Promise.all(
+            user.accountantUserIds!.map(id => userService.getUserById(id))
+          );
+          setAssignedUsers(usersData);
+        } catch (error) {
+          console.error('Ошибка при загрузке привязанных пользователей:', error);
+        } finally {
+          setLoadingAssigned(false);
+        }
+      };
+      loadUsers();
+    }
+  }, [user?.accountantUserIds]);
+
+  if (!user) return null;
+
+  const getUserGroupInfo = () => {
+    const group = groups.find(g => g.id === user.groupId);
+    const cluster = clusters.find(c => c.id === user.clusterId);
+    const mentor = users.find(u => u.id === user.mentorId);
+    const seniorSeller = users.find(u => u.id === user.seniorSellerId);
+    return { group, cluster, mentor, seniorSeller };
+  };
+
+  const { group, cluster, mentor, seniorSeller } = getUserGroupInfo();
+  const sellersCount = users.filter(u => u.mentorId === user.id).length;
+
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      return;
+    }
+    
+    setChangingPassword(true);
+    try {
+      await onChangePassword(user.id, newPassword);
+      setPasswordDialogOpen(false);
+      setNewPassword('');
+    } catch (error) {
+      console.error('Ошибка при смене пароля:', error);
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const renderRoleSpecificContent = () => {
+    switch (user.role) {
+      case UserRole.OWNER:
+        return (
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <BusinessCenter sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
+              Полный доступ к системе
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Управление всеми разделами
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Chip label={`👥 ${users.length} пользователей`} size="small" />
+              <Chip label={`📊 ${groups.length} групп`} size="small" />
+              <Chip label={`🏢 ${clusters.length} кустов`} size="small" />
+            </Box>
+              <Typography variant="body2">
+                <strong>Ставка:</strong> {user.rate}₽
+              </Typography>
+          </Stack>
+        );
+
+      case UserRole.ADMIN:
+        return (
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AdminPanelSettings sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
+              Администратор
+            </Typography>
+            
+            {user.adminClusterIds && user.adminClusterIds.length > 0 ? (
+              <>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Кусты под управлением:
+                </Typography>
+                <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {user.adminClusterIds.map((clusterId: number) => {
+                    const cluster = clusters.find(c => c.id === clusterId);
+                    return (
+                      <Box key={clusterId} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="body2">
+                          • {cluster ? cluster.name : `Куст #${clusterId}`}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          onClick={() => onUnassignClick(user, 'admin', { clusterId })}
+                          sx={{ width: 28, height: 28 }}
+                          color="error"
+                        >
+                          <Close sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Box>
+                    );
+                  })}
+                </Box>
+              </>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                Нет назначенных кустов
+              </Typography>
+            )}
+            
+            {user.rate && user.rate > 0 && (
+              <Typography variant="body2">
+                <strong>Ставка:</strong> {user.rate}₽
+              </Typography>
+            )}
+          </Stack>
+        );
+
+      case UserRole.SENIOR_SELLER:
+        return (
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <SupervisorAccount sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
+              Старший продавец
+            </Typography>
+            
+            {cluster ? (
+              <>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Typography variant="body2">
+                    <strong>Куст:</strong> {cluster.name}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    onClick={() => onUnassignClick(user, 'seniorFromCluster')}
+                    sx={{ width: 28, height: 28 }}
+                    color="error"
+                  >
+                    <Close sx={{ fontSize: 18 }} />
+                  </IconButton>
+                </Box>
+                <Typography variant="body2">
+                  <strong>Групп в кусте:</strong> {groups.filter(g => g.clusterId === cluster.id).length}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Продавцов:</strong> {users.filter(u => u.clusterId === cluster.id).length}
+                </Typography>
+              </>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                Не назначен на куст
+              </Typography>
+            )}
+            
+            {user.rate && user.rate > 0 && (
+              <Typography variant="body2">
+                <strong>Ставка:</strong> {user.rate}₽
+              </Typography>
+            )}
+          </Stack>
+        );
+
+      case UserRole.MENTOR:
+        return (
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Person sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
+              Наставник
+            </Typography>
+            
+            {group ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="body2">
+                  <strong>Группа:</strong> {group.name}
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={() => onUnassignClick(user, 'mentorFromGroup')}
+                  sx={{ width: 28, height: 28 }}
+                  color="error"
+                >
+                  <Close sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Box>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                Нет группы
+              </Typography>
+            )}
+            
+            {cluster && (
+              <Typography variant="body2">
+                <strong>Куст:</strong> {cluster.name}
+              </Typography>
+            )}
+            
+            <Typography variant="body2">
+              <strong>Продавцов:</strong> {sellersCount}
+            </Typography>
+            
+            {user.rate && user.rate > 0 && (
+              <Typography variant="body2">
+                <strong>Ставка:</strong> {user.rate}₽
+              </Typography>
+            )}
+          </Stack>
+        );
+
+      case UserRole.SELLER:
+        return (
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <People sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
+              Продавец
+            </Typography>
+            
+            {group && (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="body2">
+                  <strong>Группа:</strong> {group.name}
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={() => onUnassignClick(user, 'group')}
+                  sx={{ width: 28, height: 28 }}
+                  color="error"
+                >
+                  <Close sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Box>
+            )}
+            
+            {mentor && (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Typography variant="body2">
+                  <strong>Наставник:</strong> {mentor.fullName}
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={() => onUnassignClick(user, 'mentor')}
+                  sx={{ width: 28, height: 28 }}
+                  color="error"
+                >
+                  <Close sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Box>
+            )}
+            
+            {cluster && (
+              <Typography variant="body2">
+                <strong>Куст:</strong> {cluster.name}
+              </Typography>
+            )}
+            
+            {user.rate && user.rate > 0 && (
+              <Typography variant="body2">
+                <strong>Ставка:</strong> {user.rate}₽
+              </Typography>
+            )}
+          </Stack>
+        );
+
+      case UserRole.ACCOUNTANT:
+        return (
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <AttachMoney sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
+              Бухгалтер
+            </Typography>
+          
+          </Stack>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+        TransitionComponent={Fade}
+        transitionDuration={300}
+        PaperProps={{
+          sx: {
+            borderRadius: isMobile ? 0 : 4,
+            overflow: 'hidden',
+            maxHeight: isMobile ? '100%' : '90vh',
+            margin: isMobile ? 0 : 2,
+          },
+        }}
+      >
+        <DialogTitle sx={{ 
+          p: { xs: 2, sm: 2.5 }, 
+          pb: { xs: 1.5, sm: 2 },
+          backgroundColor: alpha(theme.palette.primary.main, 0.02),
+          borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Avatar 
+                sx={{ 
+                  bgcolor: getRoleColor(user.role),
+                  width: { xs: 48, sm: 56 },
+                  height: { xs: 48, sm: 56 },
+                  fontSize: { xs: '1.2rem', sm: '1.4rem' },
+                }}
+              >
+                {user.fullName.charAt(0)}
+              </Avatar>
+              <Box>
+                <Typography variant="h6" fontWeight={600} color="#2a0f35" sx={{ mb: 0.5 }}>
+                  {user.fullName}
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Chip
+                    label={`@${user.username}`}
+                    size="small"
+                    sx={{
+                      backgroundColor: alpha(theme.palette.text.secondary, 0.1),
+                      color: theme.palette.text.secondary,
+                      fontSize: '0.75rem',
+                      height: 24,
+                    }}
+                  />
+                  <Chip
+                    icon={getRoleIcon(user.role) as any}
+                    label={getRoleName(user.role)}
+                    size="small"
+                    sx={{
+                      backgroundColor: alpha(getRoleColor(user.role), 0.1),
+                      color: getRoleColor(user.role),
+                      fontSize: '0.75rem',
+                      height: 24,
+                      '& .MuiChip-icon': {
+                        fontSize: 14,
+                        color: 'inherit',
+                      },
+                    }}
+                  />
+                </Box>
+              </Box>
+            </Box>
+            <IconButton onClick={onClose} size="small" sx={{ mt: -0.5, mr: -0.5 }}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: { xs: 2, sm: 2.5 }, pt: { xs: 2, sm: 2 }, mt: 3 }}>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <>
+              {/* Контактная информация */}
+              {(user.telegram || user.city) && (
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 2,
+                    mb: 3,
+                    backgroundColor: alpha(theme.palette.primary.main, 0.03),
+                    borderRadius: 3,
+                    border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+                  }}
+                >
+                  {user.telegram && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: user.city ? 1 : 0 }}>
+                      <Telegram sx={{ fontSize: 20, color: '#0088cc' }} />
+                      <Typography variant="body2">{user.telegram}</Typography>
+                    </Box>
+                  )}
+                  
+                  {user.city && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <LocationIcon sx={{ fontSize: 20, color: '#4caf50' }} />
+                      <Typography variant="body2">{user.city}</Typography>
+                    </Box>
+                  )}
+                </Paper>
+              )}
+
+              {/* Информация о роли */}
+              <Typography variant="subtitle2" fontWeight={600} color="#2a0f35" sx={{ mb: 2 }}>
+                Информация о должности
+              </Typography>
+              
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2,
+                  mb: 3,
+                  backgroundColor: alpha(theme.palette.background.default, 0.5),
+                  borderRadius: 2,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+                }}
+              >
+                {renderRoleSpecificContent()}
+              </Paper>
+
+              {/* Кнопки действий */}
+              <Typography variant="subtitle2" fontWeight={600} color="#2a0f35" sx={{ mb: 2 }}>
+                Действия
+              </Typography>
+
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {/* Кнопки назначения */}
+                    <Box sx={{ 
+                      display: 'flex', 
+                      flexWrap: 'wrap', 
+                      gap: 1,
+                      '& .MuiButton-root': {
+                        flex: { xs: '1 1 calc(50% - 4px)', sm: '0 1 auto' },
+                        minWidth: { xs: 0, sm: 'auto' },
+                        whiteSpace: 'nowrap',
+                        fontSize: { xs: '0.7rem', sm: '0.875rem' },
+                        padding: { xs: '6px 8px', sm: '6px 12px' },
+                      }
+                    }}>
+                    {user.role === UserRole.SELLER && (
+                      <>
+                        {!user.mentorId && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              onAssign(user, 'mentor');
+                            }}
+                            disabled={loading}
+                            sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                          >
+                            Назначить наставника
+                          </Button>
+                        )}
+                        {!user.groupId && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              onAssign(user, 'group');
+                            }}
+                            disabled={loading}
+                            sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                          >
+                            В группу
+                          </Button>
+                        )}
+                      </>
+                    )}
+                    
+                    {user.role === UserRole.MENTOR && !user.clusterId && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          onAssign(user, 'cluster');
+                        }}
+                        disabled={loading}
+                        sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                      >
+                        В куст
+                      </Button>
+                    )}
+                    
+                    {user.role === UserRole.SENIOR_SELLER && !user.clusterId && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          onAssign(user, 'cluster');
+                        }}
+                        disabled={loading}
+                        sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                      >
+                        Назначить куст
+                      </Button>
+                    )}
+                    
+                    {user.role === UserRole.ADMIN && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          onAssign(user, 'admin');
+                        }}
+                        disabled={loading}
+                        sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                      >
+                        Управление кустами
+                      </Button>
+                    )}
+                    
+                    {user.role === UserRole.ACCOUNTANT && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          onOpenAccountantAssignment(user);
+                        }}
+                        sx={{ 
+                          flex: { xs: 1, sm: '0 1 auto' },
+                          color: '#ff9800', 
+                          borderColor: '#ff9800',
+                          '&:hover': {
+                            backgroundColor: alpha('#ff9800', 0.1),
+                          },
+                        }}
+                        disabled={loading}
+                      >
+                        Назначить пользователей
+                      </Button>
+                    )}
+                  </Box>
+
+                  {/* Кнопки управления */}
+                  <Divider sx={{ my: 1 }} />
+
+                    <Box sx={{ 
+                        display: 'flex', 
+                        flexWrap: 'wrap', 
+                        gap: 1,
+                        '& .MuiButton-root': {
+                          flex: { xs: '1 1 calc(33.333% - 4px)', sm: '0 1 auto' },
+                          minWidth: { xs: 0, sm: 'auto' },
+                          whiteSpace: 'nowrap',
+                          fontSize: { xs: '0.7rem', sm: '0.875rem' },
+                          padding: { xs: '6px 4px', sm: '6px 12px' },
+                        }
+                      }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<LockResetIcon />}
+                      onClick={() => setPasswordDialogOpen(true)}
+                      sx={{
+                        flex: { xs: 1, sm: '0 1 auto' },
+                        backgroundColor: '#ff9800',
+                        '&:hover': { backgroundColor: '#f57c00' },
+                      }}
+                    >
+                      Сменить пароль
+                    </Button>
+                    
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<Edit />}
+                      onClick={() => {
+                        onEdit(user);
+                      }}
+                      disabled={loading}
+                      sx={{
+                        flex: { xs: 1, sm: '0 1 auto' },
+                        backgroundColor: '#2a436d',
+                        '&:hover': { backgroundColor: '#1a365d' },
+                      }}
+                    >
+                      Редактировать
+                    </Button>
+                    
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="error"
+                      startIcon={<Delete />}
+                      onClick={() => {
+                        onDelete(user);
+                      }}
+                      disabled={user.role === UserRole.OWNER || user.id === currentUser?.id || loading}
+                      sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                    >
+                      Удалить
+                    </Button>
+                  </Box>
+                </Box>
+            </>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ 
+          p: { xs: 2, sm: 2.5 }, 
+          pt: { xs: 1.5, sm: 2 }, 
+          borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+          backgroundColor: alpha(theme.palette.background.default, 0.5),
+        }}>
+          <Button
+            onClick={onClose}
+            variant="contained"
+            fullWidth
+            sx={{
+              borderRadius: 2,
+              backgroundColor: '#3f1f4b',
+              '&:hover': { backgroundColor: '#2a0f35' },
+              textTransform: 'none',
+              py: 1,
+            }}
+          >
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог смены пароля */}
+      <Dialog
+        open={passwordDialogOpen}
+        onClose={() => setPasswordDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogTitle sx={{ 
+          p: 2.5, 
+          pb: 2,
+          backgroundColor: alpha(theme.palette.warning.main, 0.02),
+          borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6" fontWeight={600} color="#2a0f35">
+              Смена пароля
+            </Typography>
+            <IconButton onClick={() => setPasswordDialogOpen(false)} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Пользователь: {user.fullName}
+          </Typography>
+        </DialogTitle>
+
+        <DialogContent sx={{ p: 2.5, pt: 2 }}>
+          <TextField
+            fullWidth
+            label="Новый пароль"
+            type={showPassword ? 'text' : 'password'}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            margin="normal"
+            helperText="Минимальная длина пароля: 6 символов"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+        </DialogContent>
+
+        <DialogActions sx={{ 
+          p: 2.5, 
+          pt: 0, 
+          gap: 1,
+        }}>
+          <Button
+            onClick={() => setPasswordDialogOpen(false)}
+            variant="outlined"
+            fullWidth
+            sx={{ borderRadius: 2, textTransform: 'none' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={handleChangePassword}
+            variant="contained"
+            fullWidth
+            disabled={!newPassword || newPassword.length < 6 || changingPassword}
+            sx={{
+              borderRadius: 2,
+              backgroundColor: '#ff9800',
+              '&:hover': { backgroundColor: '#f57c00' },
+              textTransform: 'none',
+            }}
+          >
+            {changingPassword ? <CircularProgress size={24} /> : 'Подтвердить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+};
 
 // Компонент пинов-табов
 interface TabChipsProps {
@@ -329,587 +1130,6 @@ const AddGroupToClusterDialog: React.FC<AddGroupToClusterDialogProps> = ({
   );
 };
 
-// Улучшенный компонент карточки пользователя
-interface UserCardProps {
-  user: User;
-  groups: Group[];
-  clusters: Cluster[];
-  users: User[];
-  loading: boolean;
-  onEdit: (user: User) => void;
-  onDelete: (user: User) => void;
-  onAssign: (user: User, type: 'mentor' | 'group' | 'cluster' | 'admin') => void;
-  onUnassignClick: (user: User, type: string, data?: any) => void;
-  onOpenAccountantAssignment: (user: User) => void;
-  getRoleColor: (role: UserRole) => string;
-  getRoleIcon: (role: UserRole) => React.ReactNode;
-  loadAssignedUsers?: (userIds: number[]) => Promise<User[]>;
-}
-
-const UserCard: React.FC<UserCardProps> = ({
-  user,
-  groups,
-  clusters,
-  users,
-  loading,
-  onEdit,
-  onDelete,
-  onAssign,
-  onUnassignClick,
-  onOpenAccountantAssignment,
-  getRoleColor,
-  getRoleIcon,
-}) => {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const [assignedUsers, setAssignedUsers] = useState<User[]>([]);
-  const [loadingAssigned, setLoadingAssigned] = useState(false);
-  
-  const getUserGroupInfo = () => {
-    const group = groups.find(g => g.id === user.groupId);
-    const cluster = clusters.find(c => c.id === user.clusterId);
-    const mentor = users.find(u => u.id === user.mentorId);
-    const seniorSeller = users.find(u => u.id === user.seniorSellerId);
-    return { group, cluster, mentor, seniorSeller };
-  };
-
-  const { group, cluster, mentor, seniorSeller } = getUserGroupInfo();
-  const sellersCount = users.filter(u => u.mentorId === user.id).length;
-
-  // Загрузка привязанных пользователей для бухгалтера
-  useEffect(() => {
-    if (user.role === UserRole.ACCOUNTANT && user.accountantUserIds && user.accountantUserIds.length > 0) {
-      const loadUsers = async () => {
-        setLoadingAssigned(true);
-        try {
-          const usersData = await Promise.all(
-            user.accountantUserIds!.map(id => userService.getUserById(id))
-          );
-          setAssignedUsers(usersData);
-        } catch (error) {
-          console.error('Ошибка при загрузке привязанных пользователей:', error);
-        } finally {
-          setLoadingAssigned(false);
-        }
-      };
-      loadUsers();
-    }
-  }, [user.accountantUserIds]);
-
-  // Генерация контента в зависимости от роли
-// Генерация контента в зависимости от роли
-const renderRoleSpecificContent = () => {
-  switch (user.role) {
-    case UserRole.OWNER:
-      return (
-        <Stack spacing={1.5} sx={{ minHeight: 120 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <BusinessCenter sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
-            Полный доступ к системе
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            Управление всеми разделами
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-            <Chip
-              label={`👥 ${users.length} пользователей`}
-              size="small"
-              sx={{ height: 28, fontSize: { xs: '0.85rem', sm: '0.8rem' } }}
-            />
-            <Chip
-              label={`📊 ${groups.length} групп`}
-              size="small"
-              sx={{ height: 28, fontSize: { xs: '0.85rem', sm: '0.8rem' } }}
-            />
-            <Chip
-              label={`🏢 ${clusters.length} кустов`}
-              size="small"
-              sx={{ height: 28, fontSize: { xs: '0.85rem', sm: '0.8rem' } }}
-            />
-          </Box>
-          
-          {/* ДОБАВИТЬ СТАВКУ ДЛЯ OWNER */}
-          {user.rate && user.rate > 0 && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem', mt: 1 } }}>
-              <strong>Ставка:</strong> {user.rate}₽
-            </Typography>
-          )}
-        </Stack>
-      );
-
-    case UserRole.ADMIN:
-      return (
-        <Stack spacing={1.5}>
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <AdminPanelSettings sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
-            Администратор
-          </Typography>
-          
-          {user.adminClusterIds && user.adminClusterIds.length > 0 ? (
-            <>
-              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                Кусты под управлением:
-              </Typography>
-              <Box sx={{ maxHeight: 120, overflowY: 'auto' }}>
-                {user.adminClusterIds.map((clusterId: number) => {
-                  const cluster = clusters.find(c => c.id === clusterId);
-                  return (
-                    <Box key={clusterId} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                        • {cluster ? cluster.name : `Куст #${clusterId}`}
-                      </Typography>
-                      <IconButton
-                        size="small"
-                        onClick={() => onUnassignClick(user, 'admin', { clusterId })}
-                        sx={iOSStyles.iconButton}
-                        color="error"
-                      >
-                        <Close sx={{ fontSize: 18 }} />
-                      </IconButton>
-                    </Box>
-                  );
-                })}
-              </Box>
-            </>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              Нет назначенных кустов
-            </Typography>
-          )}
-          
-          {/* ДОБАВИТЬ СТАВКУ ДЛЯ ADMIN */}
-          {user.rate && user.rate > 0 && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem', mt: 1 } }}>
-              <strong>Ставка:</strong> {user.rate}₽
-            </Typography>
-          )}
-        </Stack>
-      );
-
-    case UserRole.SENIOR_SELLER:
-      return (
-        <Stack spacing={1.5}>
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <SupervisorAccount sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
-            Старший продавец
-          </Typography>
-          
-          {cluster ? (
-            <>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                  <strong>Куст:</strong> {cluster.name}
-                </Typography>
-                <IconButton
-                  size="small"
-                  onClick={() => onUnassignClick(user, 'seniorFromCluster')}
-                  sx={iOSStyles.iconButton}
-                  color="error"
-                >
-                  <Close sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Box>
-              <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                <strong>Групп в кусте:</strong> {groups.filter(g => g.clusterId === cluster.id).length}
-              </Typography>
-              <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                <strong>Продавцов:</strong> {users.filter(u => u.clusterId === cluster.id).length}
-              </Typography>
-            </>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              Не назначен на куст
-            </Typography>
-          )}
-          
-          {/* ДОБАВИТЬ СТАВКУ ДЛЯ SENIOR_SELLER */}
-          {user.rate && user.rate > 0 && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem', mt: 1 } }}>
-              <strong>Ставка:</strong> {user.rate}₽
-            </Typography>
-          )}
-        </Stack>
-      );
-
-    case UserRole.MENTOR:
-      return (
-        <Stack spacing={1.5}>
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <Person sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
-            Наставник
-          </Typography>
-          
-          {group ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                <strong>Группа:</strong> {group.name}
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={() => onUnassignClick(user, 'mentorFromGroup')}
-                sx={iOSStyles.iconButton}
-                color="error"
-              >
-                <Close sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Box>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              Нет группы
-            </Typography>
-          )}
-          
-          {cluster && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              <strong>Куст:</strong> {cluster.name}
-            </Typography>
-          )}
-          
-          <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <strong>Продавцов:</strong> {sellersCount}
-          </Typography>
-          
-          {/* ДОБАВИТЬ СТАВКУ ДЛЯ MENTOR */}
-          {user.rate && user.rate > 0 && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem', mt: 1 } }}>
-              <strong>Ставка:</strong> {user.rate}₽
-            </Typography>
-          )}
-        </Stack>
-      );
-
-    case UserRole.SELLER:
-      return (
-        <Stack spacing={1.5}>
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <People sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
-            Продавец
-          </Typography>
-          
-          {group && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                <strong>Группа:</strong> {group.name}
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={() => onUnassignClick(user, 'group')}
-                sx={iOSStyles.iconButton}
-                color="error"
-              >
-                <Close sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Box>
-          )}
-          
-          {mentor && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                <strong>Наставник:</strong> {mentor.fullName}
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={() => onUnassignClick(user, 'mentor')}
-                sx={iOSStyles.iconButton}
-                color="error"
-              >
-                <Close sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Box>
-          )}
-          
-          {cluster && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              <strong>Куст:</strong> {cluster.name}
-            </Typography>
-          )}
-          
-          {/* СТАВКА УЖЕ ЕСТЬ ЗДЕСЬ, НО МОЖНО ОСТАВИТЬ */}
-          {user.rate && user.rate > 0 && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              <strong>Ставка:</strong> {user.rate}₽
-            </Typography>
-          )}
-        </Stack>
-      );
-
-    case UserRole.ACCOUNTANT:
-      return (
-        <Stack spacing={1.5}>
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <AttachMoney sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
-            Бухгалтер
-          </Typography>
-          
-          {user.accountantUserIds && user.accountantUserIds.length > 0 ? (
-            <>
-              <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                <strong>Привязано:</strong> {user.accountantUserIds.length} чел.
-              </Typography>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 120, overflowY: 'auto' }}>
-                {loadingAssigned ? (
-                  <CircularProgress size={20} />
-                ) : (
-                  assignedUsers.map(assignedUser => (
-                    <Box key={assignedUser.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ width: 24, height: 24, bgcolor: getRoleColor(assignedUser.role) }}>
-                          {assignedUser.fullName.charAt(0)}
-                        </Avatar>
-                        <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                          {assignedUser.fullName}
-                        </Typography>
-                      </Box>
-                      <IconButton
-                        size="small"
-                        onClick={() => onUnassignClick(user, 'accountant', { userId: assignedUser.id })}
-                        sx={iOSStyles.iconButton}
-                        color="error"
-                      >
-                        <Close sx={{ fontSize: 18 }} />
-                      </IconButton>
-                    </Box>
-                  ))
-                )}
-              </Box>
-            </>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              Нет привязанных пользователей
-            </Typography>
-          )}
-          
-          {/* ДОБАВИТЬ СТАВКУ ДЛЯ ACCOUNTANT */}
-          {user.rate && user.rate > 0 && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem', mt: 1 } }}>
-              <strong>Ставка:</strong> {user.rate}₽
-            </Typography>
-          )}
-        </Stack>
-      );
-
-    default:
-      return null;
-  }
-};
-
-  return (
-    <Card sx={iOSStyles.card}>
-      <CardContent sx={iOSStyles.cardContent}>
-        {/* Заголовок с аватаром и ролью */}
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
-          <Avatar 
-            sx={{ 
-              bgcolor: getRoleColor(user.role), 
-              mr: 1.5,
-              width: { xs: 48, sm: 48 },
-              height: { xs: 48, sm: 48 },
-              fontSize: { xs: '1.2rem', sm: '1.2rem' },
-              flexShrink: 0,
-            }}
-          >
-            {user.fullName.charAt(0)}
-          </Avatar>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Tooltip title={user.fullName} arrow>
-              <Typography 
-                variant="subtitle1" 
-                fontWeight="bold" 
-                sx={{
-                  fontSize: { xs: '1.1rem', sm: '1rem' },
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '100%',
-                }}
-              >
-                {user.fullName}
-              </Typography>
-            </Tooltip>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-              {getRoleIcon(user.role)}
-              <Typography variant="body2" color="text.secondary" noWrap sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-                {getRoleName(user.role)}
-              </Typography>
-            </Box>
-          </Box>
-          <Tooltip title={`Логин: ${user.username}`} arrow>
-            <Chip
-              label={user.username}
-              size="small"
-              sx={{ 
-                ...iOSStyles.roleChip,
-                backgroundColor: alpha(getRoleColor(user.role), 0.1),
-                color: getRoleColor(user.role),
-                ml: 1,
-                flexShrink: 0,
-                fontSize: { xs: '0.85rem', sm: '0.75rem' },
-              }}
-            />
-          </Tooltip>
-        </Box>
-
-        {/* Контактная информация */}
-        <Box sx={{ mb: 2 }}>
-          {user.telegram && (
-            <Typography variant="body2" sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              <Telegram sx={{ fontSize: 20, color: '#0088cc' }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user.telegram}
-              </span>
-            </Typography>
-          )}
-          
-          {user.city && (
-            <Typography variant="body2" sx={{ mb: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              <LocationIcon sx={{ fontSize: 20, color: '#4caf50' }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user.city}
-              </span>
-            </Typography>
-          )}
-        </Box>
-
-        <Divider sx={{ my: 1.5 }} />
-
-        {/* Роль-специфичный контент */}
-        <Box sx={{ 
-          flex: 1,
-          overflowY: 'auto',
-          maxHeight: { xs: 220, sm: 200 },
-          pr: 0.5,
-          mb: 1.5,
-          minHeight: 150,
-        }}>
-          {renderRoleSpecificContent()}
-        </Box>
-
-        <Divider sx={{ my: 1.5 }} />
-
-        {/* Кнопки действий */}
-        <Box sx={{ 
-          display: 'flex', 
-          flexWrap: 'wrap', 
-          gap: 1,
-          mt: 'auto',
-          justifyContent: { xs: 'space-between', sm: 'flex-start' },
-        }}>
-          {/* Кнопки назначения */}
-          {user.role === UserRole.SELLER && (
-            <>
-              {!user.mentorId && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => onAssign(user, 'mentor')}
-                  disabled={loading}
-                  sx={iOSStyles.actionButton}
-                >
-                  Наставник
-                </Button>
-              )}
-              {!user.groupId && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => onAssign(user, 'group')}
-                  disabled={loading}
-                  sx={iOSStyles.actionButton}
-                >
-                  В группу
-                </Button>
-              )}
-            </>
-          )}
-          
-          {user.role === UserRole.MENTOR && !user.clusterId && (
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => onAssign(user, 'cluster')}
-              disabled={loading}
-              sx={iOSStyles.actionButton}
-            >
-              В куст
-            </Button>
-          )}
-          
-          {user.role === UserRole.SENIOR_SELLER && !user.clusterId && (
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => onAssign(user, 'cluster')}
-              disabled={loading}
-              sx={iOSStyles.actionButton}
-            >
-              Назначить
-            </Button>
-          )}
-          
-          {user.role === UserRole.ADMIN && (
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => onAssign(user, 'admin')}
-              disabled={loading}
-              sx={iOSStyles.actionButton}
-            >
-              Кусты
-            </Button>
-          )}
-          
-          {user.role === UserRole.ACCOUNTANT && (
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => onOpenAccountantAssignment(user)}
-              sx={{ 
-                ...iOSStyles.actionButton,
-                color: '#ff9800', 
-                borderColor: '#ff9800',
-                '&:hover': {
-                  backgroundColor: alpha('#ff9800', 0.1),
-                },
-              }}
-              disabled={loading}
-            >
-              Назначить
-            </Button>
-          )}
-          
-          {/* Кнопки редактирования и удаления */}
-          <Tooltip title="Редактировать" arrow>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => onEdit(user)}
-              disabled={loading}
-              sx={iOSStyles.actionButton}
-            >
-              <Edit sx={{ fontSize: { xs: 20, sm: 16 } }} />
-            </Button>
-          </Tooltip>
-          
-          <Tooltip title="Удалить" arrow>
-            <span>
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                onClick={() => onDelete(user)}
-                disabled={user.role === UserRole.OWNER || loading}
-                sx={iOSStyles.actionButton}
-              >
-                <Delete sx={{ fontSize: { xs: 20, sm: 16 } }} />
-              </Button>
-            </span>
-          </Tooltip>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-};
-
 // Компонент карточки группы
 interface GroupCardProps {
   group: Group;
@@ -939,7 +1159,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   getRoleColor,
 }) => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   
   const mentor = users.find(u => u.id === group.mentorId);
   const cluster = clusters.find(c => c.id === group.clusterId);
@@ -948,15 +1167,15 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const groupsInSameCluster = cluster ? groups.filter(g => g.clusterId === cluster.id) : [];
 
   return (
-    <Card sx={iOSStyles.card}>
-      <CardContent sx={iOSStyles.cardContent}>
+    <Card sx={iOSStyles.compactCard}>
+      <CardContent sx={iOSStyles.compactCardContent}>
         <Tooltip title={group.name} arrow>
           <Typography 
-            variant="h6" 
+            variant="subtitle1" 
             fontWeight="bold" 
             sx={{ 
               mb: 1, 
-              fontSize: { xs: '1.2rem', sm: '1.25rem' },
+              fontSize: { xs: '1.1rem', sm: '1rem' },
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -966,38 +1185,18 @@ const GroupCard: React.FC<GroupCardProps> = ({
           </Typography>
         </Tooltip>
         
-        {group.description && (
-          <Tooltip title={group.description} arrow>
-            <Typography 
-              variant="body2" 
-              color="text.secondary" 
-              sx={{ 
-                mb: 2,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                fontSize: { xs: '0.95rem', sm: '0.875rem' },
-              }}
-            >
-              {group.description}
-            </Typography>
-          </Tooltip>
-        )}
-        
-        <Box sx={{ flex: 1, mb: 2 }}>
+        <Box sx={{ mb: 1.5 }}>
           {/* Наставник */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
               <strong>Наставник:</strong>{' '}
               {mentor ? (
                 <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                  <Avatar sx={{ width: 24, height: 24, bgcolor: getRoleColor(mentor.role) }}>
+                  <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(mentor.role), fontSize: '0.7rem' }}>
                     {mentor.fullName.charAt(0)}
                   </Avatar>
                   <span style={{ fontSize: 'inherit' }}>
-                    {mentor.fullName}
+                    {mentor.fullName.split(' ')[0]}
                   </span>
                 </Box>
               ) : 'Не назначен'}
@@ -1005,71 +1204,39 @@ const GroupCard: React.FC<GroupCardProps> = ({
           </Box>
           
           {/* Куст */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
               <strong>Куст:</strong> {cluster ? cluster.name : 'Не назначен'}
             </Typography>
             {cluster && (
               <IconButton
                 size="small"
                 onClick={() => onRemoveFromCluster(group.id, cluster.id)}
-                sx={iOSStyles.iconButton}
+                sx={{ width: 24, height: 24 }}
                 color="error"
               >
-                <Close sx={{ fontSize: 18 }} />
+                <Close sx={{ fontSize: 16 }} />
               </IconButton>
             )}
           </Box>
           
-          {/* Старший продавец */}
-          {seniorSeller && (
-            <Typography variant="body2" sx={{ mb: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              <strong>Старший продавец:</strong> {seniorSeller.fullName}
-            </Typography>
-          )}
-          
           {/* Статистика */}
-          <Typography variant="body2" sx={{ mb: 0.5, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+          <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
             <strong>Продавцов:</strong> {sellersInGroup.length}
           </Typography>
-          
-          {cluster && (
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              <strong>Групп в кусте:</strong> {groupsInSameCluster.length}
-            </Typography>
-          )}
         </Box>
         
-        {/* Продавцы в группе */}
-        {sellersInGroup.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" fontWeight="bold" sx={{ mb: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-              Продавцы:
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxHeight: 80, overflowY: 'auto' }}>
-              {sellersInGroup.map(seller => (
-                <Chip
-                  key={seller.id}
-                  label={seller.fullName}
-                  size="small"
-                  sx={{ height: 28, fontSize: { xs: '0.85rem', sm: '0.8rem' } }}
-                />
-              ))}
-            </Box>
-          </Box>
-        )}
-        
-        <Divider sx={{ my: 1.5 }} />
+        <Divider sx={{ my: 1 }} />
         
         {/* Кнопки действий */}
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 'auto', justifyContent: { xs: 'space-between', sm: 'flex-start' } }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
           {!group.clusterId && (
             <Button
               size="small"
               variant="outlined"
               onClick={() => onAddToCluster(group)}
               disabled={loading}
-              sx={iOSStyles.actionButton}
+              sx={{ fontSize: '0.7rem', minWidth: 60, height: 28 }}
             >
               В куст
             </Button>
@@ -1081,9 +1248,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
               variant="outlined"
               onClick={() => onEdit(group)}
               disabled={loading}
-              sx={iOSStyles.actionButton}
+              sx={{ minWidth: 28, height: 28, p: 0 }}
             >
-              <Edit sx={{ fontSize: { xs: 20, sm: 16 } }} />
+              <Edit sx={{ fontSize: 16 }} />
             </Button>
           </Tooltip>
           
@@ -1095,9 +1262,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 color="error"
                 onClick={() => onDelete(group)}
                 disabled={sellersInGroup.length > 0 || loading}
-                sx={iOSStyles.actionButton}
+                sx={{ minWidth: 28, height: 28, p: 0 }}
               >
-                <Delete sx={{ fontSize: { xs: 20, sm: 16 } }} />
+                <Delete sx={{ fontSize: 16 }} />
               </Button>
             </span>
           </Tooltip>
@@ -1129,13 +1296,11 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
   loading,
   onEdit,
   onDelete,
-  onAddGroup,
   onRemoveGroup,
   onUnassignClick,
   getRoleColor,
 }) => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   
   const seniorSeller = users.find(u => u.id === cluster.seniorSellerId);
   const admin = users.find(u => u.id === cluster.adminId);
@@ -1143,15 +1308,15 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
   const sellersInCluster = users.filter(u => u.clusterId === cluster.id);
 
   return (
-    <Card sx={iOSStyles.card}>
-      <CardContent sx={iOSStyles.cardContent}>
+    <Card sx={iOSStyles.compactCard}>
+      <CardContent sx={iOSStyles.compactCardContent}>
         <Tooltip title={cluster.name} arrow>
           <Typography 
-            variant="h6" 
+            variant="subtitle1" 
             fontWeight="bold" 
             sx={{ 
               mb: 1, 
-              fontSize: { xs: '1.2rem', sm: '1.25rem' },
+              fontSize: { xs: '1.1rem', sm: '1rem' },
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -1161,38 +1326,18 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
           </Typography>
         </Tooltip>
         
-        {cluster.description && (
-          <Tooltip title={cluster.description} arrow>
-            <Typography 
-              variant="body2" 
-              color="text.secondary" 
-              sx={{ 
-                mb: 2,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                fontSize: { xs: '0.95rem', sm: '0.875rem' },
-              }}
-            >
-              {cluster.description}
-            </Typography>
-          </Tooltip>
-        )}
-        
-        <Box sx={{ flex: 1, mb: 2 }}>
+        <Box sx={{ mb: 1.5 }}>
           {/* Старший продавец */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
               <strong>Старший:</strong>{' '}
               {seniorSeller ? (
                 <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                  <Avatar sx={{ width: 24, height: 24, bgcolor: getRoleColor(seniorSeller.role) }}>
+                  <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(seniorSeller.role), fontSize: '0.7rem' }}>
                     {seniorSeller.fullName.charAt(0)}
                   </Avatar>
                   <span style={{ fontSize: 'inherit' }}>
-                    {seniorSeller.fullName}
+                    {seniorSeller.fullName.split(' ')[0]}
                   </span>
                 </Box>
               ) : 'Не назначен'}
@@ -1201,25 +1346,25 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
               <IconButton
                 size="small"
                 onClick={() => onUnassignClick(seniorSeller, 'seniorFromCluster')}
-                sx={iOSStyles.iconButton}
+                sx={{ width: 24, height: 24 }}
                 color="error"
               >
-                <Close sx={{ fontSize: 18 }} />
+                <Close sx={{ fontSize: 16 }} />
               </IconButton>
             )}
           </Box>
           
           {/* Администратор */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
               <strong>Админ:</strong>{' '}
               {admin ? (
                 <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-                  <Avatar sx={{ width: 24, height: 24, bgcolor: getRoleColor(admin.role) }}>
+                  <Avatar sx={{ width: 20, height: 20, bgcolor: getRoleColor(admin.role), fontSize: '0.7rem' }}>
                     {admin.fullName.charAt(0)}
                   </Avatar>
                   <span style={{ fontSize: 'inherit' }}>
-                    {admin.fullName}
+                    {admin.fullName.split(' ')[0]}
                   </span>
                 </Box>
               ) : 'Не назначен'}
@@ -1228,63 +1373,64 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
               <IconButton
                 size="small"
                 onClick={() => onUnassignClick(admin, 'admin', { clusterId: cluster.id })}
-                sx={iOSStyles.iconButton}
+                sx={{ width: 24, height: 24 }}
                 color="error"
               >
-                <Close sx={{ fontSize: 18 }} />
+                <Close sx={{ fontSize: 16 }} />
               </IconButton>
             )}
           </Box>
           
           {/* Статистика */}
-          <Typography variant="body2" sx={{ mb: 0.5, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+          <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
             <strong>Групп:</strong> {groupsInCluster.length}
-          </Typography>
-          
-          <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
-            <strong>Продавцов:</strong> {sellersInCluster.length}
           </Typography>
         </Box>
         
-        {/* Группы в кусте */}
+        {/* Группы в кусте (первые 2) */}
         {groupsInCluster.length > 0 && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" fontWeight="bold" sx={{ mb: 1, fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+          <Box sx={{ mb: 1.5 }}>
+            <Typography variant="body2" fontWeight="bold" sx={{ mb: 0.5, fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
               Группы:
             </Typography>
-            <Box sx={{ maxHeight: 100, overflowY: 'auto', pr: 0.5 }}>
-              {groupsInCluster.map(group => (
-                <Box key={group.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                  <Typography variant="body2" sx={{ fontSize: { xs: '0.95rem', sm: '0.875rem' } }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {groupsInCluster.slice(0, 2).map(group => (
+                <Box key={group.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Typography variant="body2" sx={{ fontSize: { xs: '0.85rem', sm: '0.75rem' } }}>
                     • {group.name}
                   </Typography>
                   <IconButton
                     size="small"
                     onClick={() => onRemoveGroup(group.id, cluster.id)}
-                    sx={iOSStyles.iconButton}
+                    sx={{ width: 20, height: 20 }}
                     color="error"
                   >
-                    <Close sx={{ fontSize: 18 }} />
+                    <Close sx={{ fontSize: 14 }} />
                   </IconButton>
                 </Box>
               ))}
+              {groupsInCluster.length > 2 && (
+                <Typography variant="caption" color="text.secondary">
+                  и еще {groupsInCluster.length - 2}...
+                </Typography>
+              )}
             </Box>
           </Box>
         )}
         
-        <Divider sx={{ my: 1.5 }} />
+        <Divider sx={{ my: 1 }} />
         
         {/* Кнопки действий */}
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 'auto', justifyContent: { xs: 'space-between', sm: 'flex-start' } }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
           <Tooltip title="Редактировать" arrow>
             <Button
               size="small"
               variant="outlined"
               onClick={() => onEdit(cluster)}
               disabled={loading}
-              sx={iOSStyles.actionButton}
+              sx={{ minWidth: 28, height: 28, p: 0 }}
             >
-              <Edit sx={{ fontSize: { xs: 20, sm: 16 } }} />
+              <Edit sx={{ fontSize: 16 }} />
             </Button>
           </Tooltip>
           
@@ -1296,9 +1442,9 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
                 color="error"
                 onClick={() => onDelete(cluster)}
                 disabled={groupsInCluster.length > 0 || sellersInCluster.length > 0 || loading}
-                sx={iOSStyles.actionButton}
+                sx={{ minWidth: 28, height: 28, p: 0 }}
               >
-                <Delete sx={{ fontSize: { xs: 20, sm: 16 } }} />
+                <Delete sx={{ fontSize: 16 }} />
               </Button>
             </span>
           </Tooltip>
@@ -1344,6 +1490,7 @@ const StaffPage: React.FC = () => {
     open: boolean;
     group: Group | null;
   }>({ open: false, group: null });
+  const [openUserDetailsDialog, setOpenUserDetailsDialog] = useState<User | null>(null);
 
   // Диалоги подтверждения отвязки
   const [unassignDialog, setUnassignDialog] = useState<UnassignDialogState>({
@@ -1450,17 +1597,6 @@ const StaffPage: React.FC = () => {
     }
   };
 
-  const loadAssignedUsers = async (userIds: number[]): Promise<User[]> => {
-    try {
-      return await Promise.all(
-        userIds.map(id => userService.getUserById(id))
-      );
-    } catch (error) {
-      console.error('Ошибка при загрузке привязанных пользователей:', error);
-      return [];
-    }
-  };
-
   const showSnackbar = (message: string, severity: 'success' | 'error' | 'info') => {
     setSnackbar({ open: true, message, severity });
   };
@@ -1516,9 +1652,39 @@ const StaffPage: React.FC = () => {
       showSnackbar('Пользователь успешно создан', 'success');
     } catch (error: any) {
       console.error('Ошибка при создании пользователя:', error);
-      const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при создании пользователя';
+      
+      const getErrorMessage = (error: any): string => {
+        if (error.response?.data) {
+          const data = error.response.data;
+          if (data.detail) {
+            if (Array.isArray(data.detail)) {
+              return data.detail
+                .map((err: any) => {
+                  if (err.msg) {
+                    return err.msg.replace('Value error, ', '');
+                  }
+                  return JSON.stringify(err);
+                })
+                .join(', ');
+            }
+            if (typeof data.detail === 'string') {
+              return data.detail;
+            }
+          }
+          if (data.message) {
+            return data.message;
+          }
+          if (typeof data === 'string') {
+            return data;
+          }
+        }
+        if (error.message) {
+          return error.message;
+        }
+        return 'Произошла ошибка при создании пользователя';
+      };
+
+      const errorMessage = getErrorMessage(error);
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -1573,6 +1739,20 @@ const StaffPage: React.FC = () => {
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (userId: number, newPassword: string) => {
+    try {
+      await userService.changeUserPassword(userId, newPassword);
+      showSnackbar('Пароль успешно изменен', 'success');
+    } catch (error: any) {
+      console.error('Ошибка при смене пароля:', error);
+      const errorMessage = error.response?.data?.detail || 
+                         error.response?.data?.message || 
+                         'Ошибка при смене пароля';
+      showSnackbar(errorMessage, 'error');
+      throw error;
     }
   };
 
@@ -1753,12 +1933,6 @@ const StaffPage: React.FC = () => {
             showSnackbar('Администратор отвязан от куста', 'success');
           }
           break;
-        case 'accountant':
-          if (data?.userId) {
-            // TODO: Добавить метод для отвязки бухгалтера
-            showSnackbar('Функция в разработке', 'info');
-          }
-          break;
         case 'groupFromCluster':
           if (data?.groupId && data?.clusterId) {
             await clusterService.removeGroupFromCluster(data.clusterId, data.groupId);
@@ -1907,13 +2081,13 @@ const StaffPage: React.FC = () => {
     }
   };
 
-const handleRemoveGroupFromCluster = async (groupId: number, clusterId: number) => {
-  handleUnassignClick(
-    { id: 0, fullName: '' } as User, 
-    'groupFromCluster', 
-    { groupId, clusterId }
-  );
-};
+  const handleRemoveGroupFromCluster = async (groupId: number, clusterId: number) => {
+    handleUnassignClick(
+      { id: 0, fullName: '' } as User, 
+      'groupFromCluster', 
+      { groupId, clusterId }
+    );
+  };
 
   // Фильтрация пользователей
   const filteredUsers = users.filter(user => {
@@ -2028,30 +2202,12 @@ const handleRemoveGroupFromCluster = async (groupId: number, clusterId: number) 
               </Button>
             </Box>
 
-            <Grid container spacing={2}>
+            <Grid container spacing={1.5}>
               {filteredUsers.map(user => (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={user.id}>
-                  <UserCard
+                  <CompactUserCard
                     user={user}
-                    groups={groups}
-                    clusters={clusters}
-                    users={users}
-                    loading={loading}
-                    onEdit={(user) => {
-                      setOpenEditDialog(user);
-                      setEditUser({
-                        username: user.username,
-                        fullName: user.fullName,
-                        telegram: user.telegram,
-                        city: user.city,
-                        role: user.role,
-                        rate: user.rate,
-                      });
-                    }}
-                    onDelete={(user) => setOpenDeleteDialog(user)}
-                    onAssign={openAssignmentDialog}
-                    onUnassignClick={handleUnassignClick}
-                    onOpenAccountantAssignment={handleOpenAccountantAssignment}
+                    onClick={setOpenUserDetailsDialog}
                     getRoleColor={getRoleColor}
                     getRoleIcon={getRoleIcon}
                   />
@@ -2081,7 +2237,7 @@ const handleRemoveGroupFromCluster = async (groupId: number, clusterId: number) 
               </Button>
             </Box>
 
-            <Grid container spacing={2}>
+            <Grid container spacing={1.5}>
               {groups.map(group => (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={group.id}>
                   <GroupCard
@@ -2129,7 +2285,7 @@ const handleRemoveGroupFromCluster = async (groupId: number, clusterId: number) 
               </Button>
             </Box>
 
-            <Grid container spacing={2}>
+            <Grid container spacing={1.5}>
               {clusters.map(cluster => (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }} key={cluster.id}>
                   <ClusterCard
@@ -2158,6 +2314,35 @@ const handleRemoveGroupFromCluster = async (groupId: number, clusterId: number) 
         )}
       </Paper>
 
+      {/* Модальное окно с деталями пользователя */}
+      <UserDetailsDialog
+        open={!!openUserDetailsDialog}
+        user={openUserDetailsDialog}
+        onClose={() => setOpenUserDetailsDialog(null)}
+        onEdit={(user) => {
+          setOpenEditDialog(user);
+          setEditUser({
+            username: user.username,
+            fullName: user.fullName,
+            telegram: user.telegram,
+            city: user.city,
+            role: user.role,
+            rate: user.rate,
+          });
+        }}
+        onDelete={(user) => setOpenDeleteDialog(user)}
+        onAssign={openAssignmentDialog}
+        onUnassignClick={handleUnassignClick}
+        onOpenAccountantAssignment={handleOpenAccountantAssignment}
+        onChangePassword={handleChangePassword}
+        groups={groups}
+        clusters={clusters}
+        users={users}
+        loading={loading}
+        getRoleColor={getRoleColor}
+        getRoleIcon={getRoleIcon}
+      />
+
       {/* Диалог добавления группы в куст */}
       <AddGroupToClusterDialog
         open={openAddGroupToClusterDialog.open}
@@ -2167,7 +2352,7 @@ const handleRemoveGroupFromCluster = async (groupId: number, clusterId: number) 
         loading={loading}
       />
 
-      {/* Остальные диалоги (создание, редактирование, удаление) - они остаются без изменений */}
+      {/* Остальные диалоги (создание, редактирование, удаление) */}
       <Dialog open={openCreateDialog} onClose={() => setOpenCreateDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Создать пользователя</DialogTitle>
         <DialogContent>

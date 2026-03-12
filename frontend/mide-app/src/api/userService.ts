@@ -305,6 +305,18 @@ export const userService = {
       throw error;
     }
   },
+  changeUserPassword: async (userId: number, newPassword: string): Promise<{ message: string }> => {
+    try {
+      const response = await axiosInstance.post<{ message: string }>(
+        `/api/users/${userId}/change-password`,
+        { password: newPassword }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error changing user password:', error);
+      throw error;
+    }
+  },
 };
 
 // Вспомогательные функции для работы со связями пользователей

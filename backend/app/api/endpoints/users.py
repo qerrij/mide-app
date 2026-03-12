@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.crud.user import crud_user
-from app.schemas.user import UserBasicResponse, UserNameResponse, UserResponse, UserCreate, UserUpdate, UserRole, UsersNamesResponse
+from app.schemas.user import UserBasicResponse, UserNameResponse, UserResponse, UserCreate, UserUpdate, UserRole, UsersNamesResponse, UserPasswordChange
 from app.api.dependencies import get_current_user, require_role, require_roles
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -424,3 +424,39 @@ def get_available_senior_sellers(
     return senior_sellers
 
 
+@router.post("/{user_id}/change-password", status_code=status.HTTP_200_OK)
+def change_user_password(
+    user_id: int,
+    password_data: UserPasswordChange,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))  # Только OWNER
+):
+    """
+    Смена пароля пользователя (только для владельца системы)
+    """
+    try:
+        # Проверяем существование пользователя
+        user = crud_user.get(db, user_id=user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Пользователь не найден"
+            )
+        
+        # Меняем пароль
+        updated_user = crud_user.change_password(
+            db, 
+            user_id=user_id, 
+            new_password=password_data.password
+        )
+        
+        if not updated_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Не удалось изменить пароль"
+            )
+        
+        return {"message": "Пароль успешно изменен"}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

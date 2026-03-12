@@ -3,7 +3,7 @@ from sqlalchemy import and_, or_, func, desc, case
 from typing import List, Optional, Dict, Tuple
 import json
 from datetime import datetime, date
-from app.models.inventory import UserInventory
+from app.models.inventory import InventoryReservation, UserInventory, ReservationType, ReservationStatus
 from app.models.rejection import Rejection, RejectionItem, RejectionStatus
 from app.models.user import User, UserRole
 from app.models.product import Product
@@ -68,15 +68,14 @@ class CRUDRejection:
         
         # Фильтрация по роли пользователя
         if current_user.role == UserRole.OWNER:
-            # Владелец видит все браки - не добавляем фильтр по user_id
+            # Владелец видит все браки
             pass
         
         elif current_user.role == UserRole.ADMIN:
             # Администратор видит браки своих подчиненных (кустов)
-            admin_clusters = current_user.admin_clusters  # Это вызовет property и вернет список
+            admin_clusters = current_user.admin_clusters
             
-            if admin_clusters:  # список не пустой
-                # Преобразуем все ID в целые числа (хотя они уже должны быть числами из JSON)
+            if admin_clusters:
                 cluster_ids = []
                 for cid in admin_clusters:  
                     if cid is not None:
@@ -86,7 +85,6 @@ class CRUDRejection:
                             cluster_ids.append(cid)
                 
                 if cluster_ids:
-                    # Находим пользователей в кустах администратора
                     subquery = db.query(User.id).filter(
                         User.cluster_id.in_(cluster_ids),
                         User.is_active == True
@@ -94,10 +92,11 @@ class CRUDRejection:
                     query = query.filter(Rejection.user_id.in_(subquery))
                 else:
                     query = query.filter(Rejection.user_id == current_user.id)
+            else:
+                query = query.filter(Rejection.user_id == current_user.id)
         
         else:
-            # Все остальные роли (SELLER, MENTOR, SENIOR_SELLER, ACCOUNTANT) 
-            # видят только свои собственные браки
+            # Все остальные роли видят только свои собственные браки
             query = query.filter(Rejection.user_id == current_user.id)
         
         # Применяем дополнительные фильтры
@@ -139,16 +138,12 @@ class CRUDRejection:
                 ).subquery()
                 query = query.filter(Rejection.user_id.in_(subquery))
         
-        # Получаем результат
-        result = query.order_by(Rejection.created_at.desc()).offset(skip).limit(limit).all()
-        
-        return result
+        return query.order_by(Rejection.created_at.desc()).offset(skip).limit(limit).all()
     
     def _get_users_to_notify_for_rejection(self, db: Session, user_id: int) -> List[int]:
         """
         Получить пользователей, которые могут проверить брак (админы и владельцы)
         """
-        # Получаем информацию о пользователе, создавшем брак
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             return []
@@ -170,7 +165,6 @@ class CRUDRejection:
             ).all()
             
             for admin in admins:
-                # Проверяем, есть ли у администратора этот куст
                 admin_clusters = []
                 if admin.admin_clusters:
                     try:
@@ -182,12 +176,9 @@ class CRUDRejection:
                         print(f"Error parsing admin_clusters: {e}")
                         continue
                 
-                # Приводим cluster_id пользователя к int для сравнения
                 user_cluster_id = int(user.cluster_id) if user.cluster_id else None
                 
-                # Проверяем, есть ли куст пользователя в списке админа
                 if admin_clusters and user_cluster_id:
-                    # Пробуем разные типы сравнения
                     if (user_cluster_id in admin_clusters or 
                         str(user_cluster_id) in [str(c) for c in admin_clusters]):
                         users_to_notify.append(admin.id)
@@ -205,10 +196,7 @@ class CRUDRejection:
         rejection: Rejection, 
         user: User
     ):
-        """
-        Создать уведомления о создании запроса на брак
-        """
-        # Получаем пользователей для уведомления
+        """Создать уведомления о создании запроса на брак"""
         users_to_notify = self._get_users_to_notify_for_rejection(db, rejection.user_id)
         
         if not users_to_notify:
@@ -248,10 +236,7 @@ class CRUDRejection:
         old_status: RejectionStatus,
         new_status: RejectionStatus
     ):
-        """
-        Создать уведомления об изменении статуса брака
-        """
-        # Уведомляем только создателя брака
+        """Создать уведомления об изменении статуса брака"""
         if old_status == new_status or new_status == RejectionStatus.CANCELLED:
             return
         
@@ -298,6 +283,7 @@ class CRUDRejection:
                 sender_id=reviewer.id
             )
     
+    # 🔴 ИСПРАВЛЕНИЕ: Теперь резервируем, а не списываем
     def create(
         self,
         db: Session,
@@ -306,16 +292,19 @@ class CRUDRejection:
         photo_paths: List[str] = None,
         video_paths: List[str] = None
     ) -> Rejection:
-        """Создать запрос на брак"""
+        """Создать запрос на брак (резервируем товары)"""
         try:
-            # Проверяем доступность товаров у пользователя
+            # Проверяем доступность товаров у пользователя (с учетом всех резервов)
             for item in rejection_in.items:
-                # Получаем текущее количество товара у пользователя
-                current_quantity = crud_inventory.get_user_product_quantity(db, user_id, item.product_id)
-                if current_quantity < item.quantity:
+                # check_availability возвращает 3 значения: (достаточно_ли, доступно, всего)
+                is_available, available, total = crud_inventory.check_availability(
+                    db, user_id, item.product_id, item.quantity
+                )
+                
+                if not is_available:
                     raise ValueError(
                         f"Недостаточно товара ID {item.product_id}. "
-                        f"Доступно: {current_quantity}, требуется: {item.quantity}"
+                        f"Доступно с учетом резервов: {available}, требуется: {item.quantity}"
                     )
                 
                 # Проверяем существование товара
@@ -341,17 +330,15 @@ class CRUDRejection:
                 db_rejection.video_paths = json.dumps(video_paths)
             
             db.add(db_rejection)
-            db.flush()  # Получаем ID без коммита
+            db.flush()
             
-            # Создаем позиции брака
+            # Создаем позиции брака и резервируем товары
             total_items = 0
             total_value = 0.0
             
             for item in rejection_in.items:
-                # Получаем товар
                 product = db.query(Product).filter(Product.id == item.product_id).first()
                 
-                # Создаем позицию
                 db_item = RejectionItem(
                     rejection_id=db_rejection.id,
                     product_id=item.product_id,
@@ -362,10 +349,18 @@ class CRUDRejection:
                 
                 db.add(db_item)
                 
+                # Резервируем товар для брака
+                crud_inventory.reserve_for_rejection(
+                    db,
+                    user_id=user_id,
+                    product_id=item.product_id,
+                    quantity=item.quantity,
+                    rejection_id=db_rejection.id
+                )
+                
                 total_items += item.quantity
                 total_value += db_item.total_price
             
-            # Обновляем итоговые значения
             db_rejection.total_items = total_items
             db_rejection.total_value = total_value
             
@@ -378,7 +373,7 @@ class CRUDRejection:
             # Загружаем товары для уведомления
             db_rejection = self.get(db, db_rejection.id)
             
-            # СОЗДАЕМ УВЕДОМЛЕНИЯ
+            # Создаем уведомления
             if db_rejection:
                 self._create_rejection_request_notifications(db, db_rejection, user)
             
@@ -388,6 +383,7 @@ class CRUDRejection:
             db.rollback()
             raise e
     
+    # 🔴 ИСПРАВЛЕНИЕ: Обновляем статус с правильной обработкой резервов
     def update_status(
         self,
         db: Session,
@@ -413,13 +409,14 @@ class CRUDRejection:
         if comment:
             db_rejection.comment = comment
         
-        # Если статус изменился на APPROVED, списываем товары из инвентаря
-        if old_status != RejectionStatus.APPROVED and status == RejectionStatus.APPROVED:
-            self._apply_rejection(db, db_rejection)
-        
-        # Если статус изменился с APPROVED на что-то другое, отменяем списание
-        elif old_status == RejectionStatus.APPROVED and status != RejectionStatus.APPROVED:
-            self._revert_rejection(db, db_rejection)
+        # 🔴 НОВОЕ: Обработка резервов в зависимости от нового статуса
+        if old_status == RejectionStatus.PENDING:
+            if status == RejectionStatus.APPROVED:
+                # Брак подтвержден - потребляем резервы (списываем товары)
+                self._consume_rejection_reservations(db, db_rejection)
+            elif status == RejectionStatus.REJECTED:
+                # Брак отклонен - освобождаем резервы
+                self._release_rejection_reservations(db, db_rejection)
         
         db.commit()
         
@@ -430,31 +427,60 @@ class CRUDRejection:
         # Получаем пользователя, который изменил статус
         reviewer = db.query(User).filter(User.id == reviewer_id).first()
         
-        # СОЗДАЕМ УВЕДОМЛЕНИЯ ОБ ИЗМЕНЕНИИ СТАТУСА
+        # Создаем уведомления об изменении статуса
         if reviewer and old_status != status:
             self._create_rejection_status_notifications(db, updated_rejection, reviewer, old_status, status)
         
         return updated_rejection
     
-    def _apply_rejection(self, db: Session, rejection: Rejection):
-        """Списать товары из инвентаря"""
+    # 🔴 НОВЫЙ МЕТОД: Потребить резервы брака (списать товары)
+    def _consume_rejection_reservations(self, db: Session, rejection: Rejection):
+        """Потребить резервы брака (списать товары)"""
         for item in rejection.items:
-            crud_inventory.update_inventory(
-                db,
-                user_id=rejection.user_id,
-                product_id=item.product_id,
-                quantity_change=-item.quantity
-            )
+            # Находим активный резерв для этого товара и брака
+            reservation = db.query(InventoryReservation).filter(
+                InventoryReservation.user_id == rejection.user_id,
+                InventoryReservation.product_id == item.product_id,
+                InventoryReservation.reservation_type == ReservationType.REJECTION,
+                InventoryReservation.reservation_id == rejection.id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).first()
+            
+            if reservation:
+                # Потребляем резерв
+                reservation.status = ReservationStatus.CONSUMED
+                reservation.consumed_at = datetime.now()
+                
+                # Уменьшаем общее количество товара
+                inventory = db.query(UserInventory).filter(
+                    UserInventory.user_id == rejection.user_id,
+                    UserInventory.product_id == item.product_id
+                ).first()
+                
+                if inventory:
+                    inventory.quantity -= item.quantity
     
-    def _revert_rejection(self, db: Session, rejection: Rejection):
-        """Вернуть товары в инвентарь"""
+    # 🔴 НОВЫЙ МЕТОД: Освободить резервы брака (при отклонении)
+    def _release_rejection_reservations(self, db: Session, rejection: Rejection):
+        """Освободить резервы брака (при отклонении)"""
         for item in rejection.items:
-            crud_inventory.update_inventory(
-                db,
-                user_id=rejection.user_id,
-                product_id=item.product_id,
-                quantity_change=item.quantity
-            )
+            # Находим активный резерв для этого товара и брака
+            reservation = db.query(InventoryReservation).filter(
+                InventoryReservation.user_id == rejection.user_id,
+                InventoryReservation.product_id == item.product_id,
+                InventoryReservation.reservation_type == ReservationType.REJECTION,
+                InventoryReservation.reservation_id == rejection.id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).first()
+            
+            if reservation:
+                # Освобождаем резерв
+                reservation.status = ReservationStatus.RELEASED
+                reservation.released_at = datetime.now()
+                
+                # Количество товара не меняем, просто убираем резерв
+    
+    # 🔴 Удаляем старые методы _apply_rejection и _revert_rejection, так как они больше не нужны
     
     def get_user_available_products(self, db: Session, user_id: int) -> List[Dict]:
         """Получить список товаров доступных для брака у пользователя"""
@@ -470,13 +496,17 @@ class CRUDRejection:
         result = []
         for item in inventory_items:
             if item.product:
+                # Получаем доступное количество (с учетом всех резервов)
+                available = crud_inventory.get_available_quantity(db, user_id, item.product_id)
+                
                 result.append({
                     "product_id": item.product_id,
                     "product_name": item.product.name,
                     "product_sku": item.product.sku,
                     "category_id": item.product.category_id,
                     "category_name": item.product.category.name if item.product.category else None,
-                    "available_quantity": item.quantity,
+                    "available_quantity": available,  # Показываем только доступное
+                    "total_quantity": item.quantity,  # Общее количество для информации
                     "price": item.product.price
                 })
         
@@ -504,7 +534,7 @@ class CRUDRejection:
             if not target_user:
                 raise ValueError("Пользователь не найден")
             
-            # 1. Статистика целевого пользователя
+            # 1. Статистика целевого пользователя (только APPROVED браки)
             user_stats_list = self.get_user_rejection_stats(
                 db=db,
                 current_user=current_user,
@@ -524,7 +554,7 @@ class CRUDRejection:
                 "products_count": 0
             }
             
-            # 2. Детальная статистика по товарам целевого пользователя
+            # 2. Детальная статистика по товарам целевого пользователя (только APPROVED)
             user_products_stats = self.get_user_product_rejection_stats(
                 db=db,
                 current_user=current_user,
@@ -547,13 +577,11 @@ class CRUDRejection:
                         date_to=date_to
                     )
                     
-                    # Пропускаем подчиненных без брака
                     if not sub_stats_list:
                         continue
                         
                     sub_stat = sub_stats_list[0]
                     
-                    # Пропускаем если нет брака
                     if sub_stat.get("total_rejections", 0) == 0 and sub_stat.get("total_value", 0) == 0:
                         continue
                     
@@ -600,24 +628,18 @@ class CRUDRejection:
             print(f"Error in get_combined_rejection_stats: {str(e)}")
             traceback.print_exc()
             raise Exception(f"Ошибка при получении статистики: {str(e)}")
-                
     
     def _get_visible_user_ids(self, db: Session, current_user: User) -> List[int]:
-        """
-        Вспомогательная функция: получить ID пользователей, которых может видеть текущий пользователь
-        """
+        """Вспомогательная функция: получить ID пользователей, которых может видеть текущий пользователь"""
         visible_user_ids = []
                 
         if current_user.role == UserRole.OWNER:
-            # Владелец видит всех
             all_users = db.query(User.id).filter(User.is_active == True).all()
             visible_user_ids = [u[0] for u in all_users]
         
         elif current_user.role == UserRole.ADMIN:
-            # Администратор видит себя + пользователей из своих кустов
             visible_user_ids.append(current_user.id)
             
-            # ВАЖНО: Используем более надежную обработку JSON
             admin_clusters = []
             if current_user.admin_clusters:
                 try:
@@ -630,25 +652,20 @@ class CRUDRejection:
                     admin_clusters = []
                         
             if admin_clusters:
-                # Преобразуем все ID в строки для сравнения, т.к. в БД они могут храниться как строки
                 cluster_ids = []
                 for cluster_id in admin_clusters:
                     if cluster_id is not None:
                         try:
-                            # Конвертируем в int если возможно
                             cluster_ids.append(int(cluster_id))
                         except (ValueError, TypeError):
-                            # Иначе оставляем как есть
                             cluster_ids.append(cluster_id)
                 
                 if cluster_ids:
-                    # Пробуем оба варианта сравнения
                     users_in_clusters = db.query(User.id).filter(
                         User.cluster_id.in_(cluster_ids),
                         User.is_active == True
                     ).all()
                     
-                    # Также проверяем строковые представления
                     cluster_ids_str = [str(cid) for cid in cluster_ids]
                     users_in_clusters_str = db.query(User.id).filter(
                         User.cluster_id.in_(cluster_ids_str),
@@ -657,14 +674,11 @@ class CRUDRejection:
                     
                     all_users = list(set([u[0] for u in users_in_clusters] + [u[0] for u in users_in_clusters_str]))
                     visible_user_ids.extend(all_users)
-                    
         
         elif current_user.role == UserRole.SENIOR_SELLER:
-            # Старший продавец видит себя + пользователей своего куста
             visible_user_ids.append(current_user.id)
             
             if current_user.cluster_id:
-                # Получаем ID куста как строку для надежности
                 cluster_id = str(current_user.cluster_id)
                 users_in_cluster = db.query(User.id).filter(
                     User.cluster_id == cluster_id,
@@ -673,7 +687,6 @@ class CRUDRejection:
                 visible_user_ids.extend([u[0] for u in users_in_cluster])
         
         elif current_user.role == UserRole.MENTOR:
-            # Ментор видит себя + своих подопечных
             visible_user_ids.append(current_user.id)
             
             mentored_users = db.query(User.id).filter(
@@ -683,12 +696,9 @@ class CRUDRejection:
             visible_user_ids.extend([u[0] for u in mentored_users])
         
         else:
-            # SELLER, ACCOUNTANT и другие видят только себя
             visible_user_ids.append(current_user.id)
         
-        # Убираем дубликаты
-        result = list(set(visible_user_ids))
-        return result
+        return list(set(visible_user_ids))
     
     def get_product_rejection_stats(
         self,
@@ -703,10 +713,8 @@ class CRUDRejection:
         Получить статистику браков по товарам
         Только APPROVED браки
         """
-        # Определяем пользователей, которых может видеть текущий пользователь
         visible_user_ids = self._get_visible_user_ids(db, current_user)
         
-        # Базовый запрос для утвержденных браков
         query = db.query(
             RejectionItem.product_id,
             Product.name.label('product_name'),
@@ -726,26 +734,21 @@ class CRUDRejection:
             Rejection.status == RejectionStatus.APPROVED
         )
         
-        # Фильтрация по правам доступа
         if current_user.role != UserRole.OWNER and visible_user_ids:
             query = query.filter(Rejection.user_id.in_(visible_user_ids))
         
-        # Фильтрация по товару
         if product_id:
             query = query.filter(RejectionItem.product_id == product_id)
         
-        # Фильтрация по категории
         if category_id:
             query = query.filter(Product.category_id == category_id)
         
-        # Фильтрация по дате
         if date_from:
             query = query.filter(Rejection.created_at >= date_from)
         
         if date_to:
             query = query.filter(Rejection.created_at <= date_to)
         
-        # Группировка и сортировка
         query = query.group_by(
             RejectionItem.product_id,
             Product.name,
@@ -782,17 +785,13 @@ class CRUDRejection:
         Получить статистику браков по пользователям
         Только APPROVED браки
         """
-        # Определяем пользователей, которых может видеть текущий пользователь
         visible_user_ids = self._get_visible_user_ids(db, current_user)
         
-        # Если указан конкретный user_id, проверяем права доступа
         if user_id and user_id not in visible_user_ids and current_user.role != UserRole.OWNER:
             return []
         
-        # Фильтр по пользователю если указан
         target_user_ids = [user_id] if user_id else visible_user_ids
         
-        # Базовый запрос для статистики по пользователям
         query = db.query(
             Rejection.user_id,
             User.full_name.label('user_name'),
@@ -815,14 +814,12 @@ class CRUDRejection:
         if target_user_ids:
             query = query.filter(Rejection.user_id.in_(target_user_ids))
         
-        # Фильтрация по дате
         if date_from:
             query = query.filter(Rejection.created_at >= date_from)
         
         if date_to:
             query = query.filter(Rejection.created_at <= date_to)
         
-        # Группировка и сортировка
         query = query.group_by(
             Rejection.user_id,
             User.full_name,
@@ -862,10 +859,8 @@ class CRUDRejection:
         Получить детальную статистику браков по пользователю и товарам
         Только APPROVED браки
         """
-        # Определяем пользователей, которых может видеть текущий пользователь
         visible_user_ids = self._get_visible_user_ids(db, current_user)
         
-        # Если указан конкретный user_id, проверяем права доступа
         if user_id:
             if user_id not in visible_user_ids and current_user.role != UserRole.OWNER:
                 return []
@@ -873,7 +868,6 @@ class CRUDRejection:
         else:
             target_user_ids = visible_user_ids
         
-        # Базовый запрос
         query = db.query(
             Rejection.user_id,
             User.full_name.label('user_name'),
@@ -899,26 +893,21 @@ class CRUDRejection:
         if target_user_ids:
             query = query.filter(Rejection.user_id.in_(target_user_ids))
         
-        # Фильтрация по товару
         if product_id:
             query = query.filter(RejectionItem.product_id == product_id)
         
-        # Фильтрация по категории
         if category_id:
             query = query.filter(Product.category_id == category_id)
         
-        # Фильтрация по названию товара
         if product_name:
             query = query.filter(Product.name.ilike(f"%{product_name}%"))
         
-        # Фильтрация по дате
         if date_from:
             query = query.filter(Rejection.created_at >= date_from)
         
         if date_to:
             query = query.filter(Rejection.created_at <= date_to)
         
-        # Группировка и сортировка
         query = query.group_by(
             Rejection.user_id,
             User.full_name,
@@ -957,31 +946,25 @@ class CRUDRejection:
         """
         Получить детальную статистику браков
         """
-        # Определяем пользователей, которых может видеть текущий пользователь
         visible_user_ids = self._get_visible_user_ids(db, current_user)
         
-        # Базовый запрос для утвержденных браков
         query = db.query(Rejection).join(
             RejectionItem, Rejection.id == RejectionItem.rejection_id
         ).filter(
             Rejection.status == RejectionStatus.APPROVED
         )
         
-        # Фильтрация по правам доступа
         if current_user.role != UserRole.OWNER and visible_user_ids:
             query = query.filter(Rejection.user_id.in_(visible_user_ids))
         
-        # Фильтрация по дате
         if date_from:
             query = query.filter(Rejection.created_at >= date_from)
         
         if date_to:
             query = query.filter(Rejection.created_at <= date_to)
         
-        # Общая статистика
         total_rejections = query.count()
         
-        # Суммарное количество товаров и стоимость
         total_stats = db.query(
             func.sum(RejectionItem.quantity).label('total_items'),
             func.sum(RejectionItem.total_price).label('total_value')
@@ -991,7 +974,6 @@ class CRUDRejection:
             Rejection.status == RejectionStatus.APPROVED
         )
         
-        # Фильтрация по правам доступа
         if current_user.role != UserRole.OWNER and visible_user_ids:
             total_stats = total_stats.filter(Rejection.user_id.in_(visible_user_ids))
         
@@ -1003,7 +985,6 @@ class CRUDRejection:
         
         total_result = total_stats.first()
         
-        # Количество уникальных пользователей и товаров
         unique_users = db.query(
             func.count(func.distinct(Rejection.user_id))
         ).filter(
@@ -1018,7 +999,6 @@ class CRUDRejection:
             Rejection.status == RejectionStatus.APPROVED
         )
         
-        # Фильтрация по правам доступа
         if current_user.role != UserRole.OWNER and visible_user_ids:
             unique_users = unique_users.filter(Rejection.user_id.in_(visible_user_ids))
             unique_products = unique_products.filter(Rejection.user_id.in_(visible_user_ids))
@@ -1034,7 +1014,6 @@ class CRUDRejection:
         users_count = unique_users.scalar() or 0
         products_count = unique_products.scalar() or 0
         
-        # Статистика по месяцам
         monthly_stats = []
         if period == "month":
             monthly_query = db.query(
@@ -1048,7 +1027,6 @@ class CRUDRejection:
                 Rejection.status == RejectionStatus.APPROVED
             )
             
-            # Фильтрация по правам доступа
             if current_user.role != UserRole.OWNER and visible_user_ids:
                 monthly_query = monthly_query.filter(Rejection.user_id.in_(visible_user_ids))
             
@@ -1092,6 +1070,9 @@ class CRUDRejection:
         
         if rejection.status != RejectionStatus.PENDING:
             return False
+        
+        # 🔴 НОВОЕ: Освобождаем резервы перед отменой
+        self._release_rejection_reservations(db, rejection)
         
         rejection.status = RejectionStatus.CANCELLED
         db.commit()

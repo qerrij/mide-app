@@ -1,11 +1,17 @@
 import json
 from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional, Dict
 from sqlalchemy import func, and_
-from app.models.inventory import UserInventory
+from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime
+from app.models.inventory import UserInventory, InventoryReservation, ReservationType, ReservationStatus
 from app.models.user import User, UserRole
+from app.models.product import Product
+
 
 class CRUDInventory:
+    
+    # ==================== БАЗОВЫЕ МЕТОДЫ ====================
+    
     def get_user_inventory(self, db: Session, user_id: int) -> List[UserInventory]:
         """Получить весь инвентарь пользователя"""
         return db.query(UserInventory).filter(
@@ -25,10 +31,11 @@ class CRUDInventory:
         db: Session, 
         user_id: int, 
         product_id: int, 
-        quantity_change: int,
-        reserved_change: int = 0
+        quantity_change: int
     ) -> UserInventory:
-        """Обновить инвентарь пользователя"""
+        """
+        Обновить инвентарь пользователя (только общее количество)
+        """
         inventory = db.query(UserInventory).filter(
             UserInventory.user_id == user_id,
             UserInventory.product_id == product_id
@@ -38,14 +45,12 @@ class CRUDInventory:
             inventory = UserInventory(
                 user_id=user_id,
                 product_id=product_id,
-                quantity=quantity_change,
-                reserved_quantity=reserved_change
+                quantity=quantity_change
             )
             db.add(inventory)
         else:
             inventory.quantity += quantity_change
-            inventory.reserved_quantity += reserved_change
-            
+        
         db.commit()
         db.refresh(inventory)
         return inventory
@@ -67,15 +72,22 @@ class CRUDInventory:
             
             total = sum(item.quantity for item in inventory)
             
-            # Преобразуем объекты модели в словари
             items = []
             for item in inventory:
+                # Получаем активные резервы для этого товара
+                reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                    InventoryReservation.user_id == user_id,
+                    InventoryReservation.product_id == item.product_id,
+                    InventoryReservation.status == ReservationStatus.ACTIVE
+                ).scalar() or 0
+                
                 items.append({
                     "id": item.id,
                     "user_id": item.user_id,
                     "product_id": item.product_id,
                     "quantity": item.quantity,
-                    "reserved_quantity": item.reserved_quantity,
+                    "reserved_quantity": reserved,
+                    "available_quantity": item.quantity - reserved,
                     "product_name": item.product.name if item.product else None,
                     "product_sku": item.product.sku if item.product else None,
                     "product_price": item.product.price if item.product else None,
@@ -106,12 +118,19 @@ class CRUDInventory:
             ).all()
             
             for item in own_inventory:
+                reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                    InventoryReservation.user_id == user_id,
+                    InventoryReservation.product_id == item.product_id,
+                    InventoryReservation.status == ReservationStatus.ACTIVE
+                ).scalar() or 0
+                
                 all_items.append({
                     "id": item.id,
                     "user_id": item.user_id,
                     "product_id": item.product_id,
                     "quantity": item.quantity,
-                    "reserved_quantity": item.reserved_quantity,
+                    "reserved_quantity": reserved,
+                    "available_quantity": item.quantity - reserved,
                     "product_name": item.product.name if item.product else None,
                     "product_sku": item.product.sku if item.product else None,
                     "product_price": item.product.price if item.product else None,
@@ -129,12 +148,19 @@ class CRUDInventory:
                 ).all()
                 
                 for item in seller_inventory:
+                    reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                        InventoryReservation.user_id == seller.id,
+                        InventoryReservation.product_id == item.product_id,
+                        InventoryReservation.status == ReservationStatus.ACTIVE
+                    ).scalar() or 0
+                    
                     all_items.append({
                         "id": item.id,
                         "user_id": item.user_id,
                         "product_id": item.product_id,
                         "quantity": item.quantity,
-                        "reserved_quantity": item.reserved_quantity,
+                        "reserved_quantity": reserved,
+                        "available_quantity": item.quantity - reserved,
                         "product_name": item.product.name if item.product else None,
                         "product_sku": item.product.sku if item.product else None,
                         "product_price": item.product.price if item.product else None,
@@ -166,12 +192,19 @@ class CRUDInventory:
                 ).all()
                 
                 for item in user_inventory:
+                    reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                        InventoryReservation.user_id == cluster_user.id,
+                        InventoryReservation.product_id == item.product_id,
+                        InventoryReservation.status == ReservationStatus.ACTIVE
+                    ).scalar() or 0
+                    
                     all_items.append({
                         "id": item.id,
                         "user_id": item.user_id,
                         "product_id": item.product_id,
                         "quantity": item.quantity,
-                        "reserved_quantity": item.reserved_quantity,
+                        "reserved_quantity": reserved,
+                        "available_quantity": item.quantity - reserved,
                         "product_name": item.product.name if item.product else None,
                         "product_sku": item.product.sku if item.product else None,
                         "product_price": item.product.price if item.product else None,
@@ -189,7 +222,6 @@ class CRUDInventory:
             # Товары своих кустов + собственные товары
             admin_clusters = []
             
-            # Проверяем, является ли admin_clusters строкой или уже списком
             if user.admin_clusters:
                 if isinstance(user.admin_clusters, str):
                     try:
@@ -202,7 +234,7 @@ class CRUDInventory:
             all_items = []
             total_quantity = 0
             
-            # ВАЖНО: Добавляем инвентарь самого администратора
+            # Добавляем инвентарь самого администратора
             admin_inventory = db.query(UserInventory).options(
                 joinedload(UserInventory.product)
             ).filter(
@@ -210,12 +242,19 @@ class CRUDInventory:
             ).all()
             
             for item in admin_inventory:
+                reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                    InventoryReservation.user_id == user.id,
+                    InventoryReservation.product_id == item.product_id,
+                    InventoryReservation.status == ReservationStatus.ACTIVE
+                ).scalar() or 0
+                
                 all_items.append({
                     "id": item.id,
                     "user_id": item.user_id,
                     "product_id": item.product_id,
                     "quantity": item.quantity,
-                    "reserved_quantity": item.reserved_quantity,
+                    "reserved_quantity": reserved,
+                    "available_quantity": item.quantity - reserved,
                     "product_name": item.product.name if item.product else None,
                     "product_sku": item.product.sku if item.product else None,
                     "product_price": item.product.price if item.product else None,
@@ -224,20 +263,18 @@ class CRUDInventory:
                 })
                 total_quantity += item.quantity
             
-            # Если есть кусты под управлением, добавляем товары пользователей из этих кустов
+            # Добавляем товары пользователей из кустов
             if admin_clusters:
-                # Преобразуем все ID кластеров в целые числа
                 try:
                     cluster_ids = [int(cluster_id) for cluster_id in admin_clusters if cluster_id]
                 except ValueError:
                     cluster_ids = []
                 
                 if cluster_ids:
-                    # Находим пользователей в указанных кластерах (кроме самого администратора)
                     users_in_clusters = db.query(User).filter(
                         User.cluster_id.in_(cluster_ids),
                         User.is_active == True,
-                        User.id != user.id  # Исключаем самого администратора
+                        User.id != user.id
                     ).all()
                     
                     for cluster_user in users_in_clusters:
@@ -248,12 +285,19 @@ class CRUDInventory:
                         ).all()
                         
                         for item in user_inventory:
+                            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                                InventoryReservation.user_id == cluster_user.id,
+                                InventoryReservation.product_id == item.product_id,
+                                InventoryReservation.status == ReservationStatus.ACTIVE
+                            ).scalar() or 0
+                            
                             all_items.append({
                                 "id": item.id,
                                 "user_id": item.user_id,
                                 "product_id": item.product_id,
                                 "quantity": item.quantity,
-                                "reserved_quantity": item.reserved_quantity,
+                                "reserved_quantity": reserved,
+                                "available_quantity": item.quantity - reserved,
                                 "product_name": item.product.name if item.product else None,
                                 "product_sku": item.product.sku if item.product else None,
                                 "product_price": item.product.price if item.product else None,
@@ -282,12 +326,20 @@ class CRUDInventory:
                 ).all()
                 
                 for item in user_inventory:
+                    # Получаем активные резервы для этого пользователя
+                    reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                        InventoryReservation.user_id == db_user.id,
+                        InventoryReservation.product_id == item.product_id,
+                        InventoryReservation.status == ReservationStatus.ACTIVE
+                    ).scalar() or 0
+                    
                     all_items.append({
                         "id": item.id,
                         "user_id": item.user_id,
                         "product_id": item.product_id,
                         "quantity": item.quantity,
-                        "reserved_quantity": item.reserved_quantity,
+                        "reserved_quantity": reserved,
+                        "available_quantity": item.quantity - reserved,
                         "product_name": item.product.name if item.product else None,
                         "product_sku": item.product.sku if item.product else None,
                         "product_price": item.product.price if item.product else None,
@@ -303,78 +355,418 @@ class CRUDInventory:
         
         return {"quantity": 0, "items": []}
     
-    def reserve_products_for_report(
-        self, 
-        db: Session, 
-        user_id: int, 
-        products: List[Dict]
-    ) -> bool:
-        """Резервировать товары для отчета"""
-        for product in products:
-            product_id = product.get('product_id')
-            quantity = product.get('quantity', 0)
-            
-            current_quantity = self.get_user_product_quantity(db, user_id, product_id)
-            
-            if current_quantity < quantity:
-                raise ValueError(f"Недостаточно товара {product_id}. Доступно: {current_quantity}, требуется: {quantity}")
-            
-            # Резервируем товар
-            self.update_inventory(
-                db, 
-                user_id, 
-                product_id, 
-                quantity_change=-quantity,
-                reserved_change=quantity
+    # ==================== МЕТОДЫ ДЛЯ РАБОТЫ С РЕЗЕРВАМИ ====================
+    
+    def get_available_quantity(self, db: Session, user_id: int, product_id: int) -> int:
+        """
+        Получить доступное количество товара (общее - все активные резервы)
+        """
+        total = self.get_user_product_quantity(db, user_id, product_id)
+        
+        reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.product_id == product_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).scalar() or 0
+        
+        return total - reserved
+    
+    def check_availability(self, db: Session, user_id: int, product_id: int, 
+                          required_quantity: int) -> Tuple[bool, int, int]:
+        """
+        Проверить доступность товара
+        """
+        available = self.get_available_quantity(db, user_id, product_id)
+        total = self.get_user_product_quantity(db, user_id, product_id)
+        
+        return required_quantity <= available, available, total
+    
+    # ==================== УПРАВЛЕНИЕ РЕЗЕРВАМИ ДЛЯ ПЕРЕМЕЩЕНИЙ ====================
+    
+    def reserve_for_transfer(self, db: Session, user_id: int, product_id: int, 
+                            quantity: int, transfer_id: int) -> InventoryReservation:
+        """
+        Зарезервировать товар для перемещения
+        """
+        # Получаем или создаем запись инвентаря
+        inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == user_id,
+            UserInventory.product_id == product_id
+        ).first()
+        
+        if not inventory:
+            inventory = UserInventory(
+                user_id=user_id,
+                product_id=product_id,
+                quantity=0
+            )
+            db.add(inventory)
+            db.flush()
+        
+        # Проверяем доступность
+        available = self.get_available_quantity(db, user_id, product_id)
+        if available < quantity:
+            raise ValueError(
+                f"Недостаточно товара ID {product_id}. "
+                f"Доступно: {available}, требуется: {quantity}"
             )
         
+        # Создаем резерв
+        reservation = InventoryReservation(
+            inventory_id=inventory.id,
+            user_id=user_id,
+            product_id=product_id,
+            quantity=quantity,
+            reservation_type=ReservationType.TRANSFER,
+            reservation_id=transfer_id,
+            status=ReservationStatus.ACTIVE
+        )
+        
+        db.add(reservation)
+        db.commit()
+        db.refresh(reservation)
+        
+        return reservation
+    
+    def release_transfer_reservations(self, db: Session, user_id: int, transfer_id: int) -> int:
+        """
+        Освободить все резервы перемещения (при отмене)
+        """
+        reservations = db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.reservation_type == ReservationType.TRANSFER,
+            InventoryReservation.reservation_id == transfer_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).all()
+        
+        count = 0
+        for reservation in reservations:
+            reservation.status = ReservationStatus.RELEASED
+            reservation.released_at = datetime.now()
+            count += 1
+        
+        if count > 0:
+            db.commit()
+        
+        return count
+    
+    def consume_transfer_reservations(self, db: Session, user_id: int, transfer_id: int) -> int:
+        """
+        Потребить все резервы перемещения (при успешном завершении)
+        """
+        reservations = db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.reservation_type == ReservationType.TRANSFER,
+            InventoryReservation.reservation_id == transfer_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).all()
+        
+        count = 0
+        for reservation in reservations:
+            reservation.status = ReservationStatus.CONSUMED
+            reservation.consumed_at = datetime.now()
+            
+            # Уменьшаем общее количество товара
+            inventory = db.query(UserInventory).filter(
+                UserInventory.id == reservation.inventory_id
+            ).first()
+            if inventory:
+                inventory.quantity -= reservation.quantity
+            
+            count += 1
+        
+        if count > 0:
+            db.commit()
+        
+        return count
+    
+    def get_transfer_reservations(self, db: Session, user_id: int, 
+                                  transfer_id: int) -> List[InventoryReservation]:
+        """
+        Получить все резервы перемещения
+        """
+        return db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.reservation_type == ReservationType.TRANSFER,
+            InventoryReservation.reservation_id == transfer_id
+        ).all()
+    
+    def transfer_complete(self, db: Session, from_user_id: int, to_user_id: int,
+                         product_id: int, quantity: int, transfer_id: int) -> bool:
+        """
+        Завершить перемещение товара от одного пользователя к другому
+        """
+        # Получаем инвентарь отправителя
+        from_inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == from_user_id,
+            UserInventory.product_id == product_id
+        ).first()
+        
+        if not from_inventory:
+            raise ValueError(f"У отправителя нет товара ID {product_id}")
+        
+        # Проверяем, есть ли резерв под это перемещение
+        reservation = db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == from_user_id,
+            InventoryReservation.product_id == product_id,
+            InventoryReservation.reservation_type == ReservationType.TRANSFER,
+            InventoryReservation.reservation_id == transfer_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).first()
+        
+        if reservation:
+            # Потребляем резерв
+            reservation.status = ReservationStatus.CONSUMED
+            reservation.consumed_at = datetime.now()
+            
+            # Уменьшаем общее количество у отправителя
+            from_inventory.quantity -= quantity
+        else:
+            # Если резерва нет, просто уменьшаем количество
+            if from_inventory.quantity < quantity:
+                raise ValueError(
+                    f"У отправителя недостаточно товара ID {product_id}. "
+                    f"Доступно: {from_inventory.quantity}, требуется: {quantity}"
+                )
+            from_inventory.quantity -= quantity
+        
+        # Добавляем получателю
+        to_inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == to_user_id,
+            UserInventory.product_id == product_id
+        ).first()
+        
+        if not to_inventory:
+            to_inventory = UserInventory(
+                user_id=to_user_id,
+                product_id=product_id,
+                quantity=quantity
+            )
+            db.add(to_inventory)
+        else:
+            to_inventory.quantity += quantity
+        
+        db.commit()
         return True
     
-    def release_reserved_products(
-        self, 
-        db: Session, 
-        user_id: int, 
-        products: List[Dict]
-    ) -> bool:
-        """Освободить зарезервированные товары"""
-        for product in products:
-            product_id = product.get('product_id')
-            quantity = product.get('quantity', 0)
-            
-            # Возвращаем товар из резерва
-            self.update_inventory(
-                db, 
-                user_id, 
-                product_id, 
-                quantity_change=quantity,
-                reserved_change=-quantity
+    # ==================== УПРАВЛЕНИЕ РЕЗЕРВАМИ ДЛЯ ОТЧЕТОВ ====================
+    
+    def reserve_for_report(self, db: Session, user_id: int, product_id: int,
+                          quantity: int, report_id: int) -> InventoryReservation:
+        """
+        Зарезервировать товар для отчета
+        """
+        inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == user_id,
+            UserInventory.product_id == product_id
+        ).first()
+        
+        if not inventory:
+            inventory = UserInventory(
+                user_id=user_id,
+                product_id=product_id,
+                quantity=0
+            )
+            db.add(inventory)
+            db.flush()
+        
+        # Проверяем доступность
+        available = self.get_available_quantity(db, user_id, product_id)
+        if available < quantity:
+            raise ValueError(
+                f"Недостаточно товара ID {product_id}. "
+                f"Доступно: {available}, требуется: {quantity}"
             )
         
-        return True
+        reservation = InventoryReservation(
+            inventory_id=inventory.id,
+            user_id=user_id,
+            product_id=product_id,
+            quantity=quantity,
+            reservation_type=ReservationType.REPORT,
+            reservation_id=report_id,
+            status=ReservationStatus.ACTIVE
+        )
+        
+        db.add(reservation)
+        db.commit()
+        db.refresh(reservation)
+        
+        return reservation
     
-    def finalize_report_products(
-        self, 
-        db: Session, 
-        user_id: int, 
-        products: List[Dict]
-    ) -> bool:
-        """Финальное списание товаров после принятия отчета"""
-        for product in products:
-            product_id = product.get('product_id')
-            quantity = product.get('quantity', 0)
+    def release_report_reservations(self, db: Session, user_id: int, report_id: int) -> int:
+        """
+        Освободить все резервы отчета
+        """
+        reservations = db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.reservation_type == ReservationType.REPORT,
+            InventoryReservation.reservation_id == report_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).all()
+        
+        count = 0
+        for reservation in reservations:
+            reservation.status = ReservationStatus.RELEASED
+            reservation.released_at = datetime.now()
+            count += 1
+        
+        if count > 0:
+            db.commit()
+        
+        return count
+    
+    def finalize_report_reservations(self, db: Session, user_id: int, report_id: int) -> int:
+        """
+        Финальное списание товаров после принятия отчета
+        """
+        reservations = db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.reservation_type == ReservationType.REPORT,
+            InventoryReservation.reservation_id == report_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).all()
+        
+        count = 0
+        for reservation in reservations:
+            reservation.status = ReservationStatus.CONSUMED
+            reservation.consumed_at = datetime.now()
             
-            # Окончательно списываем товар
-            self.update_inventory(
-                db, 
-                user_id, 
-                product_id,
-                quantity_change=0, 
-                reserved_change=-quantity
+            # Уменьшаем общее количество товара
+            inventory = db.query(UserInventory).filter(
+                UserInventory.id == reservation.inventory_id
+            ).first()
+            if inventory:
+                inventory.quantity -= reservation.quantity
+            
+            count += 1
+        
+        if count > 0:
+            db.commit()
+        
+        return count
+    
+    # ==================== МЕТОДЫ ДЛЯ БРАКОВ ====================
+    
+    def reserve_for_rejection(self, db: Session, user_id: int, product_id: int,
+                            quantity: int, rejection_id: int) -> InventoryReservation:
+        """
+        Зарезервировать товар для брака
+        """
+        inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == user_id,
+            UserInventory.product_id == product_id
+        ).first()
+        
+        if not inventory:
+            inventory = UserInventory(
+                user_id=user_id,
+                product_id=product_id,
+                quantity=0
+            )
+            db.add(inventory)
+            db.flush()
+        
+        # Проверяем доступность
+        available = self.get_available_quantity(db, user_id, product_id)
+        if available < quantity:
+            raise ValueError(
+                f"Недостаточно товара ID {product_id}. "
+                f"Доступно: {available}, требуется: {quantity}"
             )
         
+        reservation = InventoryReservation(
+            inventory_id=inventory.id,
+            user_id=user_id,
+            product_id=product_id,
+            quantity=quantity,
+            reservation_type=ReservationType.REJECTION,
+            reservation_id=rejection_id,
+            status=ReservationStatus.ACTIVE
+        )
+        
+        db.add(reservation)
+        db.commit()
+        db.refresh(reservation)
+        
+        return reservation
+    
+    def apply_rejection(self, db: Session, user_id: int, product_id: int,
+                       quantity: int, rejection_id: int) -> bool:
+        """
+        Применить брак (списать товары)
+        """
+        inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == user_id,
+            UserInventory.product_id == product_id
+        ).first()
+        
+        if not inventory:
+            raise ValueError(f"У пользователя нет товара ID {product_id}")
+        
+        if inventory.quantity < quantity:
+            raise ValueError(
+                f"Недостаточно товара ID {product_id}. "
+                f"Доступно: {inventory.quantity}, требуется: {quantity}"
+            )
+        
+        # Списываем товар
+        inventory.quantity -= quantity
+        
+        # Находим и потребляем резерв
+        reservation = db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.product_id == product_id,
+            InventoryReservation.reservation_type == ReservationType.REJECTION,
+            InventoryReservation.reservation_id == rejection_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).first()
+        
+        if reservation:
+            reservation.status = ReservationStatus.CONSUMED
+            reservation.consumed_at = datetime.now()
+        
+        db.commit()
         return True
     
-
+    def revert_rejection(self, db: Session, user_id: int, product_id: int,
+                        quantity: int, rejection_id: int) -> bool:
+        """
+        Отменить брак (вернуть товары)
+        """
+        inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == user_id,
+            UserInventory.product_id == product_id
+        ).first()
+        
+        if not inventory:
+            inventory = UserInventory(
+                user_id=user_id,
+                product_id=product_id,
+                quantity=quantity
+            )
+            db.add(inventory)
+        else:
+            inventory.quantity += quantity
+        
+        # Освобождаем резерв
+        reservation = db.query(InventoryReservation).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.product_id == product_id,
+            InventoryReservation.reservation_type == ReservationType.REJECTION,
+            InventoryReservation.reservation_id == rejection_id,
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).first()
+        
+        if reservation:
+            reservation.status = ReservationStatus.RELEASED
+            reservation.released_at = datetime.now()
+        
+        db.commit()
+        return True
+    
+    # ==================== МЕТОДЫ ДЛЯ РЕВИЗИЙ ====================
+    
     def apply_revision_discrepancies(
         self, 
         db: Session, 
@@ -383,7 +775,6 @@ class CRUDInventory:
         """Применить расхождения ревизии к инвентарю пользователей"""
         from app.models.revision import RevisionDiscrepancy
         
-        # Получаем все расхождения для ревизии
         discrepancies = db.query(RevisionDiscrepancy)\
             .filter(RevisionDiscrepancy.revision_id == revision_id)\
             .all()
@@ -392,12 +783,9 @@ class CRUDInventory:
         total_positive = 0
         total_negative = 0
         
-        # Применяем каждое расхождение
         for disc in discrepancies:
-            # Изменение количества (плюс или минус)
             quantity_change = disc.discrepancy
             
-            # Обновляем инвентарь пользователя
             self.update_inventory(
                 db,
                 user_id=disc.user_id,
@@ -407,7 +795,6 @@ class CRUDInventory:
             
             applied_count += 1
             
-            # Считаем статистику
             if disc.is_positive:
                 total_positive += quantity_change
             else:
@@ -418,5 +805,41 @@ class CRUDInventory:
             'total_positive': total_positive,
             'total_negative': total_negative
         }
+
+    def reserve_products_for_report(
+        self, 
+        db: Session, 
+        user_id: int, 
+        products: List[Dict],
+        report_id: int
+    ) -> bool:
+        """
+        Зарезервировать товары для отчета (все товары сразу)
+        """
+        for product in products:
+            product_id = product.get('product_id') or product.get('productId')
+            quantity = product.get('quantity', 0)
+            
+            if not product_id or quantity <= 0:
+                continue
+            
+            # Проверяем доступность
+            available = self.get_available_quantity(db, user_id, product_id)
+            if available < quantity:
+                raise ValueError(
+                    f"Недостаточно товара ID {product_id}. "
+                    f"Доступно: {available}, требуется: {quantity}"
+                )
+            
+            # Создаем резерв
+            self.reserve_for_report(
+                db,
+                user_id=user_id,
+                product_id=product_id,
+                quantity=quantity,
+                report_id=report_id
+            )
+        
+        return True
 
 crud_inventory = CRUDInventory()

@@ -634,7 +634,7 @@ class CRUDTransfer:
             transfer.arrived_at = datetime.now()
             
             if action == "accept":
-                # 🔴 ACCEPT: файлы ОБЯЗАТЕЛЬНЫ, items ОБЯЗАТЕЛЬНЫ
+                # ACCEPT: файлы ОБЯЗАТЕЛЬНЫ, items ОБЯЗАТЕЛЬНЫ
                 if not files or len(files) == 0:
                     raise ValueError("Для приема товара необходимо прикрепить фотографии")
                 
@@ -665,32 +665,26 @@ class CRUDTransfer:
                     if not transfer_item:
                         raise ValueError(f"Товар ID {product_id} не найден в перемещении")
                     
-                    # 🔴 ИСПРАВЛЕНИЕ: Получаем информацию о запасах отправителя
-                    inventory = db.query(UserInventory).filter(
-                        UserInventory.user_id == transfer.from_user_id,
-                        UserInventory.product_id == product_id
-                    ).first()
+                    # Получаем информацию о запасах отправителя
+                    total_quantity = crud_inventory.get_user_product_quantity(
+                        db, transfer.from_user_id, product_id
+                    )
                     
-                    if not inventory:
-                        total_quantity = 0
-                        reserved_quantity = 0
-                    else:
-                        total_quantity = inventory.quantity
-                        reserved_quantity = inventory.reserved_quantity
-                    
-                    # Общее количество товара (в наличии + в резерве)
-                    total_available = total_quantity + reserved_quantity
+                    # Получаем резервы этого перемещения
+                    reservations = crud_inventory.get_transfer_reservations(
+                        db, transfer.from_user_id, transfer.id
+                    )
+                    reserved_for_this = sum(r.quantity for r in reservations if r.product_id == product_id)
                     
                     # Проверяем, что не пытаемся списать больше, чем есть всего у отправителя
-                    if actual_quantity > total_available:
+                    if actual_quantity > total_quantity:
                         raise ValueError(
                             f"У отправителя недостаточно товара ID {product_id}. "
-                            f"Всего товара (в наличии + в резерве): {total_available}, "
-                            f"требуется списать: {actual_quantity}"
+                            f"Всего товара: {total_quantity}, требуется списать: {actual_quantity}"
                         )
                     
                     # Проверяем, что не пытаемся списать больше ожидаемого (с запасом)
-                    if actual_quantity > transfer_item.expected_quantity * 1.5:  # разрешаем превышение до 50%
+                    if actual_quantity > transfer_item.expected_quantity * 1.5:
                         raise ValueError(
                             f"Полученное количество ({actual_quantity}) значительно превышает ожидаемое ({transfer_item.expected_quantity})"
                         )
@@ -740,9 +734,9 @@ class CRUDTransfer:
                     # Если расхождений нет, завершаем перемещение сразу
                     transfer.status = TransferStatus.ARRIVED
                     self._complete_transfer(db, transfer)
-                    
+            
             elif action == "discrepancy":
-                # 🔴 DISCREPANCY: файлы ОБЯЗАТЕЛЬНЫ, items ОБЯЗАТЕЛЬНЫ
+                # DISCREPANCY: файлы ОБЯЗАТЕЛЬНЫ, items ОБЯЗАТЕЛЬНЫ
                 if not files or len(files) == 0:
                     raise ValueError("Для расхождений необходимо прикрепить фотографии")
                 
@@ -766,32 +760,26 @@ class CRUDTransfer:
                     if not transfer_item:
                         raise ValueError(f"Товар ID {product_id} не найден в перемещении")
                     
-                    # 🔴 ИСПРАВЛЕНИЕ: Получаем информацию о запасах отправителя
-                    inventory = db.query(UserInventory).filter(
-                        UserInventory.user_id == transfer.from_user_id,
-                        UserInventory.product_id == product_id
-                    ).first()
+                    # Получаем информацию о запасах отправителя
+                    total_quantity = crud_inventory.get_user_product_quantity(
+                        db, transfer.from_user_id, product_id
+                    )
                     
-                    if not inventory:
-                        total_quantity = 0
-                        reserved_quantity = 0
-                    else:
-                        total_quantity = inventory.quantity
-                        reserved_quantity = inventory.reserved_quantity
-                    
-                    # Общее количество товара (в наличии + в резерве)
-                    total_available = total_quantity + reserved_quantity
+                    # Получаем резервы этого перемещения
+                    reservations = crud_inventory.get_transfer_reservations(
+                        db, transfer.from_user_id, transfer.id
+                    )
+                    reserved_for_this = sum(r.quantity for r in reservations if r.product_id == product_id)
                     
                     # Проверяем, что не пытаемся списать больше, чем есть всего у отправителя
-                    if actual_quantity > total_available:
+                    if actual_quantity > total_quantity:
                         raise ValueError(
                             f"У отправителя недостаточно товара ID {product_id}. "
-                            f"Всего товара (в наличии + в резерве): {total_available}, "
-                            f"требуется списать: {actual_quantity}"
+                            f"Всего товара: {total_quantity}, требуется списать: {actual_quantity}"
                         )
                     
                     # Проверяем, что не пытаемся списать больше ожидаемого (с запасом)
-                    if actual_quantity > transfer_item.expected_quantity * 1.5:  # разрешаем превышение до 50%
+                    if actual_quantity > transfer_item.expected_quantity * 1.5:
                         raise ValueError(
                             f"Полученное количество ({actual_quantity}) значительно превышает ожидаемое ({transfer_item.expected_quantity})"
                         )
@@ -837,11 +825,9 @@ class CRUDTransfer:
                             db.add(disc_item)
                 
                 self._notify_discrepancies(db, transfer)
-                
+            
             elif action == "reject":
-                # 🔴 REJECT: файлы НЕ ЗАГРУЖАЮТСЯ, items НЕ НУЖНЫ
-                # Просто отмечаем все товары как отклоненные
-                
+                # REJECT: файлы НЕ ЗАГРУЖАЮТСЯ, items НЕ НУЖНЫ
                 for item in transfer.items:
                     item.status = TransferItemStatus.REJECTED
                     item.received_quantity = 0
@@ -1119,72 +1105,43 @@ class CRUDTransfer:
         return managers
     
     def _reserve_items(self, db: Session, transfer: Transfer):
-        """Резервировать товары"""
+        """Резервировать товары для перемещения"""
         for item in transfer.items:
-            crud_inventory.update_inventory(
+            crud_inventory.reserve_for_transfer(
                 db,
                 user_id=transfer.from_user_id,
                 product_id=item.product_id,
-                quantity_change=-item.expected_quantity,
-                reserved_change=item.expected_quantity
+                quantity=item.expected_quantity,
+                transfer_id=transfer.id
             )
     
     def _complete_transfer(self, db: Session, transfer: Transfer):
-        """Завершить перемещение (без расхождений) с учетом фактического количества"""
+        """Завершить перемещение (без расхождений)"""
         for item in transfer.items:
-            # Получаем ФАКТИЧЕСКОЕ количество
             received_qty = item.received_quantity or 0
             expected_qty = item.expected_quantity
             
-            if received_qty > 0:
-                # 1. Снимаем резервирование у отправителя (все ожидаемое)
-                crud_inventory.update_inventory(
-                    db,
-                    user_id=transfer.from_user_id,
-                    product_id=item.product_id,
-                    quantity_change=0,
-                    reserved_change=-expected_qty
-                )
-                
-                # 2. Если фактическое НЕ РАВНО ожидаемому
-                if received_qty != expected_qty:
-                    # Рассчитываем разницу
-                    diff = received_qty - expected_qty
-                    
-                    if diff > 0:  # Избыток
-                        # Списываем избыток у отправителя
-                        crud_inventory.update_inventory(
-                            db,
-                            user_id=transfer.from_user_id,
-                            product_id=item.product_id,
-                            quantity_change=-diff
-                        )
-                    else:  # Недостача (diff < 0)
-                        # Возвращаем недостачу отправителю
-                        return_qty = abs(diff)
-                        crud_inventory.update_inventory(
-                            db,
-                            user_id=transfer.from_user_id,
-                            product_id=item.product_id,
-                            quantity_change=return_qty
-                        )
-                
-                # 3. Добавляем получателю фактически полученное
-                crud_inventory.update_inventory(
-                    db,
-                    user_id=transfer.to_user_id,
-                    product_id=item.product_id,
-                    quantity_change=received_qty
-                )
-            else:
-                # Если ничего не получено, просто возвращаем товар отправителю
-                crud_inventory.update_inventory(
-                    db,
-                    user_id=transfer.from_user_id,
-                    product_id=item.product_id,
-                    quantity_change=expected_qty,
-                    reserved_change=-expected_qty
-                )
+            # Завершаем перемещение для каждого товара
+            crud_inventory.transfer_complete(
+                db,
+                from_user_id=transfer.from_user_id,
+                to_user_id=transfer.to_user_id,
+                product_id=item.product_id,
+                quantity=received_qty,
+                transfer_id=transfer.id
+            )
+            
+            # Если есть расхождение, корректируем
+            if received_qty != expected_qty:
+                diff = received_qty - expected_qty
+                if diff < 0:  # Недополучено - возвращаем отправителю
+                    crud_inventory.update_inventory(
+                        db,
+                        user_id=transfer.from_user_id,
+                        product_id=item.product_id,
+                        quantity_change=abs(diff)
+                    )
+                # Если переполучено - уже учтено в transfer_complete
         
         transfer.status = TransferStatus.COMPLETED
         transfer.completed_at = datetime.now()
@@ -1193,82 +1150,33 @@ class CRUDTransfer:
         self._notify_completed(db, transfer)
     
     def _complete_transfer_with_discrepancies(self, db: Session, transfer: Transfer):
-        """Завершить перемещение с учетом расхождений (после подтверждения руководителем)"""
-        try:
-            for item in transfer.items:
-                received_qty = item.received_quantity or 0
-                expected_qty = item.expected_quantity
-                
-                if received_qty > 0:
-                    # 1. Снимаем резервирование у отправителя (все ожидаемое)
-                    crud_inventory.update_inventory(
-                        db,
-                        user_id=transfer.from_user_id,
-                        product_id=item.product_id,
-                        quantity_change=0,
-                        reserved_change=-expected_qty
-                    )
-                    
-                    # 2. Если есть расхождение
-                    if received_qty != expected_qty:
-                        diff = received_qty - expected_qty
-                        
-                        if diff > 0:  # Избыток
-                            # Списываем избыток у отправителя
-                            crud_inventory.update_inventory(
-                                db,
-                                user_id=transfer.from_user_id,
-                                product_id=item.product_id,
-                                quantity_change=-diff
-                            )
-                        else:  # Недостача (diff < 0)
-                            # Возвращаем недостачу отправителю
-                            return_qty = abs(diff)
-                            crud_inventory.update_inventory(
-                                db,
-                                user_id=transfer.from_user_id,
-                                product_id=item.product_id,
-                                quantity_change=return_qty
-                            )
-                    
-                    # 3. Добавляем получателю фактически полученное
-                    crud_inventory.update_inventory(
-                        db,
-                        user_id=transfer.to_user_id,
-                        product_id=item.product_id,
-                        quantity_change=received_qty
-                    )
-                else:
-                    # Если ничего не получено, возвращаем товар отправителю
-                    crud_inventory.update_inventory(
-                        db,
-                        user_id=transfer.from_user_id,
-                        product_id=item.product_id,
-                        quantity_change=expected_qty,
-                        reserved_change=-expected_qty
-                    )
+        """Завершить перемещение с расхождениями"""
+        for item in transfer.items:
+            received_qty = item.received_quantity or 0
             
-            transfer.status = TransferStatus.COMPLETED
-            transfer.completed_at = datetime.now()
-            db.commit()
-            
-            self._notify_completed(db, transfer)
-            
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise
+            # Завершаем перемещение для каждого товара
+            crud_inventory.transfer_complete(
+                db,
+                from_user_id=transfer.from_user_id,
+                to_user_id=transfer.to_user_id,
+                product_id=item.product_id,
+                quantity=received_qty,
+                transfer_id=transfer.id
+            )
+        
+        transfer.status = TransferStatus.COMPLETED
+        transfer.completed_at = datetime.now()
+        db.commit()
+        
+        self._notify_completed(db, transfer)
     
     def _return_items(self, db: Session, transfer: Transfer):
-        """Вернуть товары"""
-        for item in transfer.items:
-            crud_inventory.update_inventory(
-                db,
-                user_id=transfer.from_user_id,
-                product_id=item.product_id,
-                quantity_change=item.expected_quantity,
-                reserved_change=-item.expected_quantity
-            )
+        """Вернуть зарезервированные товары (при отмене)"""
+        crud_inventory.release_transfer_reservations(
+            db,
+            user_id=transfer.from_user_id,
+            transfer_id=transfer.id
+        )
     
     def _enrich_transfer_data(self, db: Session, transfer: Transfer, total_items: int = None, total_quantity: int = None) -> Transfer:
         """Обогатить данные перемещения"""

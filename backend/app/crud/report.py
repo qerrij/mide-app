@@ -6,6 +6,7 @@ from app.models.report import Report, ReportProduct, ReportStatus
 from app.models.user import User, UserRole
 from app.models.product import Product
 from app.schemas.report import ReportCreate, ReportUpdate, ReportFilter
+from app.crud.inventory import crud_inventory
 from datetime import datetime
 from app.core.file_utils import save_uploaded_files, delete_file
 import json
@@ -209,6 +210,22 @@ class CRUDReport:
             db.add(db_product_report)
         
         db.commit()
+        
+        # Резервируем товары
+        try:
+            for product_in in report_in.products:
+                crud_inventory.reserve_for_report(
+                    db,
+                    user_id=seller_id,
+                    product_id=product_in.product_id,
+                    quantity=product_in.quantity,
+                    report_id=db_report.id
+                )
+        except ValueError as e:
+            # Если не удалось зарезервировать, удаляем отчет
+            db.delete(db_report)
+            db.commit()
+            raise e
         
         db_report = self.get(db, db_report.id)
         return db_report

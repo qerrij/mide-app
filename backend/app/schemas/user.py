@@ -162,3 +162,12 @@ class UserBasicResponse(BaseModel):
     role: UserRole
     
     model_config = ConfigDict(from_attributes=True)
+
+class UserPasswordChange(BaseModel):
+    password: str
+    
+    @validator('password')
+    def password_strength(cls, v):
+        if len(v) < 6:
+            raise ValueError('Пароль должен содержать минимум 6 символов')
+        return v
