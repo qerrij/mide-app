@@ -345,9 +345,9 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               Управление всеми разделами
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Chip label={`👥 ${users.length} пользователей`} size="small" />
-              <Chip label={`📊 ${groups.length} групп`} size="small" />
-              <Chip label={`🏢 ${clusters.length} кустов`} size="small" />
+              <Chip label={`${users.length} пользователей`} size="small" />
+              <Chip label={`${groups.length} групп`} size="small" />
+              <Chip label={`${clusters.length} кустов`} size="small" />
             </Box>
               <Typography variant="body2">
                 <strong>Ставка:</strong> {user.rate}₽
