@@ -210,7 +210,7 @@ const CompactUserCard: React.FC<CompactUserCardProps> = ({
             
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <Chip
-                label={`@${user.username}`}
+                label={`${user.username}`}
                 size="small"
                 sx={{
                   height: 22,
@@ -606,7 +606,7 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
                 </Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                   <Chip
-                    label={`@${user.username}`}
+                    label={`${user.username}`}
                     size="small"
                     sx={{
                       backgroundColor: alpha(theme.palette.text.secondary, 0.1),

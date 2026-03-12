@@ -330,13 +330,9 @@ class CRUDUser:
         if not db_user:
             return None
         
-        print(f"DEBUG update_last_login: Before update - admin_clusters: {db_user.admin_clusters}, type: {type(db_user.admin_clusters)}")
-        
         db_user.last_login = datetime.utcnow()
         db.commit()
         db.refresh(db_user)
-        
-        print(f"DEBUG update_last_login: After update - admin_clusters: {db_user.admin_clusters}, type: {type(db_user.admin_clusters)}")
         
         # Только теперь обогащаем данные
         self._enrich_user_data(db, db_user)
