@@ -20,9 +20,16 @@ export const companyService = {
     return response.data;
   },
 
-  // Получить историю баланса для графика
-  async getBalanceHistory(days: number = 30): Promise<CompanyBalanceHistory[]> {
-    const response = await api.get('api/company/balance-history', { params: { days } });
+  // Получить историю баланса для графика (обновленная версия)
+  async getBalanceHistory(params?: {
+    days?: number;
+    granularity?: 'hour' | 'day';
+    date?: string;
+  }): Promise<CompanyBalanceHistory[]> {
+    const defaultParams = { days: 30, granularity: 'day' };
+    const response = await api.get('api/company/balance-history', { 
+      params: { ...defaultParams, ...params } 
+    });
     return response.data;
   },
 

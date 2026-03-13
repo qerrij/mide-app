@@ -349,9 +349,6 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               <Chip label={`${groups.length} групп`} size="small" />
               <Chip label={`${clusters.length} кустов`} size="small" />
             </Box>
-              <Typography variant="body2">
-                <strong>Ставка:</strong> {user.rate}₽
-              </Typography>
           </Stack>
         );
 
@@ -2396,7 +2393,15 @@ const StaffPage: React.FC = () => {
               <Select
                 label="Роль"
                 value={newUser.role}
-                onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
+                onChange={(e) => {
+                  const role = e.target.value as UserRole;
+                  setNewUser({ 
+                    ...newUser, 
+                    role,
+                    // Очищаем ставку если выбрана роль без ставки
+                    rate: (role === UserRole.OWNER || role === UserRole.ACCOUNTANT) ? 0 : newUser.rate
+                  });
+                }}
                 sx={{ '& .MuiSelect-select': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
               >
                 {Object.values(UserRole).map((role) => (
@@ -2420,14 +2425,18 @@ const StaffPage: React.FC = () => {
               onChange={(e) => setNewUser({ ...newUser, city: e.target.value })}
               sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
             />
-            <TextField
-              label="Ставка за товар (₽)"
-              type="number"
-              fullWidth
-              value={newUser.rate || ''}
-              onChange={(e) => setNewUser({ ...newUser, rate: Number(e.target.value) })}
-              sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
-            />
+            
+            {/* Поле ставки - показываем только для ролей, которым нужна ставка */}
+            {newUser.role !== UserRole.OWNER && newUser.role !== UserRole.ACCOUNTANT && (
+              <TextField
+                label="Ставка за товар (₽)"
+                type="number"
+                fullWidth
+                value={newUser.rate || ''}
+                onChange={(e) => setNewUser({ ...newUser, rate: Number(e.target.value) })}
+                sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
+              />
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -2459,6 +2468,29 @@ const StaffPage: React.FC = () => {
               onChange={(e) => setEditUser({ ...editUser, fullName: e.target.value })}
               sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
             />
+            <FormControl fullWidth>
+              <InputLabel>Роль</InputLabel>
+              <Select
+                label="Роль"
+                value={editUser.role || openEditDialog?.role || ''}
+                onChange={(e) => {
+                  const role = e.target.value as UserRole;
+                  setEditUser({ 
+                    ...editUser, 
+                    role,
+                    // Очищаем ставку если выбрана роль без ставки
+                    rate: (role === UserRole.OWNER || role === UserRole.ACCOUNTANT) ? 0 : editUser.rate
+                  });
+                }}
+                sx={{ '& .MuiSelect-select': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
+              >
+                {Object.values(UserRole).map((role) => (
+                  <MenuItem key={role} value={role} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>
+                    {getRoleName(role)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField
               label="Telegram"
               fullWidth
@@ -2473,14 +2505,19 @@ const StaffPage: React.FC = () => {
               onChange={(e) => setEditUser({ ...editUser, city: e.target.value })}
               sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
             />
-            <TextField
-              label="Ставка за товар (₽)"
-              type="number"
-              fullWidth
-              value={editUser.rate || ''}
-              onChange={(e) => setEditUser({ ...editUser, rate: Number(e.target.value) })}
-              sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
-            />
+            
+            {/* Поле ставки - показываем только для ролей, которым нужна ставка */}
+            {editUser.role !== UserRole.OWNER && editUser.role !== UserRole.ACCOUNTANT && 
+            openEditDialog?.role !== UserRole.OWNER && openEditDialog?.role !== UserRole.ACCOUNTANT && (
+              <TextField
+                label="Ставка за товар (₽)"
+                type="number"
+                fullWidth
+                value={editUser.rate || ''}
+                onChange={(e) => setEditUser({ ...editUser, rate: Number(e.target.value) })}
+                sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
+              />
+            )}
           </Box>
         </DialogContent>
         <DialogActions>

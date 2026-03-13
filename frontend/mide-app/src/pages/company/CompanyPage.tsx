@@ -21,8 +21,6 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
-  Tabs,
-  Tab,
   MenuItem,
   Select,
   Fade,
@@ -52,7 +50,7 @@ import {
   OperationTypeIcons,
   UserRole,
 } from '../../types';
-import { format } from 'date-fns';
+import { format, startOfDay, endOfDay, subDays, subWeeks, subMonths } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import {
   AreaChart,
@@ -66,6 +64,9 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+
+// Типы
+type DateRangeType = 'day' | 'week' | 'month' | 'custom';
 
 // Интерфейсы для пропсов диалога
 interface TransactionDialogProps {
@@ -178,7 +179,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <MoneyIcon sx={{ color: '#8E8E93', fontSize: 20 }} />
+                    <Typography sx={{ color: '#8E8E93', fontSize: 20, fontWeight: 500 }}>₽</Typography>
                   </InputAdornment>
                 ),
               }}
@@ -283,6 +284,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
 // Кастомный Tooltip для графика
 const CustomAreaTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
+    const data = payload[0].payload;
     return (
       <Paper
         sx={{
@@ -294,7 +296,7 @@ const CustomAreaTooltip = ({ active, payload, label }: any) => {
         }}
       >
         <Typography variant="caption" color="#4c5454" display="block">
-          {label}
+          {data.tooltipLabel || data.displayLabel}
         </Typography>
         <Typography variant="body2" color="#2a0f35" fontWeight={600}>
           {formatAmount(payload[0].value)}
@@ -304,7 +306,6 @@ const CustomAreaTooltip = ({ active, payload, label }: any) => {
   }
   return null;
 };
-
 // Кастомный Tooltip для круговой диаграммы
 const CustomPieTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -403,13 +404,88 @@ const formatAmount = (amount: number) => {
   const rubles = Math.floor(amount);
   const kopecks = Math.round((amount - rubles) * 100);
   
+  if (kopecks > 0) {
+    return (
+      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'baseline' }}>
+        <span>₽{rubles.toLocaleString('ru-RU')}</span>
+        <Typography component="span" variant="caption" sx={{ color: '#8E8E93', ml: 0.5 }}>
+          ,{kopecks.toString().padStart(2, '0')} 
+        </Typography>
+      </Box>
+    );
+  }
+  
   return (
     <Box component="span" sx={{ display: 'inline-flex', alignItems: 'baseline' }}>
-      <span>₽{rubles.toLocaleString('ru-RU')}</span>
-      {kopecks > 0 && (
-        <Typography component="span" variant="caption" sx={{ color: '#8E8E93', ml: 0.5 }}>
-          ,{kopecks.toString().padStart(2, '0')}
-        </Typography>
+      <span>{rubles.toLocaleString('ru-RU')} ₽</span>
+    </Box>
+  );
+};
+
+// Компонент выбора даты
+const DateRangeSelector: React.FC<{
+  value: DateRangeType;
+  onChange: (value: DateRangeType) => void;
+  customDate: Date;
+  onCustomDateChange: (date: Date) => void;
+}> = ({ value, onChange, customDate, onCustomDateChange }) => {
+  return (
+    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+      <Chip
+        label="День"
+        onClick={() => onChange('day')}
+        sx={{
+          borderRadius: 6,
+          backgroundColor: value === 'day' ? '#674fb6' : '#f5f3f6',
+          color: value === 'day' ? '#ffffff' : '#4c5454',
+          cursor: 'pointer',
+          '&:hover': {
+            backgroundColor: value === 'day' ? '#5539a0' : '#e8e0f0',
+          },
+        }}
+      />
+      <Chip
+        label="Неделя"
+        onClick={() => onChange('week')}
+        sx={{
+          borderRadius: 6,
+          backgroundColor: value === 'week' ? '#674fb6' : '#f5f3f6',
+          color: value === 'week' ? '#ffffff' : '#4c5454',
+          cursor: 'pointer',
+          '&:hover': {
+            backgroundColor: value === 'week' ? '#5539a0' : '#e8e0f0',
+          },
+        }}
+      />
+      <Chip
+        label="Месяц"
+        onClick={() => onChange('month')}
+        sx={{
+          borderRadius: 6,
+          backgroundColor: value === 'month' ? '#674fb6' : '#f5f3f6',
+          color: value === 'month' ? '#ffffff' : '#4c5454',
+          cursor: 'pointer',
+          '&:hover': {
+            backgroundColor: value === 'month' ? '#5539a0' : '#e8e0f0',
+          },
+        }}
+      />
+      
+      {value === 'day' && (
+        <TextField
+          type="date"
+          size="small"
+          value={format(customDate, 'yyyy-MM-dd')}
+          onChange={(e) => onCustomDateChange(new Date(e.target.value))}
+          sx={{
+            ml: 1,
+            minWidth: 140,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 6,
+              backgroundColor: '#f5f3f6',
+            },
+          }}
+        />
       )}
     </Box>
   );
@@ -418,7 +494,7 @@ const formatAmount = (amount: number) => {
 // Основной компонент страницы
 const CompanyPage: React.FC = () => {
   const { user } = useAuth();
-  const canEdit = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
+  const canEdit = user?.role === UserRole.OWNER || user?.role === UserRole.ACCOUNTANT;
 
   // Состояния
   const [balance, setBalance] = useState<number>(0);
@@ -430,7 +506,8 @@ const CompanyPage: React.FC = () => {
   // Фильтры
   const [searchTerm, setSearchTerm] = useState('');
   const [operationFilter, setOperationFilter] = useState<string>('all');
-  const [dateRange, setDateRange] = useState<'week' | 'month'>('month');
+  const [dateRange, setDateRange] = useState<DateRangeType>('month');
+  const [customDate, setCustomDate] = useState<Date>(new Date());
   
   // Диалоги
   const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
@@ -451,15 +528,33 @@ const CompanyPage: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [balanceData, transactionsData, historyData] = await Promise.all([
-        companyService.getBalance(),
-        companyService.getTransactions({ limit: 50 }),
-        companyService.getBalanceHistory(dateRange === 'week' ? 7 : 30),
-      ]);
       
+      // Загружаем баланс
+      const balanceData = await companyService.getBalance();
       setBalance(balanceData.balance);
+      
+      // Загружаем транзакции (последние 100)
+      const transactionsData = await companyService.getTransactions({ limit: 100 });
       setTransactions(transactionsData);
-      setHistory(historyData);
+      
+      // Загружаем историю в зависимости от выбранного периода
+      if (dateRange === 'day') {
+        // Для дня загружаем почасовую статистику
+        const historyData = await companyService.getBalanceHistory({ 
+          days: 1,
+          granularity: 'hour',
+          date: format(customDate, 'yyyy-MM-dd')
+        });
+        setHistory(historyData);
+      } else {
+        // Для недели/месяца загружаем дневную статистику
+        const days = dateRange === 'week' ? 7 : 30;
+        const historyData = await companyService.getBalanceHistory({ 
+          days,
+          granularity: 'day'
+        });
+        setHistory(historyData);
+      }
     } catch (error) {
       console.error('Error loading company data:', error);
       showSnackbar('Ошибка загрузки данных', 'error');
@@ -470,24 +565,22 @@ const CompanyPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [dateRange]);
+  }, [dateRange, customDate]);
 
   const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
     setSnackbar({ open: true, message, severity });
   };
 
-  // Фильтрация транзакций в зависимости от активной вкладки
+  // Фильтрация транзакций
   const getFilteredTransactions = () => {
     let filtered = transactions;
 
-    // Фильтр по вкладке
     if (activeTab === 1) {
       filtered = filtered.filter(t => t.operation_type === 'INCOME');
     } else if (activeTab === 2) {
       filtered = filtered.filter(t => t.operation_type === 'EXPENSE');
     }
 
-    // Поиск по тексту
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter(t => 
@@ -496,9 +589,19 @@ const CompanyPage: React.FC = () => {
       );
     }
 
-    // Фильтр по типу операции (дополнительный)
     if (operationFilter !== 'all') {
       filtered = filtered.filter(t => t.operation_type === operationFilter);
+    }
+
+    // Фильтр по дате для дня
+    if (dateRange === 'day') {
+      const startOfSelectedDay = startOfDay(customDate);
+      const endOfSelectedDay = endOfDay(customDate);
+      
+      filtered = filtered.filter(t => {
+        const transactionDate = new Date(t.created_at);
+        return transactionDate >= startOfSelectedDay && transactionDate <= endOfSelectedDay;
+      });
     }
 
     return filtered;
@@ -506,8 +609,19 @@ const CompanyPage: React.FC = () => {
 
   const filteredTransactions = getFilteredTransactions();
 
-  // Статистика
-  const stats = {
+  // Статистика за выбранный период
+  const periodStats = {
+    totalIncome: filteredTransactions
+      .filter(t => t.operation_type === 'INCOME')
+      .reduce((sum, t) => sum + t.amount, 0),
+    totalExpense: filteredTransactions
+      .filter(t => t.operation_type === 'EXPENSE')
+      .reduce((sum, t) => sum + t.amount, 0),
+    transactionsCount: filteredTransactions.length,
+  };
+
+  // Общая статистика (за все время)
+  const totalStats = {
     totalIncome: transactions
       .filter(t => t.operation_type === 'INCOME')
       .reduce((sum, t) => sum + t.amount, 0),
@@ -518,15 +632,70 @@ const CompanyPage: React.FC = () => {
   };
 
   // Данные для графика
-  const chartData = history.map(item => ({
-    date: format(new Date(item.date), 'dd MMM', { locale: ru }),
-    balance: item.balance,
-  }));
+// Данные для графика
+const getChartData = () => {
+  if (!history || history.length === 0) {
+    return [{
+      id: 'current',
+      displayLabel: dateRange === 'day' 
+        ? format(new Date(), 'HH:mm')
+        : format(new Date(), 'dd MMM', { locale: ru }),
+      balance: balance,
+      fullDate: new Date().toISOString(),
+      timestamp: new Date().getTime(),
+      uniqueKey: `current-${Date.now()}`
+    }];
+  }
 
-  // Данные для круговой диаграммы
+  // Сортируем по дате
+  const sortedHistory = [...history].sort((a, b) => 
+    new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+
+  console.log('Sorted history:', sortedHistory); // Для отладки
+
+  return sortedHistory.map((item, index) => {
+    const date = new Date(item.date);
+    const timestamp = date.getTime();
+    
+    // Создаем уникальный ключ из индекса, timestamp и баланса
+    const uniqueKey = `point-${index}-${timestamp}-${item.balance}-${Math.random()}`;
+    
+    // Для дневного режима
+    if (dateRange === 'day') {
+      return {
+        id: uniqueKey,
+        displayLabel: format(date, 'HH:mm'),
+        balance: item.balance,
+        fullDate: item.date,
+        timestamp: timestamp,
+        index: index, // Добавляем индекс для отслеживания
+        tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
+      };
+    } 
+    // Для недели/месяца
+    else {
+      return {
+        id: uniqueKey,
+        displayLabel: format(date, 'dd MMM HH:mm', { locale: ru }),
+        balance: item.balance,
+        fullDate: item.date,
+        timestamp: timestamp,
+        index: index,
+        tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
+      };
+    }
+  });
+};
+
+const chartData = getChartData();
+console.log('Chart data:', chartData); // Для отладки
+
+
+  // Данные для круговой диаграммы (за выбранный период)
   const pieData = [
-    { name: 'Доходы', value: stats.totalIncome, color: '#4caf50' },
-    { name: 'Расходы', value: stats.totalExpense, color: '#f44336' },
+    { name: 'Доходы', value: periodStats.totalIncome, color: '#4caf50' },
+    { name: 'Расходы', value: periodStats.totalExpense, color: '#f44336' },
   ].filter(item => item.value > 0);
 
   const formatDate = (date: string) => {
@@ -626,17 +795,17 @@ const CompanyPage: React.FC = () => {
               <Typography variant="h2" component="div" sx={{ fontWeight: 700, mb: 1, color: '#000000' }}>
                 {formatAmount(balance)}
               </Typography>
-              <Stack direction="row" spacing={2}>
+              <Stack direction="row" spacing={2} flexWrap="wrap">
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <IncomeIcon sx={{ fontSize: 18, color: '#4caf50' }} />
                   <Typography variant="body2" color="#4c5454">
-                    Доходы: {formatAmount(stats.totalIncome)}
+                    Всего доходов: {formatAmount(totalStats.totalIncome)}
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <ExpenseIcon sx={{ fontSize: 18, color: '#f44336' }} />
                   <Typography variant="body2" color="#4c5454">
-                    Расходы: {formatAmount(stats.totalExpense)}
+                    Всего расходов: {formatAmount(totalStats.totalExpense)}
                   </Typography>
                 </Box>
               </Stack>
@@ -724,56 +893,60 @@ const CompanyPage: React.FC = () => {
                 height: '100%',
               }}
             >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
                 <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
-                  Динамика баланса
+                  {dateRange === 'day' 
+                    ? `Динамика баланса за ${format(customDate, 'dd MMMM yyyy', { locale: ru })}` 
+                    : dateRange === 'week' 
+                      ? 'Динамика баланса за неделю'
+                      : 'Динамика баланса за месяц'}
                 </Typography>
-                <Chip
-                  label={dateRange === 'week' ? 'Неделя' : 'Месяц'}
-                  size="small"
-                  onClick={() => setDateRange(dateRange === 'week' ? 'month' : 'week')}
-                  sx={{
-                    borderRadius: 6,
-                    backgroundColor: '#f5f3f6',
-                    color: '#4c5454',
-                    cursor: 'pointer',
-                    '&:hover': {
-                      backgroundColor: '#e8e0f0',
-                    },
-                  }}
+                <DateRangeSelector
+                  value={dateRange}
+                  onChange={setDateRange}
+                  customDate={customDate}
+                  onCustomDateChange={setCustomDate}
                 />
               </Box>
               <Box sx={{ height: 300 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="date" 
-                      tick={{ fill: '#4c5454', fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis 
-                      tick={{ fill: '#4c5454', fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(value) => `${value / 1000}K`}
-                    />
-                    <Tooltip content={<CustomAreaTooltip />} />
-                    <Area 
-                      type="monotone" 
-                      dataKey="balance" 
-                      stroke="#674fb6" 
-                      strokeWidth={2}
-                      fill="url(#balanceGradient)" 
-                    />
-                  </AreaChart>
+<AreaChart 
+  data={chartData}
+  key={`${dateRange}-${customDate.toISOString()}-${history.length}`}
+>
+  <defs>
+    <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
+      <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
+    </linearGradient>
+  </defs>
+  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+  <XAxis 
+    dataKey="displayLabel"
+    tick={{ fill: '#4c5454', fontSize: 12 }}
+    axisLine={false}
+    tickLine={false}
+    interval={dateRange === 'day' ? 2 : 'preserveStartEnd'}
+  />
+  <YAxis 
+    tick={{ fill: '#4c5454', fontSize: 12 }}
+    axisLine={false}
+    tickLine={false}
+    tickFormatter={(value) => `${(value / 1000).toFixed(1)}K`}
+  />
+  <Tooltip content={<CustomAreaTooltip />} />
+  <Area 
+    type="monotone" 
+    dataKey="balance" 
+    stroke="#674fb6" 
+    strokeWidth={2}
+    fill="url(#balanceGradient)" 
+    isAnimationActive={true}
+    connectNulls={true}
+    dot={{ r: 4, fill: '#674fb6', strokeWidth: 0 }}
+    activeDot={{ r: 6, fill: '#674fb6', stroke: '#fff', strokeWidth: 2 }}
+  />
+</AreaChart>
                 </ResponsiveContainer>
               </Box>
             </Paper>
@@ -791,7 +964,11 @@ const CompanyPage: React.FC = () => {
               }}
             >
               <Typography variant="subtitle1" color="#2a0f35" fontWeight={600} sx={{ mb: 2 }}>
-                Соотношение доходов/расходов
+                {dateRange === 'day' 
+                  ? `Операции за ${format(customDate, 'dd MMM', { locale: ru })}` 
+                  : dateRange === 'week' 
+                    ? 'Операции за неделю'
+                    : 'Операции за месяц'}
               </Typography>
               {pieData.length > 0 ? (
                 <>
@@ -815,7 +992,7 @@ const CompanyPage: React.FC = () => {
                       </PieChart>
                     </ResponsiveContainer>
                   </Box>
-                  <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 1 }}>
+                  <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 1, flexWrap: 'wrap' }}>
                     {pieData.map((item) => (
                       <Box key={item.name} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Box sx={{ width: 12, height: 12, borderRadius: 2, backgroundColor: item.color }} />
@@ -825,6 +1002,12 @@ const CompanyPage: React.FC = () => {
                       </Box>
                     ))}
                   </Stack>
+                  <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #f0f0f0' }}>
+                    <Typography variant="body2" color="#4c5454" align="center">
+                      Доходов: {formatAmount(periodStats.totalIncome)}<br />
+                      Расходов: {formatAmount(periodStats.totalExpense)}
+                    </Typography>
+                  </Box>
                 </>
               ) : (
                 <Box sx={{ 
@@ -837,7 +1020,7 @@ const CompanyPage: React.FC = () => {
                 }}>
                   <HistoryIcon sx={{ fontSize: 48, color: '#d8d1e0' }} />
                   <Typography variant="body2" color="#4c5454" textAlign="center">
-                    Нет данных для отображения
+                    Нет операций за выбранный период
                   </Typography>
                 </Box>
               )}
@@ -912,6 +1095,7 @@ const CompanyPage: React.FC = () => {
                 onClick={() => {
                   setSearchTerm('');
                   setOperationFilter('all');
+                  setActiveTab(0);
                 }}
                 sx={{
                   borderRadius: 8,
@@ -940,7 +1124,9 @@ const CompanyPage: React.FC = () => {
               Операции не найдены
             </Typography>
             <Typography variant="body2" color="#4c5454" sx={{ mt: 0.5 }}>
-              Попробуйте изменить параметры поиска
+              {dateRange === 'day' 
+                ? `За ${format(customDate, 'dd MMMM yyyy', { locale: ru })} нет операций`
+                : 'Попробуйте изменить параметры поиска'}
             </Typography>
           </Paper>
         ) : (
@@ -1022,9 +1208,25 @@ const CompanyPage: React.FC = () => {
                           pt: 1,
                           borderTop: '1px solid #f0f0f0',
                         }}>
-                          <Typography variant="caption" color="#8E8E93">
-                            Баланс: {formatAmount(transaction.balance)}
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="caption" color="#8E8E93">
+                              Баланс: {formatAmount(transaction.balance)}
+                            </Typography>
+                            
+                            {transaction.created_by && (
+                              <Chip
+                                label={transaction.created_by_name || `ID: ${transaction.created_by}`}
+                                size="small"
+                                sx={{
+                                  height: 20,
+                                  fontSize: '0.6rem',
+                                  backgroundColor: '#e8e0f0',
+                                  color: '#674fb6',
+                                }}
+                              />
+                            )}
+                          </Box>
+                          
                           {transaction.reference_type && (
                             <Chip
                               label={transaction.reference_type}
