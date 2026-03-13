@@ -1254,12 +1254,14 @@ export const OperationTypeLabels = {
   INCOME: 'Доход',
   EXPENSE: 'Расход',
   CORRECTION: 'Коррекция',
+  REPORT: 'Отчет',
 };
 
 export const OperationTypeColors = {
   INCOME: '#4caf50',
   EXPENSE: '#f44336',
   CORRECTION: '#ff9800',
+  REPORT: '#2196f3',
 };
 
 export const OperationTypeIcons = {

@@ -66,7 +66,7 @@ import {
 } from 'recharts';
 
 // Типы
-type DateRangeType = 'day' | 'week' | 'month' | 'custom';
+type DateRangeType = 'day' | 'week' | 'month' | 'all';
 
 // Интерфейсы для пропсов диалога
 interface TransactionDialogProps {
@@ -423,12 +423,30 @@ const formatAmount = (amount: number) => {
 };
 
 // Компонент выбора даты
+// Компонент выбора даты
 const DateRangeSelector: React.FC<{
   value: DateRangeType;
   onChange: (value: DateRangeType) => void;
   customDate: Date;
   onCustomDateChange: (date: Date) => void;
-}> = ({ value, onChange, customDate, onCustomDateChange }) => {
+  startDate: Date | null;
+  endDate: Date | null;
+  onStartDateChange: (date: Date | null) => void;
+  onEndDateChange: (date: Date | null) => void;
+  onApplyDateRange: () => void;
+  onResetDateRange: () => void; // Новая функция для сброса
+}> = ({ 
+  value, 
+  onChange, 
+  customDate, 
+  onCustomDateChange,
+  startDate,
+  endDate,
+  onStartDateChange,
+  onEndDateChange,
+  onApplyDateRange,
+  onResetDateRange
+}) => {
   return (
     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
       <Chip
@@ -470,6 +488,19 @@ const DateRangeSelector: React.FC<{
           },
         }}
       />
+      <Chip
+        label="Все время"
+        onClick={() => onChange('all')}
+        sx={{
+          borderRadius: 6,
+          backgroundColor: value === 'all' ? '#674fb6' : '#f5f3f6',
+          color: value === 'all' ? '#ffffff' : '#4c5454',
+          cursor: 'pointer',
+          '&:hover': {
+            backgroundColor: value === 'all' ? '#5539a0' : '#e8e0f0',
+          },
+        }}
+      />
       
       {value === 'day' && (
         <TextField
@@ -486,6 +517,74 @@ const DateRangeSelector: React.FC<{
             },
           }}
         />
+      )}
+
+      {value === 'all' && (
+        <Box sx={{ display: 'flex', gap: 1, ml: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+          <TextField
+            type="date"
+            size="small"
+            label="С"
+            value={startDate ? format(startDate, 'yyyy-MM-dd') : ''}
+            onChange={(e) => onStartDateChange(e.target.value ? new Date(e.target.value) : null)}
+            InputLabelProps={{ shrink: true }}
+            sx={{
+              minWidth: 140,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 6,
+                backgroundColor: '#f5f3f6',
+              },
+            }}
+          />
+          <TextField
+            type="date"
+            size="small"
+            label="По"
+            value={endDate ? format(endDate, 'yyyy-MM-dd') : ''}
+            onChange={(e) => onEndDateChange(e.target.value ? new Date(e.target.value) : null)}
+            InputLabelProps={{ shrink: true }}
+            sx={{
+              minWidth: 140,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 6,
+                backgroundColor: '#f5f3f6',
+              },
+            }}
+          />
+          <Button
+            variant="contained"
+            size="small"
+            onClick={onApplyDateRange}
+            disabled={!startDate || !endDate}
+            sx={{
+              borderRadius: 6,
+              backgroundColor: '#674fb6',
+              textTransform: 'none',
+              '&:hover': {
+                backgroundColor: '#5539a0',
+              },
+              '&:disabled': {
+                backgroundColor: '#e0e0e0',
+              },
+            }}
+          >
+            Применить
+          </Button>
+          {(startDate || endDate) && (
+            <IconButton
+              size="small"
+              onClick={onResetDateRange}
+              sx={{
+                color: '#8E8E93',
+                '&:hover': {
+                  color: '#f44336',
+                },
+              }}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          )}
+        </Box>
       )}
     </Box>
   );
@@ -508,6 +607,12 @@ const CompanyPage: React.FC = () => {
   const [operationFilter, setOperationFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<DateRangeType>('month');
   const [customDate, setCustomDate] = useState<Date>(new Date());
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [tempStartDate, setTempStartDate] = useState<Date | null>(null);
+  const [tempEndDate, setTempEndDate] = useState<Date | null>(null);
+  const [appliedStartDate, setAppliedStartDate] = useState<Date | null>(null);
+  const [appliedEndDate, setAppliedEndDate] = useState<Date | null>(null);
   
   // Диалоги
   const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
@@ -546,6 +651,23 @@ const CompanyPage: React.FC = () => {
           date: format(customDate, 'yyyy-MM-dd')
         });
         setHistory(historyData);
+      } else if (dateRange === 'all') {
+        if (appliedStartDate && appliedEndDate) {
+          const daysDiff = Math.ceil((appliedEndDate.getTime() - appliedStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+          const historyData = await companyService.getBalanceHistory({ 
+            days: Math.min(daysDiff, 365), // Не больше 365 дней
+            granularity: 'day',
+            date: format(appliedStartDate, 'yyyy-MM-dd')
+          });
+          setHistory(historyData);
+        } else {
+          // Если даты не выбраны, загружаем за 30 дней по умолчанию
+          const historyData = await companyService.getBalanceHistory({ 
+            days: 365,
+            granularity: 'day'
+          });
+          setHistory(historyData);
+        }
       } else {
         // Для недели/месяца загружаем дневную статистику
         const days = dateRange === 'week' ? 7 : 30;
@@ -565,13 +687,12 @@ const CompanyPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [dateRange, customDate]);
+  }, [dateRange, customDate, appliedStartDate, appliedEndDate]);
 
   const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
     setSnackbar({ open: true, message, severity });
   };
 
-  // Фильтрация транзакций
   const getFilteredTransactions = () => {
     let filtered = transactions;
 
@@ -590,10 +711,16 @@ const CompanyPage: React.FC = () => {
     }
 
     if (operationFilter !== 'all') {
-      filtered = filtered.filter(t => t.operation_type === operationFilter);
+      if (operationFilter === 'REPORT_INCOME') {
+        filtered = filtered.filter(t => 
+          t.operation_type === 'INCOME' && t.reference_type === 'REPORT'
+        );
+      } else {
+        filtered = filtered.filter(t => t.operation_type === operationFilter);
+      }
     }
 
-    // Фильтр по дате для дня
+    // Фильтр по дате
     if (dateRange === 'day') {
       const startOfSelectedDay = startOfDay(customDate);
       const endOfSelectedDay = endOfDay(customDate);
@@ -602,24 +729,64 @@ const CompanyPage: React.FC = () => {
         const transactionDate = new Date(t.created_at);
         return transactionDate >= startOfSelectedDay && transactionDate <= endOfSelectedDay;
       });
+    } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
+      const startOfSelectedRange = startOfDay(appliedStartDate);
+      const endOfSelectedRange = endOfDay(appliedEndDate);
+      
+      filtered = filtered.filter(t => {
+        const transactionDate = new Date(t.created_at);
+        return transactionDate >= startOfSelectedRange && transactionDate <= endOfSelectedRange;
+      });
     }
 
     return filtered;
   };
 
   const filteredTransactions = getFilteredTransactions();
+  const handleDateRangeChange = (newRange: DateRangeType) => {
+    setDateRange(newRange);
+    if (newRange !== 'all') {
+      setTempStartDate(null);
+      setTempEndDate(null);
+      setAppliedStartDate(null);
+      setAppliedEndDate(null);
+    }
+  };
 
-  // Статистика за выбранный период
+  const handleApplyDateRange = () => {
+    if (tempStartDate && tempEndDate) {
+      setAppliedStartDate(tempStartDate);
+      setAppliedEndDate(tempEndDate);
+    }
+  };
+
+  const handleResetDateRange = () => {
+    setTempStartDate(null);
+    setTempEndDate(null);
+    setAppliedStartDate(null);
+    setAppliedEndDate(null);
+    loadData();
+  };
+
+  useEffect(() => {
+    if (dateRange === 'all') {
+      setTempStartDate(appliedStartDate);
+      setTempEndDate(appliedEndDate);
+    }
+  }, [dateRange, appliedStartDate, appliedEndDate]);
+
   const periodStats = {
-    totalIncome: filteredTransactions
-      .filter(t => t.operation_type === 'INCOME')
+    totalRegularIncome: filteredTransactions
+      .filter(t => t.operation_type === 'INCOME' && t.reference_type !== 'REPORT')
+      .reduce((sum, t) => sum + t.amount, 0),
+    totalReportIncome: filteredTransactions
+      .filter(t => t.operation_type === 'INCOME' && t.reference_type === 'REPORT')
       .reduce((sum, t) => sum + t.amount, 0),
     totalExpense: filteredTransactions
       .filter(t => t.operation_type === 'EXPENSE')
       .reduce((sum, t) => sum + t.amount, 0),
     transactionsCount: filteredTransactions.length,
   };
-
   // Общая статистика (за все время)
   const totalStats = {
     totalIncome: transactions
@@ -631,71 +798,77 @@ const CompanyPage: React.FC = () => {
     transactionsCount: transactions.length,
   };
 
-  // Данные для графика
-// Данные для графика
-const getChartData = () => {
-  if (!history || history.length === 0) {
-    return [{
-      id: 'current',
-      displayLabel: dateRange === 'day' 
-        ? format(new Date(), 'HH:mm')
-        : format(new Date(), 'dd MMM', { locale: ru }),
-      balance: balance,
-      fullDate: new Date().toISOString(),
-      timestamp: new Date().getTime(),
-      uniqueKey: `current-${Date.now()}`
-    }];
-  }
-
-  // Сортируем по дате
-  const sortedHistory = [...history].sort((a, b) => 
-    new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
-
-  console.log('Sorted history:', sortedHistory); // Для отладки
-
-  return sortedHistory.map((item, index) => {
-    const date = new Date(item.date);
-    const timestamp = date.getTime();
-    
-    // Создаем уникальный ключ из индекса, timestamp и баланса
-    const uniqueKey = `point-${index}-${timestamp}-${item.balance}-${Math.random()}`;
-    
-    // Для дневного режима
-    if (dateRange === 'day') {
-      return {
-        id: uniqueKey,
-        displayLabel: format(date, 'HH:mm'),
-        balance: item.balance,
-        fullDate: item.date,
-        timestamp: timestamp,
-        index: index, // Добавляем индекс для отслеживания
-        tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
-      };
-    } 
-    // Для недели/месяца
-    else {
-      return {
-        id: uniqueKey,
-        displayLabel: format(date, 'dd MMM HH:mm', { locale: ru }),
-        balance: item.balance,
-        fullDate: item.date,
-        timestamp: timestamp,
-        index: index,
-        tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
-      };
+  const getChartData = () => {
+    if (!history || history.length === 0) {
+      return [{
+        id: 'current',
+        displayLabel: dateRange === 'day' 
+          ? format(new Date(), 'HH:mm')
+          : format(new Date(), 'dd MMM', { locale: ru }),
+        balance: balance,
+        fullDate: new Date().toISOString(),
+        timestamp: new Date().getTime(),
+        uniqueKey: `current-${Date.now()}`
+      }];
     }
-  });
-};
 
-const chartData = getChartData();
-console.log('Chart data:', chartData); // Для отладки
+    // Сортируем по дате
+    const sortedHistory = [...history].sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
 
+    return sortedHistory.map((item, index) => {
+      const date = new Date(item.date);
+      const timestamp = date.getTime();
+      
+      // Создаем уникальный ключ из индекса, timestamp и баланса
+      const uniqueKey = `point-${index}-${timestamp}-${item.balance}-${Math.random()}`;
+      
+      // Для дневного режима
+      if (dateRange === 'day') {
+        return {
+          id: uniqueKey,
+          displayLabel: format(date, 'HH:mm'),
+          balance: item.balance,
+          fullDate: item.date,
+          timestamp: timestamp,
+          index: index, // Добавляем индекс для отслеживания
+          tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
+        };
+      } 
+      // Для недели/месяца
+      else {
+        return {
+          id: uniqueKey,
+          displayLabel: format(date, 'dd MMM HH:mm', { locale: ru }),
+          balance: item.balance,
+          fullDate: item.date,
+          timestamp: timestamp,
+          index: index,
+          tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
+        };
+      }
+    });
+  };
 
-  // Данные для круговой диаграммы (за выбранный период)
+  const chartData = getChartData();
+
   const pieData = [
-    { name: 'Доходы', value: periodStats.totalIncome, color: '#4caf50' },
-    { name: 'Расходы', value: periodStats.totalExpense, color: '#f44336' },
+    { 
+      name: 'Обычные доходы', 
+      value: periodStats.totalRegularIncome, 
+      color: '#4caf50' // Зеленый
+    },
+    { 
+      name: 'Доходы от отчетов', 
+      value: periodStats.totalReportIncome, 
+      color: '#2196f3' // Синий
+    },
+    { 
+      name: 'Расходы', 
+      value: periodStats.totalExpense, 
+      color: '#f44336' // Красный
+    },
   ].filter(item => item.value > 0);
 
   const formatDate = (date: string) => {
@@ -899,54 +1072,65 @@ console.log('Chart data:', chartData); // Для отладки
                     ? `Динамика баланса за ${format(customDate, 'dd MMMM yyyy', { locale: ru })}` 
                     : dateRange === 'week' 
                       ? 'Динамика баланса за неделю'
-                      : 'Динамика баланса за месяц'}
+                      : dateRange === 'month'
+                        ? 'Динамика баланса за месяц'
+                        : startDate && endDate
+                          ? `Динамика баланса с ${format(startDate, 'dd MMM yyyy', { locale: ru })} по ${format(endDate, 'dd MMM yyyy', { locale: ru })}`
+                          : 'Динамика баланса за все время'}
                 </Typography>
                 <DateRangeSelector
                   value={dateRange}
-                  onChange={setDateRange}
+                  onChange={handleDateRangeChange}
                   customDate={customDate}
                   onCustomDateChange={setCustomDate}
+                  startDate={tempStartDate} 
+                  endDate={tempEndDate}
+                  onStartDateChange={setTempStartDate}
+                  onEndDateChange={setTempEndDate}
+                  onApplyDateRange={handleApplyDateRange} 
+                  onResetDateRange={handleResetDateRange}
                 />
               </Box>
+
               <Box sx={{ height: 300 }}>
                 <ResponsiveContainer width="100%" height="100%">
-<AreaChart 
-  data={chartData}
-  key={`${dateRange}-${customDate.toISOString()}-${history.length}`}
->
-  <defs>
-    <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
-      <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
-    </linearGradient>
-  </defs>
-  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-  <XAxis 
-    dataKey="displayLabel"
-    tick={{ fill: '#4c5454', fontSize: 12 }}
-    axisLine={false}
-    tickLine={false}
-    interval={dateRange === 'day' ? 2 : 'preserveStartEnd'}
-  />
-  <YAxis 
-    tick={{ fill: '#4c5454', fontSize: 12 }}
-    axisLine={false}
-    tickLine={false}
-    tickFormatter={(value) => `${(value / 1000).toFixed(1)}K`}
-  />
-  <Tooltip content={<CustomAreaTooltip />} />
-  <Area 
-    type="monotone" 
-    dataKey="balance" 
-    stroke="#674fb6" 
-    strokeWidth={2}
-    fill="url(#balanceGradient)" 
-    isAnimationActive={true}
-    connectNulls={true}
-    dot={{ r: 4, fill: '#674fb6', strokeWidth: 0 }}
-    activeDot={{ r: 6, fill: '#674fb6', stroke: '#fff', strokeWidth: 2 }}
-  />
-</AreaChart>
+                  <AreaChart 
+                    data={chartData}
+                    key={`${dateRange}-${customDate.toISOString()}-${history.length}`}
+                  >
+                    <defs>
+                      <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis 
+                      dataKey="displayLabel"
+                      tick={{ fill: '#4c5454', fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval={dateRange === 'day' ? 2 : 'preserveStartEnd'}
+                    />
+                    <YAxis 
+                      tick={{ fill: '#4c5454', fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                      tickFormatter={(value) => `${(value / 1000).toFixed(1)}K`}
+                    />
+                    <Tooltip content={<CustomAreaTooltip />} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="balance" 
+                      stroke="#674fb6" 
+                      strokeWidth={2}
+                      fill="url(#balanceGradient)" 
+                      isAnimationActive={true}
+                      connectNulls={true}
+                      dot={{ r: 4, fill: '#674fb6', strokeWidth: 0 }}
+                      activeDot={{ r: 6, fill: '#674fb6', stroke: '#fff', strokeWidth: 2 }}
+                    />
+                  </AreaChart>
                 </ResponsiveContainer>
               </Box>
             </Paper>
@@ -968,7 +1152,11 @@ console.log('Chart data:', chartData); // Для отладки
                   ? `Операции за ${format(customDate, 'dd MMM', { locale: ru })}` 
                   : dateRange === 'week' 
                     ? 'Операции за неделю'
-                    : 'Операции за месяц'}
+                    : dateRange === 'month'
+                      ? 'Операции за месяц'
+                      : appliedStartDate && appliedEndDate
+                        ? `Операции с ${format(appliedStartDate, 'dd MMM', { locale: ru })} по ${format(appliedEndDate, 'dd MMM', { locale: ru })}`
+                        : 'Операции за все время'}
               </Typography>
               {pieData.length > 0 ? (
                 <>
@@ -1004,8 +1192,9 @@ console.log('Chart data:', chartData); // Для отладки
                   </Stack>
                   <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #f0f0f0' }}>
                     <Typography variant="body2" color="#4c5454" align="center">
-                      Доходов: {formatAmount(periodStats.totalIncome)}<br />
-                      Расходов: {formatAmount(periodStats.totalExpense)}
+                      Обычные доходы: {formatAmount(periodStats.totalRegularIncome)}<br />
+                      Доходы от отчетов: {formatAmount(periodStats.totalReportIncome)}<br />
+                      Расходы: {formatAmount(periodStats.totalExpense)}
                     </Typography>
                   </Box>
                 </>
@@ -1081,7 +1270,8 @@ console.log('Chart data:', chartData); // Для отладки
                   }}
                 >
                   <MenuItem value="all">Все типы</MenuItem>
-                  <MenuItem value="INCOME">Доходы</MenuItem>
+                  <MenuItem value="INCOME">Доходы (все)</MenuItem>
+                  <MenuItem value="REPORT_INCOME">Доходы от отчетов</MenuItem>
                   <MenuItem value="EXPENSE">Расходы</MenuItem>
                   <MenuItem value="CORRECTION">Коррекции</MenuItem>
                 </Select>
@@ -1134,8 +1324,18 @@ console.log('Chart data:', chartData); // Для отладки
             {filteredTransactions.map((transaction) => {
               const isIncome = transaction.operation_type === 'INCOME';
               const isExpense = transaction.operation_type === 'EXPENSE';
-              const IconComponent = isIncome ? IncomeIcon : isExpense ? ExpenseIcon : CorrectionIcon;
-              const color = isIncome ? '#4caf50' : isExpense ? '#f44336' : '#ff9800';
+              const isReportIncome = isIncome && transaction.reference_type === 'REPORT';
+
+              let IconComponent = isIncome ? IncomeIcon : isExpense ? ExpenseIcon : CorrectionIcon;
+              let color = '#ff9800';
+
+              if (isReportIncome) {
+                color = '#2196f3'; 
+              } else if (isIncome) {
+                color = '#4caf50'; 
+              } else if (isExpense) {
+                color = '#f44336'; 
+              }
               
               return (
                 <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={transaction.id}>
@@ -1229,7 +1429,7 @@ console.log('Chart data:', chartData); // Для отладки
                           
                           {transaction.reference_type && (
                             <Chip
-                              label={transaction.reference_type}
+                              label={transaction.reference_type === 'REPORT' ? 'Отчет' : transaction.reference_type}
                               size="small"
                               sx={{
                                 height: 20,

@@ -1355,6 +1355,15 @@ const ProductsPage: React.FC = () => {
 
     return filtered;
   };
+  const totalValue = useMemo(() => {
+    return inventory.reduce((sum, item) => {
+      const product = products.find(p => p.id === item.productId);
+      if (product && item.quantity > 0) {
+        return sum + (product.price * item.quantity);
+      }
+      return sum;
+    }, 0);
+  }, [inventory, products]);
 
   const filteredInventory = getFilteredAndSortedInventory();
   const filteredProductsForReplenish = replenishCategoryFilter === 'all'
@@ -1429,14 +1438,38 @@ const ProductsPage: React.FC = () => {
         {tabValue === 0 && (
           <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', mb: 3, gap: 2 }}>
-              <Box>
-                <Typography variant="h5" gutterBottom fontWeight={600}>
-                  Общий остаток товаров
-                </Typography>
-                <Typography variant="h3" color="primary" fontWeight={700}>
-                  {totalQuantity.toLocaleString()} шт.
-                </Typography>
+              <Box sx={{ display: 'flex', flex: 1, gap: { xs: 2, md: 4 }, flexWrap: 'wrap' }}>
+                <Box>
+                  <Typography variant="h5" gutterBottom fontWeight={600} sx={{ fontSize: { xs: '1.1rem', sm: '1.5rem' } }}>
+                    Общий остаток товаров
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                    <Typography variant="h3" color="primary" fontWeight={700} sx={{ fontSize: { xs: '2rem', sm: '3rem' } }}>
+                      {totalQuantity.toLocaleString()}
+                    </Typography>
+                    <Typography variant="h6" color="text.secondary" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                      шт.
+                    </Typography>
+                  </Box>
+                </Box>
+                
+                <Box sx={{ 
+                  pl: { xs: 0, md: 4 }, 
+                }}>
+                  <Typography variant="h5" gutterBottom fontWeight={600} sx={{ fontSize: { xs: '1.1rem', sm: '1.5rem' } }}>
+                    Общая стоимость
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                    <Typography variant="h3" color="success.main" fontWeight={700} sx={{ fontSize: { xs: '2rem', sm: '3rem' } }}>
+                      {totalValue.toLocaleString('ru-RU')}
+                    </Typography>
+                    <Typography variant="h6" color="text.secondary" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                      ₽
+                    </Typography>
+                  </Box>
+                </Box>
               </Box>
+              
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                 <Button
                   variant="contained"
@@ -1445,6 +1478,7 @@ const ProductsPage: React.FC = () => {
                   sx={{ 
                     ...iOSStyles.button,
                     background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   Пополнить
@@ -2274,7 +2308,5 @@ const ProductsPage: React.FC = () => {
     </Container>
   );
 };
-
-// Добавляем недостающие компоненты из MUI
 
 export default ProductsPage;
