@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.crud.inventory import crud_inventory
 from app.crud.product import crud_product
-from app.models.inventory import InventoryReservation, ReservationStatus, ReservationType
+from app.models.inventory import InventoryReservation, ReservationStatus, ReservationType, UserInventory
 from app.models.product import Product
 from app.models.report import Report
 from app.models.transfer import Transfer
@@ -13,6 +13,7 @@ from app.schemas.product import ProductCreate
 from app.schemas.inventory import ReplenishRequest, ReplenishResponse, InventoryResponse
 from app.api.dependencies import get_current_user, require_role
 from app.models.user import User, UserRole
+from app.schemas.inventory import EditInventoryRequest
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -324,3 +325,77 @@ def get_product_reservations(
         })
     
     return result
+
+@router.put("/edit")
+def edit_inventory(
+    data: EditInventoryRequest,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role(UserRole.OWNER))
+):
+    """
+    Редактировать остатки товара у пользователя (только OWNER)
+    """
+    try:
+        # Проверяем пользователя
+        user = db.query(User).filter(User.id == data.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        
+        # Проверяем товар
+        product = db.query(Product).filter(Product.id == data.product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Товар не найден")
+        
+        # Получаем текущие данные
+        inventory = db.query(UserInventory).filter(
+            UserInventory.user_id == data.user_id,
+            UserInventory.product_id == data.product_id
+        ).first()
+        
+        old_quantity = inventory.quantity if inventory else 0
+        
+        # Проверяем резервы, если пытаемся уменьшить
+        if data.quantity < old_quantity:
+            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                InventoryReservation.user_id == data.user_id,
+                InventoryReservation.product_id == data.product_id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).scalar() or 0
+            
+            if data.quantity < reserved:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Нельзя уменьшить до {data.quantity}, зарезервировано {reserved}"
+                )
+        
+        # Обновляем
+        if data.quantity > 0:
+            if inventory:
+                inventory.quantity = data.quantity
+            else:
+                inventory = UserInventory(
+                    user_id=data.user_id,
+                    product_id=data.product_id,
+                    quantity=data.quantity
+                )
+                db.add(inventory)
+        else:
+            if inventory:
+                db.delete(inventory)
+        
+        db.commit()
+        
+        return {
+            "message": "Остатки обновлены",
+            "user_id": data.user_id,
+            "user_name": user.full_name or user.username,
+            "product_id": data.product_id,
+            "product_name": product.name,
+            "old_quantity": old_quantity,
+            "new_quantity": data.quantity
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

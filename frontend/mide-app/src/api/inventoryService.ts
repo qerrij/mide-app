@@ -169,6 +169,15 @@ const inventoryServiceMethods = {
       throw error;
     }
   },
+  editInventory: async (data: { user_id: number; product_id: number; quantity: number }) => {
+    try {
+      const response = await axiosInstance.put('/api/inventory/edit', data);
+      return response.data;
+    } catch (error) {
+      console.error('Error editing inventory:', error);
+      throw error;
+    }
+  },
 };
 
 export const inventoryService = inventoryServiceMethods;

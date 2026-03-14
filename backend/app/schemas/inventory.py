@@ -54,3 +54,8 @@ class ReplenishResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+class EditInventoryRequest(BaseModel):
+    user_id: int
+    product_id: int
+    quantity: int = Field(..., ge=0)

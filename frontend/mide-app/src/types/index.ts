@@ -106,6 +106,14 @@ export interface Product {
   updatedAt?: Date;
 }
 
+export interface ProductUpdateDto {
+  name?: string;
+  categoryId?: number;
+  price?: number;
+  sku?: string;
+  description?: string;
+}
+
 // ================ ОТЧЕТЫ ================
 export interface ReportProduct {
   productId: number;
@@ -741,6 +749,22 @@ export interface InventoryItem {
 export interface InventoryResponse {
   quantity: number;
   items: InventoryItem[];
+}
+
+export interface EditInventoryRequest {
+  user_id: number;
+  product_id: number;
+  quantity: number;
+}
+
+export interface EditInventoryResponse {
+  message: string;
+  user_id: number;
+  user_name: string;
+  product_id: number;
+  product_name: string;
+  old_quantity: number;
+  new_quantity: number;
 }
 
 // ================ ПЕРЕМЕЩЕНИЯ ================

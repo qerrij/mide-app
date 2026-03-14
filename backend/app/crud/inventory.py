@@ -32,9 +32,11 @@ class CRUDInventory:
         user_id: int, 
         product_id: int, 
         quantity_change: int
-    ) -> UserInventory:
+    ) -> Optional[UserInventory]:
         """
         Обновить инвентарь пользователя (только общее количество)
+        Если после обновления quantity становится 0 - запись удаляется
+        Возвращает None если запись удалена
         """
         inventory = db.query(UserInventory).filter(
             UserInventory.user_id == user_id,
@@ -42,18 +44,31 @@ class CRUDInventory:
         ).first()
         
         if not inventory:
-            inventory = UserInventory(
-                user_id=user_id,
-                product_id=product_id,
-                quantity=quantity_change
-            )
-            db.add(inventory)
-        else:
-            inventory.quantity += quantity_change
+            if quantity_change > 0:
+                inventory = UserInventory(
+                    user_id=user_id,
+                    product_id=product_id,
+                    quantity=quantity_change
+                )
+                db.add(inventory)
+                db.commit()
+                db.refresh(inventory)
+                return inventory
+            return None
         
-        db.commit()
-        db.refresh(inventory)
-        return inventory
+        # Обновляем количество
+        new_quantity = inventory.quantity + quantity_change
+        
+        if new_quantity <= 0:
+            # Если стало 0 или меньше - удаляем запись
+            db.delete(inventory)
+            db.commit()
+            return None
+        else:
+            inventory.quantity = new_quantity
+            db.commit()
+            db.refresh(inventory)
+            return inventory
     
     def get_total_inventory_for_user(self, db: Session, user_id: int) -> Dict:
         """Получить общее количество товаров у пользователя с учетом подчиненных"""
@@ -518,17 +533,15 @@ class CRUDInventory:
             # Потребляем резерв
             reservation.status = ReservationStatus.CONSUMED
             reservation.consumed_at = datetime.now()
-            
-            # Уменьшаем общее количество у отправителя
-            from_inventory.quantity -= quantity
+        
+        # Уменьшаем количество у отправителя
+        new_from_quantity = from_inventory.quantity - quantity
+        
+        if new_from_quantity <= 0:
+            # Если стало 0 - удаляем запись
+            db.delete(from_inventory)
         else:
-            # Если резерва нет, просто уменьшаем количество
-            if from_inventory.quantity < quantity:
-                raise ValueError(
-                    f"У отправителя недостаточно товара ID {product_id}. "
-                    f"Доступно: {from_inventory.quantity}, требуется: {quantity}"
-                )
-            from_inventory.quantity -= quantity
+            from_inventory.quantity = new_from_quantity
         
         # Добавляем получателю
         to_inventory = db.query(UserInventory).filter(
@@ -537,12 +550,13 @@ class CRUDInventory:
         ).first()
         
         if not to_inventory:
-            to_inventory = UserInventory(
-                user_id=to_user_id,
-                product_id=product_id,
-                quantity=quantity
-            )
-            db.add(to_inventory)
+            if quantity > 0:  # Создаем только если количество > 0
+                to_inventory = UserInventory(
+                    user_id=to_user_id,
+                    product_id=product_id,
+                    quantity=quantity
+                )
+                db.add(to_inventory)
         else:
             to_inventory.quantity += quantity
         
@@ -636,8 +650,14 @@ class CRUDInventory:
             inventory = db.query(UserInventory).filter(
                 UserInventory.id == reservation.inventory_id
             ).first()
+            
             if inventory:
-                inventory.quantity -= reservation.quantity
+                new_quantity = inventory.quantity - reservation.quantity
+                if new_quantity <= 0:
+                    # Если стало 0 - удаляем запись
+                    db.delete(inventory)
+                else:
+                    inventory.quantity = new_quantity
             
             count += 1
         
@@ -711,7 +731,12 @@ class CRUDInventory:
             )
         
         # Списываем товар
-        inventory.quantity -= quantity
+        new_quantity = inventory.quantity - quantity
+        if new_quantity <= 0:
+            # Если стало 0 - удаляем запись
+            db.delete(inventory)
+        else:
+            inventory.quantity = new_quantity
         
         # Находим и потребляем резерв
         reservation = db.query(InventoryReservation).filter(

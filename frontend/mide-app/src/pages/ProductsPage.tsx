@@ -44,7 +44,8 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  ListItemButton, // если нужна кликабельность
+  ListItemButton,
+  FormHelperText,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -231,14 +232,14 @@ const ReservationDetailsModal: React.FC<ReservationDetailsModalProps> = ({
         </Box>
       </DialogTitle>
 
-      <DialogContent sx={{ p: 2.5, pt: 2 }}> {/* Уменьшил верхний отступ с 3 до 2 */}
+      <DialogContent sx={{ p: 2.5, pt: 2 }}>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress />
           </Box>
         ) : (
           <>
-            {/* Сводка - теперь ближе к заголовку */}
+            {/* Сводка */}
             <Paper
               elevation={0}
               sx={{
@@ -739,6 +740,388 @@ const FilterSection: React.FC<FilterSectionProps> = ({
   );
 };
 
+// Единая модалка для создания и редактирования товара
+interface ProductModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSave: (productData: {
+    name: string;
+    sku: string;
+    categoryId: number;
+    price: number;
+    description?: string;
+  }) => Promise<void>;
+  categories: ProductCategory[];
+  product?: Product | null;
+  loading?: boolean;
+}
+
+const ProductModal: React.FC<ProductModalProps> = ({
+  open,
+  onClose,
+  onSave,
+  categories,
+  product = null,
+  loading = false,
+}) => {
+  const theme = useTheme();
+  const isEditMode = !!product;
+  
+  const [formData, setFormData] = useState({
+    name: '',
+    sku: '',
+    categoryId: '',
+    price: '',
+    description: '',
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (product) {
+      setFormData({
+        name: product.name || '',
+        sku: product.sku || '',
+        categoryId: product.categoryId?.toString() || '',
+        price: product.price?.toString() || '',
+        description: product.description || '',
+      });
+    } else {
+      setFormData({
+        name: '',
+        sku: '',
+        categoryId: '',
+        price: '',
+        description: '',
+      });
+    }
+    setErrors({});
+  }, [product, open]);
+
+  const handleChange = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const handlePriceChange = (value: string) => {
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setFormData(prev => ({ ...prev, price: value }));
+    }
+  };
+
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+    
+    if (!formData.name.trim()) {
+      newErrors.name = 'Название обязательно';
+    }
+    if (!formData.sku.trim()) {
+      newErrors.sku = 'Артикул обязателен';
+    }
+    if (!formData.categoryId) {
+      newErrors.categoryId = 'Выберите категорию';
+    }
+    if (!formData.price || parseFloat(formData.price) <= 0) {
+      newErrors.price = 'Введите корректную цену';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async () => {
+    if (!validate()) return;
+    
+    try {
+      await onSave({
+        name: formData.name.trim(),
+        sku: formData.sku.trim(),
+        categoryId: parseInt(formData.categoryId),
+        price: parseFloat(formData.price),
+        description: formData.description.trim() || undefined,
+      });
+      handleClose();
+    } catch (err) {
+      // Ошибка обрабатывается в родительском компоненте
+    }
+  };
+
+  const handleClose = () => {
+    setFormData({
+      name: '',
+      sku: '',
+      categoryId: '',
+      price: '',
+      description: '',
+    });
+    setErrors({});
+    onClose();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 4,
+          overflow: 'hidden',
+          boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+        },
+      }}
+    >
+      <DialogTitle sx={{ 
+        p: { xs: 2, sm: 2.5 }, 
+        pb: 1,
+        backgroundColor: alpha(theme.palette.primary.main, 0.02),
+        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+      }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Box>
+            <Typography variant="h6" fontWeight={600} color="#2a0f35" sx={{ mb: 0.5, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+              {isEditMode ? 'Редактировать товар' : 'Создать новый товар'}
+            </Typography>
+            <Typography variant="body2" color="#4c5454" sx={{ fontSize: { xs: '0.8rem', sm: '0.85rem' } }}>
+              {isEditMode ? 'Измените информацию о товаре' : 'Добавьте товар в систему'}
+            </Typography>
+          </Box>
+          <IconButton onClick={handleClose} size="small" sx={{ mt: -0.5, mr: -0.5 }}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+      </DialogTitle>
+
+      <DialogContent sx={{ p: { xs: 2, sm: 2.5 }, pt: { xs: 1, sm: 2 } }}>
+        <Stack spacing={2.5}>
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              НАЗВАНИЕ ТОВАРА
+            </Typography>
+            <TextField
+              fullWidth
+              required
+              size="small"
+              value={formData.name}
+              onChange={(e) => handleChange('name', e.target.value)}
+              error={!!errors.name}
+              helperText={errors.name}
+              placeholder="Введите название товара"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& fieldset': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#3f1f4b',
+                  },
+                },
+              }}
+            />
+          </Box>
+
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              АРТИКУЛ (SKU)
+            </Typography>
+            <TextField
+              fullWidth
+              required
+              size="small"
+              value={formData.sku}
+              onChange={(e) => handleChange('sku', e.target.value)}
+              error={!!errors.sku}
+              helperText={errors.sku}
+              placeholder="Например: ART-12345"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& fieldset': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#3f1f4b',
+                  },
+                },
+              }}
+            />
+          </Box>
+
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              КАТЕГОРИЯ
+            </Typography>
+            <FormControl fullWidth required size="small" error={!!errors.categoryId}>
+              <Select
+                value={formData.categoryId}
+                onChange={(e) => handleChange('categoryId', e.target.value)}
+                displayEmpty
+                sx={{
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#3f1f4b',
+                  },
+                }}
+              >
+                <MenuItem value="" disabled>Выберите категорию</MenuItem>
+                {categories.map(category => (
+                  <MenuItem key={category.id} value={category.id}>
+                    {category.name}
+                  </MenuItem>
+                ))}
+              </Select>
+              {errors.categoryId && (
+                <FormHelperText>{errors.categoryId}</FormHelperText>
+              )}
+            </FormControl>
+          </Box>
+
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              ЦЕНА
+            </Typography>
+            <TextField
+              type="text"
+              fullWidth
+              required
+              size="small"
+              value={formData.price}
+              onChange={(e) => handlePriceChange(e.target.value)}
+              error={!!errors.price}
+              helperText={errors.price}
+              placeholder="0.00"
+              InputProps={{
+                startAdornment: <InputAdornment position="start">₽</InputAdornment>,
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& fieldset': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#3f1f4b',
+                  },
+                },
+              }}
+            />
+          </Box>
+
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
+              ОПИСАНИЕ
+            </Typography>
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              size="small"
+              value={formData.description}
+              onChange={(e) => handleChange('description', e.target.value)}
+              placeholder="Введите описание товара (необязательно)"
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& fieldset': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#3f1f4b',
+                  },
+                },
+              }}
+            />
+          </Box>
+        </Stack>
+      </DialogContent>
+
+      <DialogActions sx={{ 
+        p: { xs: 2, sm: 2.5 }, 
+        pt: 1, 
+        borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        backgroundColor: alpha(theme.palette.background.default, 0.5),
+        gap: 1.5,
+      }}>
+        <Button
+          onClick={handleClose}
+          variant="outlined"
+          fullWidth
+          sx={{
+            borderRadius: 2,
+            borderColor: '#e0e0e0',
+            borderWidth: 1.5,
+            backgroundColor: '#f8f7fa',
+            color: '#4c5454',
+            py: 1,
+            textTransform: 'none',
+            fontSize: { xs: '0.85rem', sm: '0.95rem' },
+            fontWeight: 500,
+            '&:hover': {
+              backgroundColor: '#f0eef2',
+              borderColor: '#9c7cae',
+            },
+          }}
+        >
+          Отмена
+        </Button>
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
+          fullWidth
+          disabled={loading}
+          sx={{
+            borderRadius: 2,
+            backgroundColor: '#3f1f4b',
+            color: 'white',
+            py: 1,
+            textTransform: 'none',
+            fontSize: { xs: '0.85rem', sm: '0.95rem' },
+            fontWeight: 500,
+            '&:hover': { backgroundColor: '#2a0f35' },
+            '&.Mui-disabled': {
+              backgroundColor: '#e0e0e0',
+              color: '#9e9e9e',
+            },
+          }}
+        >
+          {loading ? <CircularProgress size={24} color="inherit" /> : (isEditMode ? 'Сохранить' : 'Создать товар')}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
 // Компонент сортировки
 interface SortSectionProps {
   sortBy: 'price' | 'quantity';
@@ -806,6 +1189,7 @@ interface InventoryTableProps {
   getUserFullName: (userId: number) => string;
   getCategoryName: (categoryId: number) => string;
   onReservedClick: (item: InventoryItem) => void;
+  onEditClick: (item: InventoryItem) => void;
 }
 
 const InventoryTable: React.FC<InventoryTableProps> = ({
@@ -817,6 +1201,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
   getUserFullName,
   getCategoryName,
   onReservedClick,
+  onEditClick,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -883,18 +1268,20 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                       SKU: {product?.sku || 'N/A'}
                     </Typography>
                   </Box>
-                  <Chip
-                    label={product ? getCategoryName(product.categoryId) : 'Без категории'}
-                    size="small"
-                    sx={{ 
-                      ...iOSStyles.chip, 
-                      backgroundColor: alpha(theme.palette.primary.main, 0.1),
-                      color: theme.palette.primary.main,
-                      fontWeight: 600,
-                      fontSize: '0.7rem',
-                      height: 20,
-                    }}
-                  />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Chip
+                      label={product ? getCategoryName(product.categoryId) : 'Без категории'}
+                      size="small"
+                      sx={{ 
+                        ...iOSStyles.chip, 
+                        backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                        color: theme.palette.primary.main,
+                        fontWeight: 600,
+                        fontSize: '0.7rem',
+                        height: 20,
+                      }}
+                    />
+                  </Box>
                 </Box>
                 
                 <Divider sx={{ my: 1 }} />
@@ -904,11 +1291,25 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                     <Typography variant="caption" color="text.secondary" display="block">
                       Количество
                     </Typography>
-                    <Typography variant="body1" fontWeight={700} color={item.quantity > 0 ? 'primary' : 'text.secondary'}>
-                      {item.quantity} шт.
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <Typography variant="body1" fontWeight={700} color={item.quantity > 0 ? 'primary' : 'text.secondary'}>
+                        {item.quantity} шт.
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={() => onEditClick(item)}
+                        sx={{
+                          backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                          '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                          width: 28,
+                          height: 28,
+                        }}
+                      >
+                        <EditIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Box>
                     {item.reservedQuantity > 0 && (
-                      <Box sx={{ display: 'inline-block' }}>
+                      <Box sx={{ mt: 0.5 }}>
                         <Chip
                           label={`${item.reservedQuantity} в резерве`}
                           size="small"
@@ -926,7 +1327,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                               px: 1,
                             },
                             '&:hover': {
-                              backgroundColor: alpha(theme.palette.warning.main, 0.2), // Меняем фон при наведении
+                              backgroundColor: alpha(theme.palette.warning.main, 0.2),
                             },
                           }}
                         />
@@ -1016,11 +1417,27 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                   />
                 </TableCell>
                 <TableCell>
-                  <Typography variant="body2" fontWeight="bold" color="primary">
-                    {item.quantity} шт.
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body2" fontWeight="bold" color="primary">
+                      {item.quantity} шт.
+                    </Typography>
+                    <Tooltip title="Редактировать остатки">
+                      <IconButton
+                        size="small"
+                        onClick={() => onEditClick(item)}
+                        sx={{
+                          backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                          '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                          width: 28,
+                          height: 28,
+                        }}
+                      >
+                        <EditIcon sx={{ fontSize: 16 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
                   {item.reservedQuantity > 0 && (
-                    <Box sx={{ display: 'inline-block' }}>
+                    <Box sx={{ mt: 0.5 }}>
                       <Chip
                         label={`${item.reservedQuantity} в резерве`}
                         size="small"
@@ -1038,7 +1455,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                             px: 1,
                           },
                           '&:hover': {
-                            backgroundColor: alpha(theme.palette.warning.main, 0.2), // Меняем фон при наведении
+                            backgroundColor: alpha(theme.palette.warning.main, 0.2),
                           },
                         }}
                       />
@@ -1064,12 +1481,278 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
   );
 };
 
+// Компонент модалки редактирования остатков
+interface EditInventoryModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSave: (quantity: number) => Promise<void>;
+  item: InventoryItem | null;
+  user: User | null;
+  product: Product | null;
+  loading?: boolean;
+}
+
+const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
+  open,
+  onClose,
+  onSave,
+  item,
+  user,
+  product,
+  loading = false,
+}) => {
+  const theme = useTheme();
+  const [quantity, setQuantity] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (item) {
+      setQuantity(item.quantity.toString());
+      setError(null);
+    }
+  }, [item]);
+
+  const handleSave = async () => {
+    const numQuantity = parseInt(quantity);
+    if (isNaN(numQuantity) || numQuantity < 0) {
+      setError('Введите корректное количество');
+      return;
+    }
+
+    if (numQuantity < (item?.reservedQuantity || 0)) {
+      setError(`Нельзя уменьшить до ${numQuantity}, зарезервировано ${item?.reservedQuantity}`);
+      return;
+    }
+
+    try {
+      await onSave(numQuantity);
+      onClose();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Ошибка при сохранении');
+    }
+  };
+
+  const handleQuantityChange = (value: string) => {
+    if (value === '' || /^\d+$/.test(value)) {
+      setQuantity(value);
+      setError(null);
+    }
+  };
+
+  if (!item || !user || !product) return null;
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 4,
+          overflow: 'hidden',
+        },
+      }}
+    >
+      <DialogTitle sx={{ 
+        p: 2.5, 
+        pb: 2,
+        backgroundColor: alpha(theme.palette.primary.main, 0.02),
+        borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+      }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Box>
+            <Typography variant="h6" fontWeight={600} color="#2a0f35" sx={{ mb: 1 }}>
+              Редактировать остатки
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Chip
+                label={user.fullName || user.username}
+                size="small"
+                sx={{
+                  backgroundColor: alpha(theme.palette.info.main, 0.1),
+                  color: theme.palette.info.main,
+                  fontWeight: 500,
+                }}
+              />
+              <Chip
+                label={product.name}
+                size="small"
+                sx={{
+                  backgroundColor: alpha(theme.palette.success.main, 0.1),
+                  color: theme.palette.success.main,
+                  fontWeight: 500,
+                }}
+              />
+            </Box>
+          </Box>
+          <IconButton onClick={onClose} size="small" sx={{ mt: -0.5, mr: -0.5 }}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+      </DialogTitle>
+
+      <DialogContent sx={{ p: 2.5, pt: 3, mt: 2 }}>
+        <Stack spacing={3}>
+          {/* Текущее состояние */}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 2,
+              backgroundColor: alpha(theme.palette.background.default, 0.5),
+              borderRadius: 2,
+              border: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+            }}
+          >
+            <Typography variant="caption" color="text.secondary" gutterBottom display="block">
+              ТЕКУЩЕЕ СОСТОЯНИЕ
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 6 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Всего:
+                </Typography>
+                <Typography variant="h6" color="primary" fontWeight={600}>
+                  {item.quantity} шт.
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 6 }}>
+                <Typography variant="body2" color="text.secondary">
+                  В резерве:
+                </Typography>
+                <Typography variant="h6" color="warning.main" fontWeight={600}>
+                  {item.reservedQuantity} шт.
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Доступно:
+                </Typography>
+                <Typography variant="h5" color="success.main" fontWeight={700}>
+                  {item.quantity - item.reservedQuantity} шт.
+                </Typography>
+              </Grid>
+            </Grid>
+          </Paper>
+
+          {/* Новое количество */}
+          <Box>
+            <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, mb: 0.5 }}>
+              НОВОЕ КОЛИЧЕСТВО
+            </Typography>
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              value={quantity}
+              onChange={(e) => handleQuantityChange(e.target.value)}
+              error={!!error}
+              helperText={error}
+              placeholder="Введите количество"
+              InputProps={{
+                endAdornment: <InputAdornment position="end">шт.</InputAdornment>,
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2,
+                  backgroundColor: '#ffffff',
+                  '& fieldset': {
+                    borderColor: '#e0e0e0',
+                    borderWidth: 1.5,
+                  },
+                  '&:hover fieldset': {
+                    borderColor: '#9c7cae',
+                  },
+                  '&.Mui-focused fieldset': {
+                    borderColor: '#3f1f4b',
+                  },
+                },
+              }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              * 0 - удалить товар у пользователя
+            </Typography>
+          </Box>
+
+          {/* Предупреждение если уменьшаем */}
+          {parseInt(quantity) < item.quantity && parseInt(quantity) >= item.reservedQuantity && (
+            <Alert severity="warning" sx={{ borderRadius: 2 }}>
+              Вы уменьшаете количество. Убедитесь, что это не повлияет на текущие процессы.
+            </Alert>
+          )}
+
+          {/* Предупреждение если меньше резерва */}
+          {parseInt(quantity) < item.reservedQuantity && (
+            <Alert severity="error" sx={{ borderRadius: 2 }}>
+              Нельзя установить количество меньше зарезервированного ({item.reservedQuantity} шт.)
+            </Alert>
+          )}
+        </Stack>
+      </DialogContent>
+
+      <DialogActions sx={{ 
+        p: 2.5, 
+        pt: 2, 
+        borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+        backgroundColor: alpha(theme.palette.background.default, 0.5),
+        gap: 1.5,
+      }}>
+        <Button
+          onClick={onClose}
+          variant="outlined"
+          fullWidth
+          sx={{
+            borderRadius: 2,
+            borderColor: '#e0e0e0',
+            borderWidth: 1.5,
+            backgroundColor: '#f8f7fa',
+            color: '#4c5454',
+            py: 1,
+            textTransform: 'none',
+            '&:hover': {
+              backgroundColor: '#f0eef2',
+              borderColor: '#9c7cae',
+            },
+          }}
+        >
+          Отмена
+        </Button>
+        <Button
+          onClick={handleSave}
+          variant="contained"
+          fullWidth
+          disabled={
+            loading || 
+            !quantity || 
+            parseInt(quantity) < 0 || 
+            parseInt(quantity) < (item?.reservedQuantity || 0)
+          }
+          sx={{
+            borderRadius: 2,
+            backgroundColor: '#3f1f4b',
+            color: 'white',
+            py: 1,
+            textTransform: 'none',
+            '&:hover': { backgroundColor: '#2a0f35' },
+            '&.Mui-disabled': {
+              backgroundColor: '#e0e0e0',
+              color: '#9e9e9e',
+            },
+          }}
+        >
+          {loading ? <CircularProgress size={24} color="inherit" /> : 'Сохранить'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
 // Основной компонент страницы
 const ProductsPage: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { user } = useAuth();
-  const [tabValue, setTabValue] = useState(0);
+  const [tabValue, setTabValue] = useState(0); // 0 - Остатки, 1 - Товары
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -1084,6 +1767,12 @@ const ProductsPage: React.FC = () => {
   const [selectedInventoryItem, setSelectedInventoryItem] = useState<InventoryItem | null>(null);
   const [productReservations, setProductReservations] = useState<ProductReservationsResponse[]>([]);
   const [loadingReservations, setLoadingReservations] = useState(false);
+
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [selectedEditItem, setSelectedEditItem] = useState<InventoryItem | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   
   // Фильтры и сортировка
   const [filters, setFilters] = useState({
@@ -1122,7 +1811,19 @@ const ProductsPage: React.FC = () => {
       description: '',
     },
   });
-
+  
+  const [secondLevelTab, setSecondLevelTab] = useState<'products' | 'categories'>('products');
+// Для фильтрации товаров по категориям
+  const [productCategoryFilter, setProductCategoryFilter] = useState<number | 'all'>('all');  
+  
+  // Состояния для модалки товара (единая)
+  const [productModalOpen, setProductModalOpen] = useState(false);
+  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+  const [savingProduct, setSavingProduct] = useState(false);
+  
+  // Состояния для удаления товара
+  const [deleteProductDialogOpen, setDeleteProductDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [categoryToDelete, setCategoryToDelete] = useState<ProductCategory | null>(null);
   const [isEditingCategory, setIsEditingCategory] = useState(false);
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
@@ -1256,6 +1957,34 @@ const ProductsPage: React.FC = () => {
     }
   };
 
+  const handleSaveProduct = async (productData: {
+    name: string;
+    sku: string;
+    categoryId: number;
+    price: number;
+    description?: string;
+  }) => {
+    setSavingProduct(true);
+    try {
+      if (productToEdit) {
+        // Редактирование
+        const updated = await productService.updateProduct(productToEdit.id, productData);
+        setProducts(products.map(p => p.id === productToEdit.id ? updated : p));
+        setSuccessMessage('Товар успешно обновлен');
+      } else {
+        // Создание
+        const newProduct = await productService.createProduct(productData);
+        setProducts([...products, newProduct]);
+        setSuccessMessage('Товар успешно создан');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Ошибка сохранения товара');
+      throw err;
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
   const resetReplenishForm = () => {
     setReplenishForm({
       isNewProduct: false,
@@ -1293,6 +2022,20 @@ const ProductsPage: React.FC = () => {
     }));
   };
 
+  const handleDeleteProduct = async () => {
+    if (!productToDelete) return;
+    
+    try {
+      await productService.deleteProduct(productToDelete.id);
+      setProducts(products.filter(p => p.id !== productToDelete.id));
+      setDeleteProductDialogOpen(false);
+      setProductToDelete(null);
+      setSuccessMessage('Товар успешно удален');
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Ошибка удаления товара');
+    }
+  };
+
   // Обработчик клика по резерву
   const handleReservedClick = async (item: InventoryItem) => {
     setSelectedInventoryItem(item);
@@ -1309,6 +2052,65 @@ const ProductsPage: React.FC = () => {
       setLoadingReservations(false);
     }
   };
+
+  // Обработчик редактирования
+  const handleEditClick = (item: InventoryItem) => {
+    const user = users.find(u => u.id === item.userId);
+    const product = products.find(p => p.id === item.productId);
+    
+    if (!user || !product) {
+      setError('Не удалось загрузить данные пользователя или товара');
+      return;
+    }
+    
+    setSelectedEditItem(item);
+    setEditingUser(user);
+    setEditingProduct(product);
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async (quantity: number) => {
+    if (!selectedEditItem) return;
+    
+    setSavingEdit(true);
+    try {
+      const result = await inventoryService.editInventory({
+        user_id: selectedEditItem.userId,
+        product_id: selectedEditItem.productId,
+        quantity: quantity,
+      });
+      
+      // Обновляем данные в таблице
+      await loadData();
+      
+      setSuccessMessage(`Остатки обновлены: ${result.product_name} → ${quantity} шт.`);
+      setEditModalOpen(false);
+      setSelectedEditItem(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Ошибка при обновлении остатков');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Обработчик открытия модалки для создания товара
+  const handleOpenCreateProduct = () => {
+    setProductToEdit(null);
+    setProductModalOpen(true);
+  };
+
+  // Обработчик открытия модалки для редактирования товара
+  const handleOpenEditProduct = (product: Product) => {
+    setProductToEdit(product);
+    setProductModalOpen(true);
+  };
+  const handleCategoryFilterChange = (value: string | number) => {
+  if (value === 'all') {
+    setProductCategoryFilter('all');
+  } else {
+    setProductCategoryFilter(Number(value));
+  }
+};
 
   // Фильтрация и сортировка инвентаря
   const getFilteredAndSortedInventory = () => {
@@ -1355,6 +2157,7 @@ const ProductsPage: React.FC = () => {
 
     return filtered;
   };
+
   const totalValue = useMemo(() => {
     return inventory.reduce((sum, item) => {
       const product = products.find(p => p.id === item.productId);
@@ -1404,8 +2207,8 @@ const ProductsPage: React.FC = () => {
   }
 
   const tabs = [
-    { label: 'Товары', icon: <InventoryIcon fontSize="small" />, value: 0 },
-    { label: 'Категории', icon: <CategoryIcon fontSize="small" />, value: 1 },
+    { label: 'Остатки', icon: <InventoryIcon fontSize="small" />, value: 0 },
+    { label: 'Товары', icon: <CategoryIcon fontSize="small" />, value: 1 },
   ];
 
   return (
@@ -1522,112 +2325,302 @@ const ProductsPage: React.FC = () => {
               getUserFullName={getUserFullName}
               getCategoryName={getCategoryName}
               onReservedClick={handleReservedClick}
+              onEditClick={handleEditClick}
             />
           </Box>
         )}
 
         {tabValue === 1 && (
           <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
+            {/* Подвкладки - теперь сначала Товары, потом Категории */}
             <Box sx={{ 
               display: 'flex', 
-              justifyContent: 'space-between', 
-              mb: 3, 
-              alignItems: 'center',
-              flexDirection: { xs: 'column', sm: 'row' },
-              gap: { xs: 2, sm: 0 }
+              gap: 1, 
+              mb: 3,
+              borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+              pb: 1
             }}>
-              <Typography variant="h5" fontWeight={600} sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-                Управление категориями
-              </Typography>
               <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => {
-                  resetCategoryForm();
-                  setCategoryDialogOpen(true);
-                }}
+                onClick={() => setSecondLevelTab('products')}
+                variant={secondLevelTab === 'products' ? 'contained' : 'text'}
+                startIcon={<InventoryIcon />}
                 sx={{
                   ...iOSStyles.button,
-                  width: { xs: '100%', sm: 'auto' },
-                  whiteSpace: 'nowrap',
-                  fontSize: { xs: '0.875rem', sm: '0.95rem' },
-                  py: { xs: 1, sm: 0.75 },
+                  borderRadius: 4,
+                  backgroundColor: secondLevelTab === 'products' ? theme.palette.primary.main : 'transparent',
+                  borderColor: secondLevelTab === 'products' ? 'transparent' : alpha(theme.palette.primary.main, 0.3),
+                  color: secondLevelTab === 'products' ? 'white' : theme.palette.text.primary,
+                  '&:hover': {
+                    backgroundColor: secondLevelTab === 'products' 
+                      ? theme.palette.primary.dark 
+                      : alpha(theme.palette.primary.main, 0.08),
+                  },
                 }}
               >
-                Добавить категорию
+                Товары в системе
+              </Button>
+              <Button
+                onClick={() => setSecondLevelTab('categories')}
+                variant={secondLevelTab === 'categories' ? 'contained' : 'text'}
+                startIcon={<CategoryIcon />}
+                sx={{
+                  ...iOSStyles.button,
+                  borderRadius: 4,
+                  backgroundColor: secondLevelTab === 'categories' ? theme.palette.primary.main : 'transparent',
+                  borderColor: secondLevelTab === 'categories' ? 'transparent' : alpha(theme.palette.primary.main, 0.3),
+                  color: secondLevelTab === 'categories' ? 'white' : theme.palette.text.primary,
+                  '&:hover': {
+                    backgroundColor: secondLevelTab === 'categories' 
+                      ? theme.palette.primary.dark 
+                      : alpha(theme.palette.primary.main, 0.08),
+                  },
+                }}
+              >
+                Категории
               </Button>
             </Box>
 
-            <Grid container spacing={1.5}>
-              {categories.map((category) => (
-                <Grid size={{ xs: 12, sm: 6, md: 4 }} key={category.id}>
-                  <Card variant="outlined" sx={iOSStyles.card}>
-                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="h6" gutterBottom fontWeight={600} fontSize="1rem">
-                            {category.name}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary" paragraph sx={{ minHeight: 32, fontSize: '0.875rem' }}>
-                            {category.description || 'Нет описания'}
-                          </Typography>
-                          <Chip
-                            label={category.isActive ? 'Активна' : 'Неактивна'}
-                            size="small"
-                            color={category.isActive ? 'success' : 'default'}
-                            variant="outlined"
-                            sx={{ ...iOSStyles.chip, height: 20 }}
-                          />
-                          <Box sx={{ mt: 1.5 }}>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              ID: {category.id}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" display="block">
-                              Товаров: {products.filter(p => p.categoryId === category.id).length}
-                            </Typography>
+            {/* Вкладка Товары в системе */}
+            {secondLevelTab === 'products' && (
+              <>
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  mb: 3, 
+                  alignItems: 'center',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: { xs: 2, sm: 0 }
+                }}>
+                  <Typography variant="h5" fontWeight={600} sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    Товары в системе
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={handleOpenCreateProduct}
+                    sx={{
+                      ...iOSStyles.button,
+                      width: { xs: '100%', sm: 'auto' },
+                      whiteSpace: 'nowrap',
+                      fontSize: { xs: '0.875rem', sm: '0.95rem' },
+                      py: { xs: 1, sm: 0.75 },
+                    }}
+                  >
+                    Добавить товар
+                  </Button>
+                </Box>
+
+                {/* Фильтр по категориям для товаров */}
+                <Box sx={{ mb: 3 }}>
+                  <FormControl fullWidth size="small" sx={iOSStyles.input}>
+                    <InputLabel id="product-category-filter-label">Фильтр по категории</InputLabel>
+                    <Select
+                      labelId="product-category-filter-label"
+                      value={productCategoryFilter}
+                      label="Фильтр по категории"
+                      onChange={(e) => setProductCategoryFilter(e.target.value as number | 'all')}
+                      sx={{ borderRadius: 2 }}
+                    >
+                      <MenuItem value="all">Все категории</MenuItem>
+                      {categories.map(category => (
+                        <MenuItem key={category.id} value={category.id}>
+                          {category.name}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+
+                {/* Список товаров */}
+                <Grid container spacing={1.5}>
+                  {products
+                    .filter(product => productCategoryFilter === 'all' || product.categoryId === productCategoryFilter)
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((product) => (
+                      <Grid size={{ xs: 12, sm: 6, md: 4 }} key={product.id}>
+                        <Card variant="outlined" sx={iOSStyles.card}>
+                          <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="h6" gutterBottom fontWeight={600} fontSize="1rem">
+                                  {product.name}
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+                                  <Chip
+                                    label={`SKU: ${product.sku}`}
+                                    size="small"
+                                    variant="outlined"
+                                    sx={{ ...iOSStyles.chip, height: 20 }}
+                                  />
+                                  <Chip
+                                    label={product.categoryName || `Категория ${product.categoryId}`}
+                                    size="small"
+                                    sx={{ 
+                                      ...iOSStyles.chip, 
+                                      backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                                      color: theme.palette.primary.main,
+                                      height: 20,
+                                    }}
+                                  />
+                                </Box>
+                                <Typography variant="body2" color="text.secondary" paragraph sx={{ fontSize: '0.875rem' }}>
+                                  {product.description || 'Нет описания'}
+                                </Typography>
+                                <Typography variant="h6" color="success.main" fontWeight={700} sx={{ fontSize: '1.1rem' }}>
+                                  {product.price.toLocaleString()} ₽
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleOpenEditProduct(product)}
+                                  sx={{ 
+                                    backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                                    '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                                  }}
+                                >
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    setProductToDelete(product);
+                                    setDeleteProductDialogOpen(true);
+                                  }}
+                                  sx={{ 
+                                    backgroundColor: alpha(theme.palette.error.main, 0.1),
+                                    '&:hover': { backgroundColor: alpha(theme.palette.error.main, 0.2) },
+                                  }}
+                                >
+                                  <DeleteIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  {products.filter(product => productCategoryFilter === 'all' || product.categoryId === productCategoryFilter).length === 0 && (
+                    <Grid size={{ xs: 12 }}>
+                      <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 1 }}>
+                        <InventoryIcon sx={{ fontSize: 48, color: 'text.secondary', opacity: 0.2, mb: 2 }} />
+                        <Typography color="text.secondary">
+                          {productCategoryFilter === 'all' 
+                            ? 'В системе еще нет товаров. Создайте первый товар.'
+                            : 'В выбранной категории нет товаров.'}
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  )}
+                </Grid>
+              </>
+            )}
+
+            {/* Вкладка Категории */}
+            {secondLevelTab === 'categories' && (
+              <>
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  mb: 3, 
+                  alignItems: 'center',
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  gap: { xs: 2, sm: 0 }
+                }}>
+                  <Typography variant="h5" fontWeight={600} sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+                    Управление категориями
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      resetCategoryForm();
+                      setCategoryDialogOpen(true);
+                    }}
+                    sx={{
+                      ...iOSStyles.button,
+                      width: { xs: '100%', sm: 'auto' },
+                      whiteSpace: 'nowrap',
+                      fontSize: { xs: '0.875rem', sm: '0.95rem' },
+                      py: { xs: 1, sm: 0.75 },
+                    }}
+                  >
+                    Добавить категорию
+                  </Button>
+                </Box>
+
+                <Grid container spacing={1.5}>
+                  {categories.map((category) => (
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={category.id}>
+                      <Card variant="outlined" sx={iOSStyles.card}>
+                        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography variant="h6" gutterBottom fontWeight={600} fontSize="1rem">
+                                {category.name}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary" paragraph sx={{ minHeight: 32, fontSize: '0.875rem' }}>
+                                {category.description || 'Нет описания'}
+                              </Typography>
+                              <Chip
+                                label={category.isActive ? 'Активна' : 'Неактивна'}
+                                size="small"
+                                color={category.isActive ? 'success' : 'default'}
+                                variant="outlined"
+                                sx={{ ...iOSStyles.chip, height: 20 }}
+                              />
+                              <Box sx={{ mt: 1.5 }}>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  ID: {category.id}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  Товаров: {products.filter(p => p.categoryId === category.id).length}
+                                </Typography>
+                              </Box>
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleEditCategory(category)}
+                                sx={{ 
+                                  backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                                  '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                                }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  setCategoryToDelete(category);
+                                  setDeleteCategoryDialogOpen(true);
+                                }}
+                                sx={{ 
+                                  backgroundColor: alpha(theme.palette.error.main, 0.1),
+                                  '&:hover': { backgroundColor: alpha(theme.palette.error.main, 0.2) },
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
                           </Box>
-                        </Box>
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <IconButton
-                            size="small"
-                            onClick={() => handleEditCategory(category)}
-                            sx={{ 
-                              backgroundColor: alpha(theme.palette.primary.main, 0.1),
-                              '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
-                            }}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            onClick={() => {
-                              setCategoryToDelete(category);
-                              setDeleteCategoryDialogOpen(true);
-                            }}
-                            sx={{ 
-                              backgroundColor: alpha(theme.palette.error.main, 0.1),
-                              '&:hover': { backgroundColor: alpha(theme.palette.error.main, 0.2) },
-                            }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                  {categories.length === 0 && (
+                    <Grid size={{ xs: 12 }}>
+                      <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 1 }}>
+                        <CategoryIcon sx={{ fontSize: 48, color: 'text.secondary', opacity: 0.2, mb: 2 }} />
+                        <Typography color="text.secondary">
+                          Категории еще не созданы. Создайте первую категорию.
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  )}
                 </Grid>
-              ))}
-              {categories.length === 0 && (
-                <Grid size={{ xs: 12 }}>
-                  <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 1 }}>
-                    <CategoryIcon sx={{ fontSize: 48, color: 'text.secondary', opacity: 0.2, mb: 2 }} />
-                    <Typography color="text.secondary">
-                      Категории еще не созданы. Создайте первую категорию.
-                    </Typography>
-                  </Paper>
-                </Grid>
-              )}
-            </Grid>
+              </>
+            )}
           </Box>
         )}
       </Paper>
@@ -1836,6 +2829,66 @@ const ProductsPage: React.FC = () => {
               textTransform: 'none',
               fontSize: '0.95rem',
               fontWeight: 500,
+            }}
+          >
+            Удалить
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Единая модалка для создания/редактирования товара */}
+      <ProductModal
+        open={productModalOpen}
+        onClose={() => {
+          setProductModalOpen(false);
+          setProductToEdit(null);
+        }}
+        onSave={handleSaveProduct}
+        categories={categories}
+        product={productToEdit}
+        loading={savingProduct}
+      />
+
+      {/* Диалог удаления товара */}
+      <Dialog 
+        open={deleteProductDialogOpen} 
+        onClose={() => setDeleteProductDialogOpen(false)}
+        PaperProps={{
+          sx: { borderRadius: 4 },
+        }}
+      >
+        <DialogTitle sx={{ p: 2.5, pb: 1 }}>
+          <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ mb: 0.5 }}>
+            Удалить товар
+          </Typography>
+          <Typography variant="body2" color="#4c5454">
+            Вы уверены, что хотите удалить товар "{productToDelete?.name}"?
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: 2.5, pt: 2 }}>
+          <Alert severity="warning" sx={{ borderRadius: 2 }}>
+            Внимание! Товар будет удален из системы. 
+            Это может повлиять на историю отчетов, перемещений и брака.
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1, gap: 1 }}>
+          <Button
+            onClick={() => setDeleteProductDialogOpen(false)}
+            variant="outlined"
+            fullWidth
+            sx={{ borderRadius: 2, textTransform: 'none' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleDeleteProduct}
+            fullWidth
+            sx={{
+              borderRadius: 2,
+              backgroundColor: '#d32f2f',
+              textTransform: 'none',
+              '&:hover': { backgroundColor: '#b71c1c' },
             }}
           >
             Удалить
@@ -2280,6 +3333,21 @@ const ProductsPage: React.FC = () => {
           loading={loadingReservations}
         />
       )}
+      
+      <EditInventoryModal
+        open={editModalOpen}
+        onClose={() => {
+          setEditModalOpen(false);
+          setSelectedEditItem(null);
+          setEditingUser(null);
+          setEditingProduct(null);
+        }}
+        onSave={handleSaveEdit}
+        item={selectedEditItem}
+        user={editingUser}
+        product={editingProduct}
+        loading={savingEdit}
+      />
 
       {/* Уведомление об успехе */}
       <Snackbar
