@@ -1128,6 +1128,7 @@ const AddGroupToClusterDialog: React.FC<AddGroupToClusterDialogProps> = ({
 };
 
 // Компонент карточки группы
+// Компонент карточки группы
 interface GroupCardProps {
   group: Group;
   users: User[];
@@ -1139,6 +1140,8 @@ interface GroupCardProps {
   onAddToCluster: (group: Group) => void;
   onRemoveFromCluster: (groupId: number, clusterId: number) => void;
   onUnassignClick: (user: User, type: string, data?: any) => void;
+  onAssignMentor: (group: Group) => void;  // Новая функция
+  onUnassignMentor: (mentorId: number) => void;  // Новая функция
   getRoleColor: (role: UserRole) => string;
 }
 
@@ -1153,6 +1156,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   onAddToCluster,
   onRemoveFromCluster,
   onUnassignClick,
+  onAssignMentor,
+  onUnassignMentor,
   getRoleColor,
 }) => {
   const theme = useTheme();
@@ -1162,6 +1167,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const seniorSeller = users.find(u => u.id === group.seniorSellerId);
   const sellersInGroup = users.filter(u => u.groupId === group.id);
   const groupsInSameCluster = cluster ? groups.filter(g => g.clusterId === cluster.id) : [];
+
+  // Доступные наставники (без группы)
+  const availableMentors = users.filter(u => 
+    u.role === UserRole.MENTOR && 
+    !u.groupId  // Наставник без группы
+  );
 
   return (
     <Card sx={iOSStyles.compactCard}>
@@ -1196,14 +1207,54 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {mentor.fullName.split(' ')[0]}
                   </span>
                 </Box>
-              ) : 'Не назначен'}
+              ) : (
+                <span style={{ color: theme.palette.text.secondary, fontStyle: 'italic' }}>
+                  Не назначен
+                </span>
+              )}
             </Typography>
+            
+            {mentor ? (
+              // Если есть наставник - показываем кнопку отвязки
+              <IconButton
+                size="small"
+                onClick={() => onUnassignMentor(mentor.id)}
+                sx={{ width: 24, height: 24 }}
+                color="error"
+              >
+                <Close sx={{ fontSize: 16 }} />
+              </IconButton>
+            ) : (
+              // Если нет наставника - показываем кнопку назначения
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onAssignMentor(group)}
+                disabled={loading}
+                sx={{ 
+                  minWidth: 'auto',
+                  height: 24,
+                  fontSize: '0.7rem',
+                  py: 0,
+                  px: 1,
+                  color: theme.palette.primary.main,
+                  borderColor: theme.palette.primary.main,
+                }}
+              >
+                Назначить
+              </Button>
+            )}
           </Box>
           
           {/* Куст */}
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
             <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
-              <strong>Куст:</strong> {cluster ? cluster.name : 'Не назначен'}
+              <strong>Куст:</strong>{' '}
+              {cluster ? cluster.name : (
+                <span style={{ color: theme.palette.text.secondary, fontStyle: 'italic' }}>
+                  Не назначен
+                </span>
+              )}
             </Typography>
             {cluster && (
               <IconButton
@@ -1216,6 +1267,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
               </IconButton>
             )}
           </Box>
+          
+          {/* Старший продавец (если есть) */}
+          {seniorSeller && (
+            <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
+              <strong>Старший:</strong> {seniorSeller.fullName}
+            </Typography>
+          )}
           
           {/* Статистика */}
           <Typography variant="body2" sx={{ fontSize: { xs: '0.9rem', sm: '0.8rem' } }}>
@@ -1283,6 +1341,9 @@ interface ClusterCardProps {
   onAddGroup: (clusterId: number, groupId: number) => void;
   onRemoveGroup: (groupId: number, clusterId: number) => void;
   onUnassignClick: (user: User, type: string, data?: any) => void;
+  onAssignAdmin: (cluster: Cluster) => void;  // Новая функция
+  onAssignSenior: (cluster: Cluster) => void;  // Новая функция
+  onUnassignAdmin: (adminId: number, clusterId: number) => void;  // Новая функция
   getRoleColor: (role: UserRole) => string;
 }
 
@@ -1295,6 +1356,9 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
   onDelete,
   onRemoveGroup,
   onUnassignClick,
+  onAssignAdmin,
+  onAssignSenior,
+  onUnassignAdmin,
   getRoleColor,
 }) => {
   const theme = useTheme();
@@ -1303,6 +1367,15 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
   const admin = users.find(u => u.id === cluster.adminId);
   const groupsInCluster = groups.filter(group => group.clusterId === cluster.id);
   const sellersInCluster = users.filter(u => u.clusterId === cluster.id);
+
+  // Доступные администраторы
+  const availableAdmins = users.filter(u => u.role === UserRole.ADMIN);
+  
+  // Доступные старшие продавцы (без куста)
+  const availableSeniorSellers = users.filter(u => 
+    u.role === UserRole.SENIOR_SELLER && 
+    !u.clusterId
+  );
 
   return (
     <Card sx={iOSStyles.compactCard}>
@@ -1337,9 +1410,15 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
                     {seniorSeller.fullName.split(' ')[0]}
                   </span>
                 </Box>
-              ) : 'Не назначен'}
+              ) : (
+                <span style={{ color: theme.palette.text.secondary, fontStyle: 'italic' }}>
+                  Не назначен
+                </span>
+              )}
             </Typography>
-            {seniorSeller && (
+            
+            {seniorSeller ? (
+              // Если есть старший - показываем кнопку отвязки
               <IconButton
                 size="small"
                 onClick={() => onUnassignClick(seniorSeller, 'seniorFromCluster')}
@@ -1348,6 +1427,25 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
               >
                 <Close sx={{ fontSize: 16 }} />
               </IconButton>
+            ) : (
+              // Если нет старшего - показываем кнопку назначения
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onAssignSenior(cluster)}
+                disabled={loading}
+                sx={{ 
+                  minWidth: 'auto',
+                  height: 24,
+                  fontSize: '0.7rem',
+                  py: 0,
+                  px: 1,
+                  color: theme.palette.primary.main,
+                  borderColor: theme.palette.primary.main,
+                }}
+              >
+                Назначить
+              </Button>
             )}
           </Box>
           
@@ -1364,17 +1462,42 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
                     {admin.fullName.split(' ')[0]}
                   </span>
                 </Box>
-              ) : 'Не назначен'}
+              ) : (
+                <span style={{ color: theme.palette.text.secondary, fontStyle: 'italic' }}>
+                  Не назначен
+                </span>
+              )}
             </Typography>
-            {admin && (
+            
+            {admin ? (
+              // Если есть админ - показываем кнопку отвязки
               <IconButton
                 size="small"
-                onClick={() => onUnassignClick(admin, 'admin', { clusterId: cluster.id })}
+                onClick={() => onUnassignAdmin(admin.id, cluster.id)}
                 sx={{ width: 24, height: 24 }}
                 color="error"
               >
                 <Close sx={{ fontSize: 16 }} />
               </IconButton>
+            ) : (
+              // Если нет админа - показываем кнопку назначения
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onAssignAdmin(cluster)}
+                disabled={loading}
+                sx={{ 
+                  minWidth: 'auto',
+                  height: 24,
+                  fontSize: '0.7rem',
+                  py: 0,
+                  px: 1,
+                  color: theme.palette.primary.main,
+                  borderColor: theme.palette.primary.main,
+                }}
+              >
+                Назначить
+              </Button>
             )}
           </Box>
           
@@ -1540,6 +1663,20 @@ const StaffPage: React.FC = () => {
   const [selectedCluster, setSelectedCluster] = useState<number>(0);
   const [selectedClustersForAdmin, setSelectedClustersForAdmin] = useState<number[]>([]);
 
+  const [openAssignMentorDialog, setOpenAssignMentorDialog] = useState(false);
+  const [selectedGroupForMentor, setSelectedGroupForMentor] = useState<Group | null>(null);
+  const [selectedMentorForGroup, setSelectedMentorForGroup] = useState<number | null>(null);
+
+  // Состояния для управления администраторами в кустах
+  const [openAssignAdminDialog, setOpenAssignAdminDialog] = useState(false);
+  const [selectedClusterForAdmin, setSelectedClusterForAdmin] = useState<Cluster | null>(null);
+  const [selectedAdminForCluster, setSelectedAdminForCluster] = useState<number | null>(null);
+
+  // Состояния для управления старшими продавцами в кустах
+  const [openAssignSeniorDialog, setOpenAssignSeniorDialog] = useState(false);
+  const [selectedClusterForSenior, setSelectedClusterForSenior] = useState<Cluster | null>(null);
+  const [selectedSeniorForCluster, setSelectedSeniorForCluster] = useState<number | null>(null);
+
   // Поиск
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -1630,6 +1767,110 @@ const StaffPage: React.FC = () => {
         return <AttachMoney sx={{ fontSize: 18 }} />;
       default:
         return <Person sx={{ fontSize: 18 }} />;
+    }
+  };
+
+  // ================ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ НАСТАВНИКАМИ В ГРУППАХ ================
+  const handleAssignMentorToGroup = (group: Group) => {
+    // Открываем диалог назначения наставника
+    setSelectedGroupForMentor(group);
+    setOpenAssignMentorDialog(true);
+  };
+
+  const handleUnassignMentorFromGroup = async (mentorId: number) => {
+    try {
+      setLoading(true);
+      await assignmentsService.removeMentorFromGroup(mentorId);
+      showSnackbar('Наставник успешно отвязан от группы', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке наставника';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmAssignMentor = async () => {
+    if (!selectedGroupForMentor || !selectedMentorForGroup) return;
+    
+    try {
+      setLoading(true);
+      await assignmentsService.assignMentorToGroup(selectedMentorForGroup, selectedGroupForMentor.id);
+      showSnackbar('Наставник успешно назначен группе', 'success');
+      await loadAllData();
+      setOpenAssignMentorDialog(false);
+      setSelectedGroupForMentor(null);
+      setSelectedMentorForGroup(null);
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при назначении наставника';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ================ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ АДМИНИСТРАТОРАМИ В КУСТАХ ================
+  const handleAssignAdminToCluster = (cluster: Cluster) => {
+    setSelectedClusterForAdmin(cluster);
+    setOpenAssignAdminDialog(true);
+  };
+
+  const handleUnassignAdminFromCluster = async (adminId: number, clusterId: number) => {
+    try {
+      setLoading(true);
+      await assignmentsService.removeAdminFromCluster(adminId, clusterId);
+      showSnackbar('Администратор успешно отвязан от куста', 'success');
+      await loadAllData();
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при отвязке администратора';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmAssignAdmin = async () => {
+    if (!selectedClusterForAdmin || !selectedAdminForCluster) return;
+    
+    try {
+      setLoading(true);
+      await assignmentsService.assignAdminToCluster(selectedAdminForCluster, selectedClusterForAdmin.id);
+      showSnackbar('Администратор успешно назначен кусту', 'success');
+      await loadAllData();
+      setOpenAssignAdminDialog(false);
+      setSelectedClusterForAdmin(null);
+      setSelectedAdminForCluster(null);
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при назначении администратора';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ================ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ СТАРШИМИ ПРОДАВЦАМИ В КУСТАХ ================
+  const handleAssignSeniorToCluster = (cluster: Cluster) => {
+    setSelectedClusterForSenior(cluster);
+    setOpenAssignSeniorDialog(true);
+  };
+
+  const handleConfirmAssignSenior = async () => {
+    if (!selectedClusterForSenior || !selectedSeniorForCluster) return;
+    
+    try {
+      setLoading(true);
+      await assignmentsService.assignSeniorToCluster(selectedSeniorForCluster, selectedClusterForSenior.id);
+      showSnackbar('Старший продавец успешно назначен кусту', 'success');
+      await loadAllData();
+      setOpenAssignSeniorDialog(false);
+      setSelectedClusterForSenior(null);
+      setSelectedSeniorForCluster(null);
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Ошибка при назначении старшего продавца';
+      showSnackbar(errorMessage, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -2254,6 +2495,8 @@ const StaffPage: React.FC = () => {
                     onAddToCluster={handleAddGroupToClusterClick}
                     onRemoveFromCluster={handleRemoveGroupFromCluster}
                     onUnassignClick={handleUnassignClick}
+                    onAssignMentor={handleAssignMentorToGroup}
+                    onUnassignMentor={handleUnassignMentorFromGroup}
                     getRoleColor={getRoleColor}
                   />
                 </Grid>
@@ -2302,6 +2545,9 @@ const StaffPage: React.FC = () => {
                     onAddGroup={(clusterId, groupId) => handleAddGroupToCluster(clusterId)}
                     onRemoveGroup={handleRemoveGroupFromCluster}
                     onUnassignClick={handleUnassignClick}
+                    onAssignAdmin={handleAssignAdminToCluster}
+                    onAssignSenior={handleAssignSeniorToCluster}
+                    onUnassignAdmin={handleUnassignAdminFromCluster}
                     getRoleColor={getRoleColor}
                   />
                 </Grid>
@@ -2963,7 +3209,161 @@ const StaffPage: React.FC = () => {
         accountantName={openAccountantAssignmentDialog.accountantName}
         onSuccess={handleAccountantAssignmentSuccess}
       />
+      {/* Диалог назначения наставника группе */}
+      <Dialog
+        open={openAssignMentorDialog}
+        onClose={() => {
+          setOpenAssignMentorDialog(false);
+          setSelectedGroupForMentor(null);
+          setSelectedMentorForGroup(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Назначить наставника группе "{selectedGroupForMentor?.name}"
+        </DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Выберите наставника</InputLabel>
+            <Select
+              value={selectedMentorForGroup || 0}
+              label="Выберите наставника"
+              onChange={(e) => setSelectedMentorForGroup(Number(e.target.value))}
+            >
+              <MenuItem value={0}>-- Не выбран --</MenuItem>
+              {users.filter(u => u.role === UserRole.MENTOR && !u.groupId).map((mentor) => (
+                <MenuItem key={mentor.id} value={mentor.id}>
+                  {mentor.fullName} ({mentor.username})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setOpenAssignMentorDialog(false);
+              setSelectedGroupForMentor(null);
+              setSelectedMentorForGroup(null);
+            }}
+            disabled={loading}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={handleConfirmAssignMentor}
+            variant="contained"
+            disabled={!selectedMentorForGroup || loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Назначить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
+      {/* Диалог назначения администратора кусту */}
+      <Dialog
+        open={openAssignAdminDialog}
+        onClose={() => {
+          setOpenAssignAdminDialog(false);
+          setSelectedClusterForAdmin(null);
+          setSelectedAdminForCluster(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Назначить администратора кусту "{selectedClusterForAdmin?.name}"
+        </DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Выберите администратора</InputLabel>
+            <Select
+              value={selectedAdminForCluster || 0}
+              label="Выберите администратора"
+              onChange={(e) => setSelectedAdminForCluster(Number(e.target.value))}
+            >
+              <MenuItem value={0}>-- Не выбран --</MenuItem>
+              {users.filter(u => u.role === UserRole.ADMIN).map((admin) => (
+                <MenuItem key={admin.id} value={admin.id}>
+                  {admin.fullName} ({admin.username})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setOpenAssignAdminDialog(false);
+              setSelectedClusterForAdmin(null);
+              setSelectedAdminForCluster(null);
+            }}
+            disabled={loading}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={handleConfirmAssignAdmin}
+            variant="contained"
+            disabled={!selectedAdminForCluster || loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Назначить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог назначения старшего продавца кусту */}
+      <Dialog
+        open={openAssignSeniorDialog}
+        onClose={() => {
+          setOpenAssignSeniorDialog(false);
+          setSelectedClusterForSenior(null);
+          setSelectedSeniorForCluster(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Назначить старшего продавца кусту "{selectedClusterForSenior?.name}"
+        </DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Выберите старшего продавца</InputLabel>
+            <Select
+              value={selectedSeniorForCluster || 0}
+              label="Выберите старшего продавца"
+              onChange={(e) => setSelectedSeniorForCluster(Number(e.target.value))}
+            >
+              <MenuItem value={0}>-- Не выбран --</MenuItem>
+              {users.filter(u => u.role === UserRole.SENIOR_SELLER && !u.clusterId).map((senior) => (
+                <MenuItem key={senior.id} value={senior.id}>
+                  {senior.fullName} ({senior.username})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setOpenAssignSeniorDialog(false);
+              setSelectedClusterForSenior(null);
+              setSelectedSeniorForCluster(null);
+            }}
+            disabled={loading}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={handleConfirmAssignSenior}
+            variant="contained"
+            disabled={!selectedSeniorForCluster || loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Назначить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}

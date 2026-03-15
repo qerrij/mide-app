@@ -848,6 +848,7 @@ class CRUDRevision:
         db.query(RevisionDiscrepancy).filter(RevisionDiscrepancy.revision_id == revision.id).delete()
         
         from app.crud.inventory import crud_inventory
+        from app.models.inventory import InventoryReservation, ReservationStatus
         
         # Для каждого заполнения находим расхождения и сразу применяем их
         for filling in fillings:
@@ -857,10 +858,17 @@ class CRUDRevision:
                     UserInventory.product_id == item.product_id
                 ).first()
                 
-                # ИСПРАВЛЕНИЕ: Используем доступное количество (общее минус зарезервированное)
+                # 🔴 ИСПРАВЛЕНИЕ: Получаем доступное количество (общее - все активные резервы)
                 total_quantity = inventory.quantity if inventory else 0
-                reserved_quantity = inventory.reserved_quantity if inventory else 0
-                available_quantity = total_quantity - reserved_quantity
+                
+                # Получаем все активные резервы для этого пользователя и товара
+                reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                    InventoryReservation.user_id == filling.user_id,
+                    InventoryReservation.product_id == item.product_id,
+                    InventoryReservation.status == ReservationStatus.ACTIVE
+                ).scalar() or 0
+                
+                available_quantity = total_quantity - reserved
                 
                 expected = available_quantity  # Используем доступное количество
                 actual = item.quantity

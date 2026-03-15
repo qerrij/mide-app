@@ -357,5 +357,54 @@ class CRUDUser:
         except Exception as e:
             db.rollback()
             raise ValueError(f"Ошибка при смене пароля: {str(e)}")
+        
+    def get_admin_clusters(self, user: User) -> List[int]:
+        """Надежное получение списка кустов администратора"""
+        if not user or user.role != UserRole.ADMIN:
+            return []
+        
+        if not user._admin_clusters:
+            return []
+        
+        try:
+            # Если это уже список
+            if isinstance(user._admin_clusters, list):
+                return [c for c in user._admin_clusters if isinstance(c, int) and c > 0]
+            
+            # Если это строка
+            if isinstance(user._admin_clusters, str):
+                # Пустая строка
+                if not user._admin_clusters.strip():
+                    return []
+                
+                # Пробуем распарсить JSON
+                try:
+                    parsed = json.loads(user._admin_clusters)
+                    if isinstance(parsed, list):
+                        return [c for c in parsed if isinstance(c, int) and c > 0]
+                    return []
+                except json.JSONDecodeError:
+                    # Если не JSON, проверяем другие форматы
+                    # Может быть строка вида "[1,2,3]"
+                    cleaned = user._admin_clusters.strip().strip('[]').strip()
+                    if cleaned:
+                        parts = cleaned.split(',')
+                        result = []
+                        for part in parts:
+                            try:
+                                num = int(part.strip())
+                                if num > 0:
+                                    result.append(num)
+                            except ValueError:
+                                continue
+                        return result
+                    return []
+            
+            # Если что-то другое
+            return []
+            
+        except Exception as e:
+            print(f"Error parsing admin_clusters: {e}")
+            return []
 
 crud_user = CRUDUser()

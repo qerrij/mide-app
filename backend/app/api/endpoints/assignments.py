@@ -451,30 +451,43 @@ def remove_admin_from_cluster(
         if not cluster:
             raise HTTPException(status_code=404, detail="Cluster not found")
         
-        # Получаем текущие кусты администратора
-        admin_clusters = []
-        if admin.admin_clusters:
-            try:
-                admin_clusters = json.loads(admin.admin_clusters)
-            except:
-                admin_clusters = []
+        # Получаем текущие кусты администратора через надежный метод
+        admin_clusters = crud_user.get_admin_clusters(admin)
         
         # Проверяем, есть ли этот куст у администратора
         if cluster_id not in admin_clusters:
-            raise HTTPException(status_code=400, detail="Cluster not assigned to this admin")
+            # Для отладки
+            print(f"Admin clusters: {admin_clusters}, looking for: {cluster_id}")
+            print(f"Raw _admin_clusters: {admin._admin_clusters}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cluster not assigned to this admin. Admin has clusters: {admin_clusters}"
+            )
         
         # Убираем куст
         admin_clusters.remove(cluster_id)
-        admin.admin_clusters = json.dumps(admin_clusters) if admin_clusters else None
+        
+        # Сохраняем обновленный список
+        if admin_clusters:
+            admin.admin_clusters = json.dumps(admin_clusters)
+        else:
+            admin.admin_clusters = None
         
         # Если этот администратор был основным для куста, убираем его
         if cluster.admin_id == admin_id:
             # Ищем другого администратора для этого куста
-            other_admin = db.query(User).filter(
+            other_admin = None
+            all_admins = db.query(User).filter(
                 User.role == UserRole.ADMIN,
                 User.is_active == True,
-                User.admin_clusters.like(f'%{cluster_id}%')
-            ).first()
+                User.id != admin_id
+            ).all()
+            
+            for potential_admin in all_admins:
+                potential_clusters = crud_user.get_admin_clusters(potential_admin)
+                if cluster_id in potential_clusters:
+                    other_admin = potential_admin
+                    break
             
             if other_admin:
                 cluster.admin_id = other_admin.id
@@ -486,6 +499,8 @@ def remove_admin_from_cluster(
         crud_user._enrich_user_data(db, admin)
         return admin
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
@@ -497,7 +512,7 @@ def remove_mentor_from_group(
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.OWNER))
 ):
-    """Отвязать наставника от группы"""
+    """Отвязать наставника от группы (группа остается без наставника)"""
     try:
         # Проверяем существование наставника
         mentor = crud_user.get(db, mentor_id)
@@ -513,24 +528,31 @@ def remove_mentor_from_group(
             raise HTTPException(status_code=404, detail="Group not found")
         
         # Отвязываем наставника от группы
+        old_mentor_id = group.mentor_id
+        group.mentor_id = None  # Группа остается без наставника
         mentor.group_id = None
         
-        # Удаляем группу или делаем ее неактивной
-        group.is_active = False
+        # НЕ деактивируем группу!
+        # group.is_active = False - удаляем эту строку
         
-        # Отвязываем всех продавцов этой группы
+        # Отвязываем всех продавцов этой группы от наставника,
+        # но оставляем их в группе
         sellers = db.query(User).filter(
             User.group_id == group.id,
             User.is_active == True
         ).all()
         
         for seller in sellers:
-            seller.group_id = None
             seller.mentor_id = None
-            # Оставляем куст и старшего продавца если они были назначены отдельно
+            # Оставляем seller.group_id без изменений
+            # Оставляем куст и старшего продавца
         
         db.commit()
+        
+        # Обновляем данные
         db.refresh(mentor)
+        db.refresh(group)
+        
         crud_user._enrich_user_data(db, mentor)
         return mentor
         
@@ -557,7 +579,7 @@ def remove_senior_from_cluster(
         
         # Находим куст
         cluster = db.query(Cluster).filter(
-            Cluster.senior_seller_id == senior_id,
+            Cluster.id == senior_seller.cluster_id,
             Cluster.is_active == True
         ).first()
         
@@ -565,10 +587,9 @@ def remove_senior_from_cluster(
             raise HTTPException(status_code=404, detail="Cluster not found")
         
         # Отвязываем старшего продавца от куста
-        cluster.senior_seller_id = None
+        cluster.senior_seller_id = None 
         senior_seller.cluster_id = None
         
-        # Отвязываем всех наставников и продавцов от этого куста
         mentors = db.query(User).filter(
             User.cluster_id == cluster.id,
             User.role == UserRole.MENTOR,
@@ -576,24 +597,21 @@ def remove_senior_from_cluster(
         ).all()
         
         for mentor in mentors:
-            mentor.cluster_id = None
             mentor.senior_seller_id = None
             
-            # Отвязываем группу
+            # Обновляем группу наставника
             if mentor.group_id:
                 group = db.query(Group).filter(Group.id == mentor.group_id).first()
                 if group:
-                    group.cluster_id = None
                     group.senior_seller_id = None
             
-            # Отвязываем продавцов
+            # Обновляем продавцов
             sellers = db.query(User).filter(
                 User.mentor_id == mentor.id,
                 User.is_active == True
             ).all()
             
             for seller in sellers:
-                seller.cluster_id = None
                 seller.senior_seller_id = None
         
         db.commit()

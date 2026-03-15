@@ -1258,6 +1258,7 @@ export interface CompanyTransaction {
   reference_type?: string;
   created_at: string;
   created_by?: number;
+  city?: string;
   created_by_name?: string;
 }
 

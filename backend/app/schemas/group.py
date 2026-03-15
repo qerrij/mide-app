@@ -6,7 +6,7 @@ from app.schemas.user import UserRole
 
 class GroupBase(BaseModel):
     name: str
-    mentor_id: int  
+    mentor_id: Optional[int] = None  
     cluster_id: Optional[int] = None
     senior_seller_id: Optional[int] = None
     description: Optional[str] = None

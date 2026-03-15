@@ -779,7 +779,9 @@ def calculate_discrepancies(
 def _calculate_discrepancies_for_revision(db: Session, revision: Revision):
     """Рассчитать расхождения для ревизии"""
     from app.models.revision import RevisionFilling
-    from app.models.inventory import UserInventory
+    from app.models.inventory import UserInventory, InventoryReservation, ReservationStatus
+    from app.models.product import Product
+    from sqlalchemy import func
     
     discrepancies = []
     
@@ -799,17 +801,23 @@ def _calculate_discrepancies_for_revision(db: Session, revision: Revision):
                 UserInventory.product_id == item.product_id
             ).first()
             
-            # ИСПРАВЛЕНИЕ: Используем доступное количество (общее минус зарезервированное)
+            # 🔴 ИСПРАВЛЕНИЕ: Получаем доступное количество (общее - все активные резервы)
             total_quantity = inventory.quantity if inventory else 0
-            reserved_quantity = inventory.reserved_quantity if inventory else 0
-            available_quantity = total_quantity - reserved_quantity
+            
+            # Получаем все активные резервы для этого пользователя и товара
+            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                InventoryReservation.user_id == filling.user_id,
+                InventoryReservation.product_id == item.product_id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).scalar() or 0
+            
+            available_quantity = total_quantity - reserved
             
             expected = available_quantity  # Используем доступное количество
             actual = item.quantity
             discrepancy = actual - expected
             
             # Получаем информацию о продукте
-            from app.models.product import Product
             product = db.query(Product)\
                 .options(joinedload(Product.category))\
                 .filter(Product.id == item.product_id)\

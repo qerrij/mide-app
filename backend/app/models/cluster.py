@@ -9,7 +9,7 @@ class Cluster(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
-    senior_seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    senior_seller_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     description = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)

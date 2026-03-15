@@ -13,6 +13,7 @@ class CompanyBalance(Base):
     amount = Column(Float, nullable=False)                # Сумма операции
     reference_id = Column(Integer, nullable=True)         # ID связанной сущности (отчет, заказ и т.д.)
     reference_type = Column(String(50), nullable=True)    # Тип связанной сущности
+    city = Column(String(100), nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

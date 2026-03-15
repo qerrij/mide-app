@@ -27,6 +27,7 @@ import {
   useTheme,
   useMediaQuery,
   IconButton,
+  SelectChangeEvent,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,6 +40,7 @@ import {
   History as HistoryIcon,
   SwapHoriz as CorrectionIcon,
   Close as CloseIcon,
+  LocationOn as LocationIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { companyService } from '../../api/companyService';
@@ -72,6 +74,7 @@ type DateRangeType = 'day' | 'week' | 'month' | 'all';
 interface TransactionDialogProps {
   open: boolean;
   type: 'INCOME' | 'EXPENSE';
+  selectedCity: string;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -80,6 +83,7 @@ interface TransactionDialogProps {
 const TransactionDialog: React.FC<TransactionDialogProps> = ({
   open,
   type,
+  selectedCity,
   onClose,
   onSuccess,
 }) => {
@@ -106,11 +110,13 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
         await companyService.addIncome({
           amount: parseFloat(amount),
           description: description.trim(),
+          city: selectedCity !== 'all' ? selectedCity : undefined,
         });
       } else {
         await companyService.addExpense({
           amount: parseFloat(amount),
           description: description.trim(),
+          city: selectedCity !== 'all' ? selectedCity : undefined,
         });
       }
       
@@ -148,6 +154,14 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
             ? 'Пополнение баланса компании' 
             : 'Списание средств с баланса'}
         </Typography>
+        {selectedCity !== 'all' && (
+          <Chip
+            size="small"
+            icon={<LocationIcon sx={{ fontSize: 14 }} />}
+            label={selectedCity}
+            sx={{ mt: 1, backgroundColor: '#f0e6ff', color: '#674fb6' }}
+          />
+        )}
       </DialogTitle>
       
       <IconButton
@@ -306,6 +320,7 @@ const CustomAreaTooltip = ({ active, payload, label }: any) => {
   }
   return null;
 };
+
 // Кастомный Tooltip для круговой диаграммы
 const CustomPieTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -407,9 +422,9 @@ const formatAmount = (amount: number) => {
   if (kopecks > 0) {
     return (
       <Box component="span" sx={{ display: 'inline-flex', alignItems: 'baseline' }}>
-        <span>₽{rubles.toLocaleString('ru-RU')}</span>
+        <span>{rubles.toLocaleString('ru-RU')} ₽</span>
         <Typography component="span" variant="caption" sx={{ color: '#8E8E93', ml: 0.5 }}>
-          ,{kopecks.toString().padStart(2, '0')} 
+          ,{kopecks.toString().padStart(2, '0')}
         </Typography>
       </Box>
     );
@@ -423,7 +438,6 @@ const formatAmount = (amount: number) => {
 };
 
 // Компонент выбора даты
-// Компонент выбора даты
 const DateRangeSelector: React.FC<{
   value: DateRangeType;
   onChange: (value: DateRangeType) => void;
@@ -434,7 +448,7 @@ const DateRangeSelector: React.FC<{
   onStartDateChange: (date: Date | null) => void;
   onEndDateChange: (date: Date | null) => void;
   onApplyDateRange: () => void;
-  onResetDateRange: () => void; // Новая функция для сброса
+  onResetDateRange: () => void;
 }> = ({ 
   value, 
   onChange, 
@@ -602,6 +616,10 @@ const CompanyPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   
+  // Города
+  const [cities, setCities] = useState<string[]>([]);
+  const [selectedCity, setSelectedCity] = useState<string>('all');
+  
   // Фильтры
   const [searchTerm, setSearchTerm] = useState('');
   const [operationFilter, setOperationFilter] = useState<string>('all');
@@ -629,51 +647,69 @@ const CompanyPage: React.FC = () => {
     severity: 'success',
   });
 
+  // Получаем список городов из транзакций
+  useEffect(() => {
+    if (transactions.length > 0) {
+      const uniqueCities = Array.from(new Set(
+        transactions
+          .map(t => t.city)
+          .filter((city): city is string => !!city)
+      )).sort();
+      setCities(uniqueCities);
+    }
+  }, [transactions]);
+
   // Загрузка данных
   const loadData = async () => {
     try {
       setLoading(true);
       
-      // Загружаем баланс
-      const balanceData = await companyService.getBalance();
+      // Загружаем баланс (общий или по городу)
+      const balanceData = selectedCity === 'all' 
+        ? await companyService.getBalance()
+        : await companyService.getBalanceByCity(selectedCity);
       setBalance(balanceData.balance);
       
-      // Загружаем транзакции (последние 100)
-      const transactionsData = await companyService.getTransactions({ limit: 100 });
+      // Загружаем транзакции (с фильтром по городу)
+      const transactionsData = await companyService.getTransactions({ 
+        limit: 100,
+        city: selectedCity !== 'all' ? selectedCity : undefined
+      });
       setTransactions(transactionsData);
       
       // Загружаем историю в зависимости от выбранного периода
       if (dateRange === 'day') {
-        // Для дня загружаем почасовую статистику
         const historyData = await companyService.getBalanceHistory({ 
           days: 1,
           granularity: 'hour',
-          date: format(customDate, 'yyyy-MM-dd')
+          date: format(customDate, 'yyyy-MM-dd'),
+          city: selectedCity !== 'all' ? selectedCity : undefined
         });
         setHistory(historyData);
       } else if (dateRange === 'all') {
         if (appliedStartDate && appliedEndDate) {
           const daysDiff = Math.ceil((appliedEndDate.getTime() - appliedStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
           const historyData = await companyService.getBalanceHistory({ 
-            days: Math.min(daysDiff, 365), // Не больше 365 дней
+            days: Math.min(daysDiff, 365),
             granularity: 'day',
-            date: format(appliedStartDate, 'yyyy-MM-dd')
+            date: format(appliedStartDate, 'yyyy-MM-dd'),
+            city: selectedCity !== 'all' ? selectedCity : undefined
           });
           setHistory(historyData);
         } else {
-          // Если даты не выбраны, загружаем за 30 дней по умолчанию
           const historyData = await companyService.getBalanceHistory({ 
             days: 365,
-            granularity: 'day'
+            granularity: 'day',
+            city: selectedCity !== 'all' ? selectedCity : undefined
           });
           setHistory(historyData);
         }
       } else {
-        // Для недели/месяца загружаем дневную статистику
         const days = dateRange === 'week' ? 7 : 30;
         const historyData = await companyService.getBalanceHistory({ 
           days,
-          granularity: 'day'
+          granularity: 'day',
+          city: selectedCity !== 'all' ? selectedCity : undefined
         });
         setHistory(historyData);
       }
@@ -687,10 +723,14 @@ const CompanyPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [dateRange, customDate, appliedStartDate, appliedEndDate]);
+  }, [dateRange, customDate, appliedStartDate, appliedEndDate, selectedCity]);
 
   const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
     setSnackbar({ open: true, message, severity });
+  };
+
+  const handleCityChange = (event: SelectChangeEvent) => {
+    setSelectedCity(event.target.value);
   };
 
   const getFilteredTransactions = () => {
@@ -743,6 +783,7 @@ const CompanyPage: React.FC = () => {
   };
 
   const filteredTransactions = getFilteredTransactions();
+  
   const handleDateRangeChange = (newRange: DateRangeType) => {
     setDateRange(newRange);
     if (newRange !== 'all') {
@@ -787,6 +828,7 @@ const CompanyPage: React.FC = () => {
       .reduce((sum, t) => sum + t.amount, 0),
     transactionsCount: filteredTransactions.length,
   };
+
   // Общая статистика (за все время)
   const totalStats = {
     totalIncome: transactions
@@ -812,7 +854,6 @@ const CompanyPage: React.FC = () => {
       }];
     }
 
-    // Сортируем по дате
     const sortedHistory = [...history].sort((a, b) => 
       new Date(a.date).getTime() - new Date(b.date).getTime()
     );
@@ -820,11 +861,8 @@ const CompanyPage: React.FC = () => {
     return sortedHistory.map((item, index) => {
       const date = new Date(item.date);
       const timestamp = date.getTime();
-      
-      // Создаем уникальный ключ из индекса, timestamp и баланса
       const uniqueKey = `point-${index}-${timestamp}-${item.balance}-${Math.random()}`;
       
-      // Для дневного режима
       if (dateRange === 'day') {
         return {
           id: uniqueKey,
@@ -832,15 +870,13 @@ const CompanyPage: React.FC = () => {
           balance: item.balance,
           fullDate: item.date,
           timestamp: timestamp,
-          index: index, // Добавляем индекс для отслеживания
+          index: index,
           tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
         };
-      } 
-      // Для недели/месяца
-      else {
+      } else {
         return {
           id: uniqueKey,
-          displayLabel: format(date, 'dd MMM HH:mm', { locale: ru }),
+          displayLabel: format(date, 'dd MMM', { locale: ru }),
           balance: item.balance,
           fullDate: item.date,
           timestamp: timestamp,
@@ -857,17 +893,17 @@ const CompanyPage: React.FC = () => {
     { 
       name: 'Обычные доходы', 
       value: periodStats.totalRegularIncome, 
-      color: '#4caf50' // Зеленый
+      color: '#4caf50'
     },
     { 
       name: 'Доходы от отчетов', 
       value: periodStats.totalReportIncome, 
-      color: '#2196f3' // Синий
+      color: '#2196f3'
     },
     { 
       name: 'Расходы', 
       value: periodStats.totalExpense, 
-      color: '#f44336' // Красный
+      color: '#f44336'
     },
   ].filter(item => item.value > 0);
 
@@ -875,22 +911,21 @@ const CompanyPage: React.FC = () => {
     return format(new Date(date), 'dd MMM yyyy, HH:mm', { locale: ru });
   };
 
-  // Конфигурация табов
   const tabs = [
     {
       label: 'Все',
       icon: <HistoryIcon sx={{ fontSize: 18 }} />,
-      count: transactions.length,
+      count: filteredTransactions.length,
     },
     {
       label: 'Доходы',
       icon: <IncomeIcon sx={{ fontSize: 18 }} />,
-      count: transactions.filter(t => t.operation_type === 'INCOME').length,
+      count: filteredTransactions.filter(t => t.operation_type === 'INCOME').length,
     },
     {
       label: 'Расходы',
       icon: <ExpenseIcon sx={{ fontSize: 18 }} />,
-      count: transactions.filter(t => t.operation_type === 'EXPENSE').length,
+      count: filteredTransactions.filter(t => t.operation_type === 'EXPENSE').length,
     },
   ];
 
@@ -914,16 +949,52 @@ const CompanyPage: React.FC = () => {
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'space-between',
-          mb: 2
+          mb: 2,
+          flexWrap: 'wrap',
+          gap: 2
         }}>
-          <Box>
-            <Typography variant="h5" component="h1" color="#2a0f35" fontWeight={600}>
-              Бухгалтерия
-            </Typography>
-            <Typography variant="body2" color="#4c5454">
-              Управление финансами компании
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography variant="h5" component="h1" color="#2a0f35" fontWeight={600}>
+                Бухгалтерия
+                {selectedCity !== 'all' && (
+                  <Box component="span" sx={{ color: '#674fb6', ml: 1 }}>
+                    {selectedCity}
+                  </Box>
+                )}
+              </Typography>
+              <Typography variant="body2" color="#4c5454">
+                Управление финансами компании
+              </Typography>
+            </Box>
+            
+            {/* Селект городов */}
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <Select
+                value={selectedCity}
+                onChange={handleCityChange}
+                displayEmpty
+                startAdornment={<LocationIcon sx={{ mr: 1, color: '#8E8E93', fontSize: 20 }} />}
+                sx={{
+                  borderRadius: 8,
+                  backgroundColor: '#ffffff',
+                  height: 40,
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#e0e0e0',
+                  },
+                  '&:hover .MuiOutlinedInput-notchedOutline': {
+                    borderColor: '#674fb6',
+                  },
+                }}
+              >
+                <MenuItem value="all">Все города</MenuItem>
+                {cities.map((city) => (
+                  <MenuItem key={city} value={city}>{city}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </Box>
+
           <IconButton
             onClick={loadData}
             disabled={loading}
@@ -963,7 +1034,8 @@ const CompanyPage: React.FC = () => {
           <Grid container spacing={2} alignItems="center">
             <Grid size={{ xs: 12, md: 6 }}>
               <Typography variant="subtitle2" color="#4c5454" sx={{ mb: 1 }}>
-                Текущий баланс компании
+                Текущий баланс
+                {selectedCity !== 'all' && ` г. ${selectedCity}`}
               </Typography>
               <Typography variant="h2" component="div" sx={{ fontWeight: 700, mb: 1, color: '#000000' }}>
                 {formatAmount(balance)}
@@ -1068,15 +1140,16 @@ const CompanyPage: React.FC = () => {
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
                 <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
+                  {selectedCity !== 'all' ? `Динамика баланса г. ${selectedCity} ` : 'Динамика баланса '}
                   {dateRange === 'day' 
-                    ? `Динамика баланса за ${format(customDate, 'dd MMMM yyyy', { locale: ru })}` 
+                    ? `за ${format(customDate, 'dd MMMM yyyy', { locale: ru })}` 
                     : dateRange === 'week' 
-                      ? 'Динамика баланса за неделю'
+                      ? 'за неделю'
                       : dateRange === 'month'
-                        ? 'Динамика баланса за месяц'
+                        ? 'за месяц'
                         : startDate && endDate
-                          ? `Динамика баланса с ${format(startDate, 'dd MMM yyyy', { locale: ru })} по ${format(endDate, 'dd MMM yyyy', { locale: ru })}`
-                          : 'Динамика баланса за все время'}
+                          ? `с ${format(startDate, 'dd MMM yyyy', { locale: ru })} по ${format(endDate, 'dd MMM yyyy', { locale: ru })}`
+                          : 'за все время'}
                 </Typography>
                 <DateRangeSelector
                   value={dateRange}
@@ -1096,7 +1169,7 @@ const CompanyPage: React.FC = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart 
                     data={chartData}
-                    key={`${dateRange}-${customDate.toISOString()}-${history.length}`}
+                    key={`${dateRange}-${customDate.toISOString()}-${history.length}-${selectedCity}`}
                   >
                     <defs>
                       <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
@@ -1148,15 +1221,16 @@ const CompanyPage: React.FC = () => {
               }}
             >
               <Typography variant="subtitle1" color="#2a0f35" fontWeight={600} sx={{ mb: 2 }}>
+                {selectedCity !== 'all' ? `Операции г. ${selectedCity} ` : 'Операции '}
                 {dateRange === 'day' 
-                  ? `Операции за ${format(customDate, 'dd MMM', { locale: ru })}` 
+                  ? `за ${format(customDate, 'dd MMM', { locale: ru })}` 
                   : dateRange === 'week' 
-                    ? 'Операции за неделю'
+                    ? 'за неделю'
                     : dateRange === 'month'
-                      ? 'Операции за месяц'
+                      ? 'за месяц'
                       : appliedStartDate && appliedEndDate
-                        ? `Операции с ${format(appliedStartDate, 'dd MMM', { locale: ru })} по ${format(appliedEndDate, 'dd MMM', { locale: ru })}`
-                        : 'Операции за все время'}
+                        ? `с ${format(appliedStartDate, 'dd MMM', { locale: ru })} по ${format(appliedEndDate, 'dd MMM', { locale: ru })}`
+                        : 'за все время'}
               </Typography>
               {pieData.length > 0 ? (
                 <>
@@ -1345,6 +1419,7 @@ const CompanyPage: React.FC = () => {
                         borderRadius: 8,
                         backgroundColor: '#ffffff',
                         transition: 'all 0.2s ease',
+                        height: '100%',
                         border: '1px solid #f0f0f0',
                         '&:hover': {
                           transform: 'translateY(-2px)',
@@ -1384,6 +1459,22 @@ const CompanyPage: React.FC = () => {
                           </Typography>
                         </Box>
 
+                        {/* Город */}
+                        {transaction.city && (
+                          <Chip
+                            size="small"
+                            icon={<LocationIcon sx={{ fontSize: 14 }} />}
+                            label={transaction.city}
+                            sx={{
+                              mb: 1,
+                              height: 20,
+                              fontSize: '0.6rem',
+                              backgroundColor: '#f0e6ff',
+                              color: '#674fb6',
+                            }}
+                          />
+                        )}
+
                         {/* Описание */}
                         <Typography 
                           variant="body2" 
@@ -1399,6 +1490,9 @@ const CompanyPage: React.FC = () => {
                         >
                           {transaction.description}
                         </Typography>
+                        {!transaction.city && (
+                          <Box sx={{ height: 20, mb: 1 }} />
+                        )}
 
                         {/* Дополнительная информация */}
                         <Box sx={{ 
@@ -1453,6 +1547,7 @@ const CompanyPage: React.FC = () => {
         <TransactionDialog
           open={incomeDialogOpen}
           type="INCOME"
+          selectedCity={selectedCity}
           onClose={() => setIncomeDialogOpen(false)}
           onSuccess={() => {
             showSnackbar('Доход успешно добавлен', 'success');
@@ -1463,6 +1558,7 @@ const CompanyPage: React.FC = () => {
         <TransactionDialog
           open={expenseDialogOpen}
           type="EXPENSE"
+          selectedCity={selectedCity}
           onClose={() => setExpenseDialogOpen(false)}
           onSuccess={() => {
             showSnackbar('Расход успешно добавлен', 'success');

@@ -452,7 +452,6 @@ async def create_report(
         
         db.commit()
         
-        # 🔴 ИСПРАВЛЕНИЕ: Резервируем товары с указанием report_id
         try:
             crud_inventory.reserve_products_for_report(
                 db, 
@@ -731,8 +730,15 @@ def final_approve_report(
         # Перезагружаем отчет со всеми связанными объектами
         report = crud_report.get(db, report_id=report_id)
         
-        # 🔴 ИСПРАВЛЕНИЕ: Используем новый метод finalize_report_reservations
+        # Освобождаем зарезервированные товары
         crud_inventory.finalize_report_reservations(db, report.seller_id, report.id)
+        
+        # Получаем город бухгалтера, который утвердил отчет
+        accountant_city = None
+        if report.accountant_reviewed_by:
+            accountant = db.query(User).filter(User.id == report.accountant_reviewed_by).first()
+            if accountant:
+                accountant_city = accountant.city
         
         # Добавляем деньги в общий банк
         description = f"Отчет №{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
@@ -742,7 +748,8 @@ def final_approve_report(
             description=description,
             reference_id=report_id,
             reference_type="REPORT",
-            created_by=current_user.id
+            created_by=report.accountant_reviewed_by,  # ID бухгалтера, а не руководителя
+            city=accountant_city  # Город бухгалтера
         )
         
         # Уведомляем продавца об утверждении
@@ -759,7 +766,7 @@ def final_approve_report(
         # Перезагружаем отчет со всеми связанными объектами
         report = crud_report.get(db, report_id=report_id)
         
-        # 🔴 ИСПРАВЛЕНИЕ: Используем новый метод release_report_reservations
+        # Освобождаем зарезервированные товары
         crud_inventory.release_report_reservations(db, report.seller_id, report.id)
         
         # Уведомляем продавца об отклонении

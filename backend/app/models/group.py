@@ -9,7 +9,7 @@ class Group(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
-    mentor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    mentor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=True)
     senior_seller_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     description = Column(String, nullable=True)

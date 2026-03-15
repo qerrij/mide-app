@@ -6,7 +6,7 @@ import json
 
 class ClusterBase(BaseModel):
     name: str
-    senior_seller_id: int  
+    senior_seller_id: Optional[int] = None    
     admin_id: Optional[int] = None  
     description: Optional[str] = None
 
