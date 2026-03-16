@@ -478,116 +478,272 @@ const ViewRevisionPage: React.FC = () => {
         </Card>
 
         {/* Блок статуса ревизии */}
-        {/* Блок статуса ревизии */}
-<Card 
-  sx={{ 
-    p: { xs: 2, sm: 2.5 },
-    mb: 3,
-    borderRadius: 8,
-    backgroundColor: '#ffffff',
-    boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-    textAlign: 'center',
-    position: 'relative',
-    overflow: 'hidden',
-  }}
->
-  {/* Фоновый слой для проверенных ревизий */}
-  {isRevisionVerified && (
-    <Box
-      sx={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        background: isPositiveTotal 
-          ? 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)'
-          : isNegativeTotal
-            ? 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)'
-            : 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
-        opacity: 0.7,
-        zIndex: 0,
-      }}
-    />
-  )}
-
-  <Box sx={{ 
-    position: 'relative', 
-    zIndex: 1, 
-    py: { xs: 2, sm: 3 },
-    px: { xs: 2, sm: 4 },
-  }}>
-    {isRevisionVerified ? (
-      <Box>
-        {totalDiscrepancy === 0 ? (
-          <>
-            <Typography variant="body2" color="#4c5454" gutterBottom>
-              Ревизия сбалансирована
-            </Typography>
-            <Typography 
-              variant="h1" 
-              color="#2e7d32"
-              sx={{ 
-                fontWeight: 'bold', 
-                my: 1,
-                fontSize: { xs: '3rem', sm: '4rem' }
-              }}
-            >
-              0
-            </Typography>
-            <Typography variant="caption" color="#4c5454">
-              Расхождений не обнаружено
-            </Typography>
-          </>
-        ) : (
-          <>
-            <Typography variant="body2" color="#4c5454" gutterBottom>
-              {totalDiscrepancy > 0 ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
-            </Typography>
-            <Typography 
-              variant="h1" 
-              color={totalDiscrepancy > 0 ? '#1976d2' : '#d32f2f'}
-              sx={{ 
-                fontWeight: 'bold', 
-                my: 1,
-                fontSize: { xs: '3rem', sm: '4rem' }
-              }}
-            >
-              {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
-            </Typography>
-            <Typography variant="caption" color="#4c5454">
-              {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
-            </Typography>
-          </>
-        )}
-      </Box>
-    ) : (
-      <Box>
-        <Typography variant="body2" color="#4c5454" gutterBottom>
-          {revision.status === RevisionStatus.COMPLETED 
-            ? 'Ревизия заполнена всеми участниками'
-            : 'Статус ревизии'}
-        </Typography>
-        <Typography 
-          variant="h2" 
-          color="#2a0f35" 
+        <Card 
           sx={{ 
-            fontWeight: 'bold', 
-            my: 1,
-            fontSize: { xs: '2rem', sm: '2.5rem' }
+            p: { xs: 2, sm: 2.5 },
+            mb: 3,
+            borderRadius: 8,
+            backgroundColor: '#ffffff',
+            boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+            textAlign: 'center',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
-          {getRevisionStatusText(revision.status)}
-        </Typography>
-        {isOwner && isGroupRev && revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
+          {/* Фоновый слой для проверенных ревизий */}
+          {isRevisionVerified && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: isPositiveTotal 
+                  ? 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)'
+                  : isNegativeTotal
+                    ? 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)'
+                    : 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)',
+                opacity: 0.7,
+                zIndex: 0,
+              }}
+            />
+          )}
+
+          <Box sx={{ 
+            position: 'relative', 
+            zIndex: 1, 
+            py: { xs: 2, sm: 3 },
+            px: { xs: 2, sm: 4 },
+          }}>
+            {isRevisionVerified ? (
+              <Box>
+                {totalDiscrepancy === 0 ? (
+                  <>
+                    <Typography variant="body2" color="#4c5454" gutterBottom>
+                      Ревизия сбалансирована
+                    </Typography>
+                    <Typography 
+                      variant="h1" 
+                      color="#2e7d32"
+                      sx={{ 
+                        fontWeight: 'bold', 
+                        my: 1,
+                        fontSize: { xs: '3rem', sm: '4rem' }
+                      }}
+                    >
+                      0
+                    </Typography>
+                    <Typography variant="caption" color="#4c5454">
+                      Расхождений не обнаружено
+                    </Typography>
+                  </>
+                ) : (
+                  <>
+                    <Typography variant="body2" color="#4c5454" gutterBottom>
+                      {totalDiscrepancy > 0 ? 'Ревизия в плюсе' : 'Ревизия в минусе'}
+                    </Typography>
+                    <Typography 
+                      variant="h1" 
+                      color={totalDiscrepancy > 0 ? '#1976d2' : '#d32f2f'}
+                      sx={{ 
+                        fontWeight: 'bold', 
+                        my: 1,
+                        fontSize: { xs: '3rem', sm: '4rem' }
+                      }}
+                    >
+                      {totalDiscrepancy > 0 ? '+' : ''}{totalDiscrepancy}
+                    </Typography>
+                    <Typography variant="caption" color="#4c5454">
+                      {totalDiscrepancy > 0 ? 'Обнаружен излишек' : 'Обнаружена недостача'}
+                    </Typography>
+                  </>
+                )}
+              </Box>
+            ) : (
+              <Box>
+                <Typography variant="body2" color="#4c5454" gutterBottom>
+                  {revision.status === RevisionStatus.COMPLETED 
+                    ? 'Ревизия заполнена всеми участниками'
+                    : 'Статус ревизии'}
+                </Typography>
+                <Typography 
+                  variant="h2" 
+                  color="#2a0f35" 
+                  sx={{ 
+                    fontWeight: 'bold', 
+                    my: 1,
+                    fontSize: { xs: '2rem', sm: '2.5rem' }
+                  }}
+                >
+                  {getRevisionStatusText(revision.status)}
+                </Typography>
+                {isOwner && isGroupRev && revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
+                  <Typography variant="caption" color="#4c5454">
+                    {revision.totalFilled} из {revision.totalUsers} заполнили
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Box>
+        </Card>
+
+        {isGroupRev && !isRevisionVerified && revision.fillings && revision.fillings.length > 0 && (
+  <Card 
+    sx={{ 
+      p: { xs: 2, sm: 2.5 },
+      mb: 3,
+      borderRadius: 8,
+      backgroundColor: '#ffffff',
+      boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+      width: '100%',
+    }}
+  >
+    <Box sx={{ mb: 2 }}>
+      <Typography variant="subtitle1" color="#2a0f35" fontWeight={600}>
+        Участники ревизии
+      </Typography>
+      <Typography variant="caption" color="#4c5454">
+        {revision.totalFilled || 0} из {revision.totalUsers || revision.fillings.length} заполнили
+      </Typography>
+    </Box>
+
+    <Grid container spacing={1.5}>
+      {revision.fillings.map((filling) => {
+        const isFilled = filling.isCompleted;
+        
+        return (
+          <Grid size={{ xs: 12, sm: 6, md: 4 }} key={filling.id}>
+            <Box
+              sx={{
+                p: 1.5,
+                borderRadius: 6,
+                backgroundColor: isFilled ? 'rgba(76, 175, 80, 0.08)' : '#f5f3f6',
+                border: '1px solid',
+                borderColor: isFilled ? 'rgba(76, 175, 80, 0.2)' : 'rgba(0, 0, 0, 0.05)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.5,
+                transition: 'transform 0.2s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+                },
+              }}
+            >
+              <Avatar
+                sx={{
+                  width: 40,
+                  height: 40,
+                  bgcolor: isFilled ? '#4caf50' : '#674fb6',
+                  fontSize: '0.9rem',
+                }}
+              >
+                {filling.userName?.charAt(0) || 'П'}
+              </Avatar>
+              
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography 
+                  variant="body2" 
+                  color="#2a0f35" 
+                  fontWeight={600}
+                  sx={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {filling.userName || `Пользователь ${filling.userId}`}
+                </Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                  <Chip
+                    label={isFilled ? 'Заполнено' : 'Ожидает'}
+                    size="small"
+                    sx={{
+                      height: 20,
+                      fontSize: '0.65rem',
+                      backgroundColor: isFilled ? 'rgba(76, 175, 80, 0.1)' : 'rgba(158, 158, 158, 0.1)',
+                      color: isFilled ? '#4caf50' : '#9e9e9e',
+                      fontWeight: 500,
+                    }}
+                  />
+                  {isFilled && filling.filledAt && (
+                    <Typography variant="caption" color="#4c5454" sx={{ fontSize: '0.65rem' }}>
+                      {formatTime(filling.filledAt)}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            </Box>
+          </Grid>
+        );
+      })}
+    </Grid>
+
+    {/* Статистика по заполнениям */}
+    <Box sx={{ 
+      mt: 2, 
+      pt: 2, 
+      borderTop: '1px dashed rgba(0,0,0,0.1)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      flexWrap: 'wrap',
+      gap: 2,
+    }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ 
+            width: 10, 
+            height: 10, 
+            borderRadius: '50%', 
+            backgroundColor: '#4caf50',
+          }} />
           <Typography variant="caption" color="#4c5454">
-            {revision.totalFilled} из {revision.totalUsers} заполнили
+            Заполнили: {revision.fillings.filter(f => f.isCompleted).length}
           </Typography>
-        )}
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ 
+            width: 10, 
+            height: 10, 
+            borderRadius: '50%', 
+            backgroundColor: '#9e9e9e',
+          }} />
+          <Typography variant="caption" color="#4c5454">
+            Ожидают: {revision.fillings.filter(f => !f.isCompleted).length}
+          </Typography>
+        </Box>
       </Box>
-    )}
-  </Box>
-</Card>
+
+      {revision.totalFilled !== undefined && revision.totalUsers !== undefined && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Box
+            sx={{
+              width: 100,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: 'rgba(0,0,0,0.1)',
+              overflow: 'hidden',
+            }}
+          >
+            <Box
+              sx={{
+                width: `${(revision.totalFilled / revision.totalUsers) * 100}%`,
+                height: '100%',
+                backgroundColor: '#4caf50',
+                borderRadius: 3,
+              }}
+            />
+          </Box>
+          <Typography variant="caption" color="#4c5454" fontWeight={500}>
+            {Math.round((revision.totalFilled / revision.totalUsers) * 100)}%
+          </Typography>
+        </Box>
+      )}
+    </Box>
+  </Card>
+)}
 
         {/* Данные участников */}
         {completedFillings.length > 0 && (

@@ -245,20 +245,16 @@ class RevisionResponse(RevisionBase):
     verified_at: Optional[datetime] = None
     verification_comment: Optional[str] = None
     
-    # Дополнительная информация в зависимости от типа
     target_user_name: Optional[str] = None
     target_group_name: Optional[str] = None
     target_cluster_name: Optional[str] = None
     
-    # Заполнения ревизии (для групповых ревизий)
     fillings: List[RevisionFillingResponse] = []
     
-    # Расхождения (только для проверенной ревизии)
     discrepancies: List[RevisionDiscrepancyResponse] = []
     
-    # Сводная информация по заполнениям
-    total_filled: int = 0  # Сколько пользователей заполнило
-    total_users: int = 0   # Сколько пользователей должно заполнить
+    total_filled: int = 0 
+    total_users: int = 0   
     is_group_revision: bool = False
     
     @model_validator(mode='before')
@@ -268,36 +264,23 @@ class RevisionResponse(RevisionBase):
         if isinstance(data, dict):
             return data
         
-        # Если это объект модели, извлекаем данные из связанных объектов
-        # Для requested_by
         if hasattr(data, 'requested_by') and data.requested_by:
             data.requested_by_name = data.requested_by.full_name
         
-        # Для verified_by
         if hasattr(data, 'verified_by') and data.verified_by:
             data.verified_by_name = data.verified_by.full_name
         
-        # Для target_user
         if hasattr(data, 'target_user') and data.target_user:
             data.target_user_name = data.target_user.full_name
         
-        # Для target_group
         if hasattr(data, 'target_group') and data.target_group:
             data.target_group_name = data.target_group.name
         
-        # Для target_cluster
         if hasattr(data, 'target_cluster') and data.target_cluster:
             data.target_cluster_name = data.target_cluster.name
         
-        # Обогащаем fillings
         if hasattr(data, 'fillings') and data.fillings:
-            # Каждое заполнение уже будет обогащено своим model_validator
-            pass
-        
-        # Обогащаем discrepancies
-        if hasattr(data, 'discrepancies') and data.discrepancies:
-            # Каждое расхождение уже будет обогащено своим model_validator
-            pass
+            data.total_users = len(data.fillings)
         
         return data
     
