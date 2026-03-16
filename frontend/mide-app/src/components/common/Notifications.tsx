@@ -116,7 +116,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({
             },
           }}
         >
-          <ListItemIcon sx={{ minWidth: 40 }}>
+          <ListItemIcon sx={{ minWidth: 40, pr: 1 }}>
             <Avatar
               sx={{
                 bgcolor: `${getNotificationColor(notification.type)}15`,
@@ -660,46 +660,10 @@ const Notifications: React.FC = () => {
                 </IconButton>
               </Box>
             </DialogTitle>
-            <DialogContent sx={{ pt: 3 }}>
-              <Typography variant="body1" sx={{ color: '#4c5454', mb: 3, whiteSpace: 'pre-wrap' }}>
+            <DialogContent sx={{ pt: 3, mt: 2 }}>
+              <Typography variant="body1" sx={{ color: '#4c5454', mb: 1, whiteSpace: 'pre-wrap' }}>
                 {selectedNotification.message}
               </Typography>
-
-              {selectedNotification.data && Object.keys(selectedNotification.data).length > 0 && (
-                <Box sx={{ 
-                  mt: 2, 
-                  p: 2, 
-                  borderRadius: 8,
-                  backgroundColor: '#f5f3f6',
-                  border: '1px solid rgba(106, 61, 122, 0.1)',
-                }}>
-                  <Typography variant="subtitle2" sx={{ color: '#2a0f35', mb: 2, fontWeight: 600 }}>
-                    Дополнительная информация:
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {Object.entries(selectedNotification.data).map(([key, value]) => {
-                      if (typeof value === 'object' && !Array.isArray(value)) {
-                        return null;
-                      }
-                      
-                      return (
-                        <Box key={key} sx={{ display: 'flex', gap: 1 }}>
-                          <Typography variant="body2" sx={{ color: '#2a0f35', minWidth: 120, fontWeight: 500 }}>
-                            {key}:
-                          </Typography>
-                          <Typography variant="body2" sx={{ color: '#4c5454' }}>
-                            {Array.isArray(value) 
-                              ? value.join(', ') 
-                              : typeof value === 'object' 
-                                ? JSON.stringify(value) 
-                                : String(value)}
-                          </Typography>
-                        </Box>
-                      );
-                    })}
-                  </Box>
-                </Box>
-              )}
             </DialogContent>
             <DialogActions sx={{ p: 2, pt: 1 }}>
               <Button 
