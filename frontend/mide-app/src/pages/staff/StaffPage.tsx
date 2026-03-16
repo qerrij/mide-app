@@ -63,6 +63,8 @@ import {
   LockReset as LockResetIcon,
   Close as CloseIcon,
   Info as InfoIcon,
+  FilterList as FilterIcon,
+  Clear as ClearIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
@@ -139,6 +141,12 @@ interface UnassignDialogState {
   user: User | null;
   type: string;
   data?: any;
+}
+
+interface UserFilters {
+  role: UserRole | '';
+  groupId: number | '';
+  clusterId: number | '';
 }
 
 // Компонент компактной карточки пользователя
@@ -1593,6 +1601,14 @@ const StaffPage: React.FC = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [clusters, setClusters] = useState<Cluster[]>([]);
 
+  const [userFilters, setUserFilters] = useState<UserFilters>({
+    role: '',
+    groupId: '',
+    clusterId: '',
+  });
+  
+  const [showFilters, setShowFilters] = useState(false);
+
   // Диалоги
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
   const [openEditDialog, setOpenEditDialog] = useState<User | null>(null);
@@ -2328,16 +2344,43 @@ const StaffPage: React.FC = () => {
   };
 
   // Фильтрация пользователей
+  const resetFilters = () => {
+    setUserFilters({
+      role: '',
+      groupId: '',
+      clusterId: '',
+    });
+  };
+
+  // Обновленная фильтрация пользователей
   const filteredUsers = users.filter(user => {
+    // Поиск по тексту
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      return (
+      const matchesSearch = 
         user.username.toLowerCase().includes(query) ||
         user.fullName.toLowerCase().includes(query) ||
         user.telegram?.toLowerCase().includes(query) ||
-        user.city?.toLowerCase().includes(query)
-      );
+        user.city?.toLowerCase().includes(query);
+      
+      if (!matchesSearch) return false;
     }
+
+    // Фильтр по роли
+    if (userFilters.role && user.role !== userFilters.role) {
+      return false;
+    }
+
+    // Фильтр по группе
+    if (userFilters.groupId) {
+      if (user.groupId !== userFilters.groupId) return false;
+    }
+
+    // Фильтр по кусту
+    if (userFilters.clusterId) {
+      if (user.clusterId !== userFilters.clusterId) return false;
+    }
+
     return true;
   });
 
@@ -2420,6 +2463,188 @@ const StaffPage: React.FC = () => {
       <Paper sx={{ mb: { xs: 2, sm: 3 } }}>
         <TabChips value={activeTab} onChange={setActiveTab} tabs={tabs} />
 
+
+            {activeTab === 0 && (
+              <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: { xs: 2, sm: 3 } }}>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder={isMobile ? "Поиск..." : "Поиск по имени, логину, телеграм или городу..."}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    InputProps={{
+                      startAdornment: <Search sx={{ color: '#4c5454', mr: 1, fontSize: { xs: 24, sm: 24 } }} />,
+                      sx: { fontSize: { xs: '1rem', sm: '0.9rem' } }
+                    }}
+                  />
+                  <Tooltip title="Фильтры">
+                    <Badge
+                      color="primary"
+                      variant="dot"
+                      invisible={!userFilters.role && !userFilters.groupId && !userFilters.clusterId}
+                    >
+                      <IconButton
+                        onClick={() => setShowFilters(!showFilters)}
+                        sx={{
+                          bgcolor: showFilters ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
+                          '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.15) },
+                        }}
+                      >
+                        <FilterIcon />
+                      </IconButton>
+                    </Badge>
+                  </Tooltip>
+                </Box>
+
+                {/* Панель фильтров - показываем только если showFilters = true */}
+                {showFilters && (
+                  <Fade in={showFilters}>
+                    <Box
+                      sx={{
+                        mt: 2,
+                        pt: 2,
+                        borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+                      }}
+                    >
+                      <Typography variant="subtitle2" sx={{ mb: 1.5, color: '#2a0f35', fontWeight: 600 }}>
+                        Фильтры
+                      </Typography>
+                      
+                      <Grid container spacing={2} alignItems="flex-end">
+                        {/* Фильтр по роли */}
+                        <Grid size={{ xs: 12, sm: 4 }}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Роль</InputLabel>
+                            <Select
+                              value={userFilters.role}
+                              label="Роль"
+                              onChange={(e) => setUserFilters({ ...userFilters, role: e.target.value as UserRole | '' })}
+                              sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
+                            >
+                              <MenuItem value="">Все роли</MenuItem>
+                              {Object.values(UserRole).map((role) => (
+                                <MenuItem key={role} value={role}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    {getRoleIcon(role)}
+                                    {getRoleName(role)}
+                                  </Box>
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+
+                        {/* Фильтр по группе */}
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Группа</InputLabel>
+                            <Select
+                              value={userFilters.groupId}
+                              label="Группа"
+                              onChange={(e) => setUserFilters({ ...userFilters, groupId: e.target.value as number | '' })}
+                              sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
+                            >
+                              <MenuItem value="">Все группы</MenuItem>
+                              {groups.map((group) => (
+                                <MenuItem key={group.id} value={group.id}>
+                                  {group.name}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+
+                        {/* Фильтр по кусту */}
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>Куст</InputLabel>
+                            <Select
+                              value={userFilters.clusterId}
+                              label="Куст"
+                              onChange={(e) => setUserFilters({ ...userFilters, clusterId: e.target.value as number | '' })}
+                              sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
+                            >
+                              <MenuItem value="">Все кусты</MenuItem>
+                              {clusters.map((cluster) => (
+                                <MenuItem key={cluster.id} value={cluster.id}>
+                                  {cluster.name}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+
+                        {/* Кнопка сброса фильтров */}
+                        <Grid size={{ xs: 12, sm: 2 }}>
+                          <Button
+                            fullWidth
+                            size="small"
+                            variant="outlined"
+                            onClick={resetFilters}
+                            startIcon={<ClearIcon />}
+                            disabled={!userFilters.role && !userFilters.groupId && !userFilters.clusterId}
+                            sx={{
+                              height: 40,
+                              fontSize: { xs: '1rem', sm: '0.8rem' },
+                              borderColor: alpha(theme.palette.error.main, 0.5),
+                              color: theme.palette.error.main,
+                              '&:hover': {
+                                borderColor: theme.palette.error.main,
+                                backgroundColor: alpha(theme.palette.error.main, 0.05),
+                              },
+                            }}
+                          >
+                            Сбросить
+                          </Button>
+                        </Grid>
+                      </Grid>
+
+                      {/* Информация о количестве отфильтрованных пользователей */}
+                      <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Найдено: {filteredUsers.length} из {users.length} пользователей
+                        </Typography>
+                        
+                        {/* Активные фильтры в виде чипов */}
+                        {(userFilters.role || userFilters.groupId || userFilters.clusterId) && (
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            {userFilters.role && (
+                              <Chip
+                                size="small"
+                                label={`Роль: ${getRoleName(userFilters.role)}`}
+                                onDelete={() => setUserFilters({ ...userFilters, role: '' })}
+                                sx={{
+                                  backgroundColor: alpha(getRoleColor(userFilters.role), 0.1),
+                                  color: getRoleColor(userFilters.role),
+                                  '& .MuiChip-deleteIcon': {
+                                    color: getRoleColor(userFilters.role),
+                                  },
+                                }}
+                              />
+                            )}
+                            {userFilters.groupId && (
+                              <Chip
+                                size="small"
+                                label={`Группа: ${groups.find(g => g.id === userFilters.groupId)?.name || ''}`}
+                                onDelete={() => setUserFilters({ ...userFilters, groupId: '' })}
+                              />
+                            )}
+                            {userFilters.clusterId && (
+                              <Chip
+                                size="small"
+                                label={`Куст: ${clusters.find(c => c.id === userFilters.clusterId)?.name || ''}`}
+                                onDelete={() => setUserFilters({ ...userFilters, clusterId: '' })}
+                              />
+                            )}
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
+                  </Fade>
+                )}
+              </Paper>
+            )}
         {/* Вкладка пользователей */}
         {activeTab === 0 && (
           <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
