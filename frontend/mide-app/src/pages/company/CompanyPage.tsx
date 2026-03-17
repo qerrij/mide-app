@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import {
   Container,
   Grid,
@@ -28,6 +28,8 @@ import {
   useMediaQuery,
   IconButton,
   SelectChangeEvent,
+  Skeleton,
+  Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -41,6 +43,7 @@ import {
   SwapHoriz as CorrectionIcon,
   Close as CloseIcon,
   LocationOn as LocationIcon,
+  MoreHoriz as MoreIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import { companyService } from '../../api/companyService';
@@ -79,8 +82,8 @@ interface TransactionDialogProps {
   onSuccess: () => void;
 }
 
-// Компонент диалога для добавления дохода/расхода
-const TransactionDialog: React.FC<TransactionDialogProps> = ({
+// Мемоизированный компонент диалога
+const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
   open,
   type,
   selectedCity,
@@ -131,10 +134,16 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
     }
   };
 
+  const handleClose = useCallback(() => {
+    if (!loading) {
+      onClose();
+    }
+  }, [loading, onClose]);
+
   return (
     <Dialog
       open={open}
-      onClose={loading ? undefined : onClose}
+      onClose={handleClose}
       PaperProps={{
         sx: {
           borderRadius: 4,
@@ -165,7 +174,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
       </DialogTitle>
       
       <IconButton
-        onClick={onClose}
+        onClick={handleClose}
         sx={{
           position: 'absolute',
           right: 12,
@@ -256,7 +265,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
 
       <DialogActions sx={{ p: 2.5, pt: 1, gap: 1 }}>
         <Button
-          onClick={onClose}
+          onClick={handleClose}
           disabled={loading}
           sx={{
             borderRadius: 4,
@@ -293,10 +302,10 @@ const TransactionDialog: React.FC<TransactionDialogProps> = ({
       </DialogActions>
     </Dialog>
   );
-};
+});
 
 // Кастомный Tooltip для графика
-const CustomAreaTooltip = ({ active, payload, label }: any) => {
+const CustomAreaTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
@@ -345,12 +354,12 @@ const CustomPieTooltip = ({ active, payload }: any) => {
   return null;
 };
 
-// Компонент кастомных табов в виде чипсов
+// Мемоизированный компонент табов
 const ChipTabs: React.FC<{
   value: number;
   onChange: (value: number) => void;
   tabs: Array<{ label: string; icon: React.ReactNode; count: number }>;
-}> = ({ value, onChange, tabs }) => {
+}> = memo(({ value, onChange, tabs }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -412,9 +421,9 @@ const ChipTabs: React.FC<{
       ))}
     </Box>
   );
-};
+});
 
-// Функция форматирования суммы с копейками
+// Функция форматирования суммы
 const formatAmount = (amount: number) => {
   const rubles = Math.floor(amount);
   const kopecks = Math.round((amount - rubles) * 100);
@@ -437,7 +446,7 @@ const formatAmount = (amount: number) => {
   );
 };
 
-// Компонент выбора даты
+// Мемоизированный компонент выбора даты
 const DateRangeSelector: React.FC<{
   value: DateRangeType;
   onChange: (value: DateRangeType) => void;
@@ -449,7 +458,7 @@ const DateRangeSelector: React.FC<{
   onEndDateChange: (date: Date | null) => void;
   onApplyDateRange: () => void;
   onResetDateRange: () => void;
-}> = ({ 
+}> = memo(({ 
   value, 
   onChange, 
   customDate, 
@@ -602,27 +611,282 @@ const DateRangeSelector: React.FC<{
       )}
     </Box>
   );
-};
+});
+
+// Мемоизированный компонент карточки транзакции
+const TransactionCard = memo(({ transaction }: { transaction: CompanyTransaction }) => {
+  const isIncome = transaction.operation_type === 'INCOME';
+  const isExpense = transaction.operation_type === 'EXPENSE';
+  const isReportIncome = isIncome && transaction.reference_type === 'REPORT';
+
+  let IconComponent = isIncome ? IncomeIcon : isExpense ? ExpenseIcon : CorrectionIcon;
+  let color = '#ff9800';
+
+  if (isReportIncome) {
+    color = '#2196f3'; 
+  } else if (isIncome) {
+    color = '#4caf50'; 
+  } else if (isExpense) {
+    color = '#f44336'; 
+  }
+
+  const formatDate = useCallback((date: string) => {
+    return format(new Date(date), 'dd MMM yyyy, HH:mm', { locale: ru });
+  }, []);
+
+  return (
+    <Fade in timeout={300}>
+      <Card
+        sx={{
+          borderRadius: 8,
+          backgroundColor: '#ffffff',
+          transition: 'all 0.2s ease',
+          height: '100%',
+          border: '1px solid #f0f0f0',
+          '&:hover': {
+            transform: 'translateY(-2px)',
+            boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+            borderColor: color,
+          },
+        }}
+      >
+        <CardContent sx={{ p: 2 }}>
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            mb: 1.5,
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <IconComponent sx={{ color, fontSize: 20 }} />
+              <Box>
+                <Typography variant="caption" color="#8E8E93">
+                  {formatDate(transaction.created_at)}
+                </Typography>
+                <Typography variant="subtitle2" color="#2a0f35" fontWeight={600}>
+                  {OperationTypeLabels[transaction.operation_type]}
+                </Typography>
+              </Box>
+            </Box>
+            <Typography 
+              variant="h6" 
+              sx={{ 
+                color,
+                fontWeight: 700,
+              }}
+            >
+              {isIncome ? '+' : isExpense ? '-' : '±'}
+              {formatAmount(transaction.amount)}
+            </Typography>
+          </Box>
+
+          {transaction.city && (
+            <Chip
+              size="small"
+              icon={<LocationIcon sx={{ fontSize: 14 }} />}
+              label={transaction.city}
+              sx={{
+                mb: 1,
+                height: 20,
+                fontSize: '0.6rem',
+                backgroundColor: '#f0e6ff',
+                color: '#674fb6',
+              }}
+            />
+          )}
+
+          <Typography 
+            variant="body2" 
+            color="#4c5454"
+            sx={{ 
+              mb: 1.5,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              minHeight: 40,
+            }}
+          >
+            {transaction.description}
+          </Typography>
+          {!transaction.city && (
+            <Box sx={{ height: 20, mb: 1 }} />
+          )}
+
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            pt: 1,
+            borderTop: '1px solid #f0f0f0',
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="caption" color="#8E8E93">
+                Баланс: {formatAmount(transaction.balance)}
+              </Typography>
+              
+              {transaction.created_by && (
+                <Chip
+                  label={transaction.created_by_name || `ID: ${transaction.created_by}`}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: '0.6rem',
+                    backgroundColor: '#e8e0f0',
+                    color: '#674fb6',
+                  }}
+                />
+              )}
+            </Box>
+            
+            {transaction.reference_type && (
+              <Chip
+                label={transaction.reference_type === 'REPORT' ? 'Отчет' : transaction.reference_type}
+                size="small"
+                sx={{
+                  height: 20,
+                  fontSize: '0.6rem',
+                  backgroundColor: '#f5f3f6',
+                  color: '#4c5454',
+                }}
+              />
+            )}
+          </Box>
+        </CardContent>
+      </Card>
+    </Fade>
+  );
+});
+
+// Мемоизированный компонент графика
+const ChartSection = memo(({ 
+  chartData, 
+  dateRange, 
+  isMobile,
+  loading,
+  selectedCity
+}: { 
+  chartData: any[]; 
+  dateRange: string;
+  isMobile: boolean;
+  loading: boolean;
+  selectedCity: string;
+}) => {
+  if (loading) {
+    return (
+      <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 8 }} />
+    );
+  }
+
+  return (
+    <Box sx={{ height: 300, width: '100%' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart 
+          data={chartData}
+          margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
+        >
+          <defs>
+            <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
+              <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          
+          <XAxis 
+            dataKey="index"
+            type="number"
+            domain={[0, chartData.length - 1]}
+            tickFormatter={(value) => {
+              const point = chartData[value];
+              if (!point) return '';
+              
+              const step = Math.max(1, Math.floor(chartData.length / (isMobile ? 8 : 12)));
+              if (value % step === 0 || value === chartData.length - 1) {
+                return point.displayLabel;
+              }
+              return '';
+            }}
+            tick={{ fill: '#4c5454', fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            interval={0}
+          />
+          
+          <YAxis 
+            tick={{ fill: '#4c5454', fontSize: 12 }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={(value) => `${(value / 1000).toFixed(1)}K`}
+          />
+          
+          <Tooltip content={<CustomAreaTooltip selectedCity={selectedCity} />} />
+          
+          <Area 
+            type="monotone" 
+            dataKey="balance" 
+            stroke="#674fb6" 
+            strokeWidth={2}
+            fill="url(#balanceGradient)" 
+            isAnimationActive={true}
+            connectNulls={true}
+            dot={{ r: 4, fill: '#674fb6', strokeWidth: 0 }}
+            activeDot={{ r: 6, fill: '#674fb6', stroke: '#fff', strokeWidth: 2 }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </Box>
+  );
+});
+
+// Скелетон для загрузки
+const DashboardSkeleton = () => (
+  <Box sx={{ minHeight: '100vh', py: 2, backgroundColor: '#f5f3f6' }}>
+    <Container maxWidth="xl">
+      <Skeleton variant="text" width={200} height={40} sx={{ mb: 2 }} />
+      <Skeleton variant="rectangular" height={120} sx={{ borderRadius: 8, mb: 3 }} />
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 12, lg: 8 }}>
+          <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 8 }} />
+        </Grid>
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 8 }} />
+        </Grid>
+      </Grid>
+      <Skeleton variant="rectangular" height={400} sx={{ borderRadius: 8 }} />
+    </Container>
+  </Box>
+);
 
 // Основной компонент страницы
 const CompanyPage: React.FC = () => {
   const { user } = useAuth();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const canEdit = user?.role === UserRole.OWNER || user?.role === UserRole.ACCOUNTANT;
 
-  // Состояния
-  const [balance, setBalance] = useState<number>(0);
-  const [transactions, setTransactions] = useState<CompanyTransaction[]>([]);
-  const [history, setHistory] = useState<CompanyBalanceHistory[]>([]);
+  // Состояния для данных
+  const [dashboardData, setDashboardData] = useState<{
+    balance: number;
+    transactions: CompanyTransaction[];
+    history: CompanyBalanceHistory[];
+    cities: string[];
+  }>({
+    balance: 0,
+    transactions: [],
+    history: [],
+    cities: []
+  });
+
   const [loading, setLoading] = useState(true);
+  const [loadingBalance, setLoadingBalance] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   
   // Города
-  const [cities, setCities] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>('all');
   
   // Фильтры
   const [searchTerm, setSearchTerm] = useState('');
-  const [operationFilter, setOperationFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<DateRangeType>('month');
   const [customDate, setCustomDate] = useState<Date>(new Date());
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -631,6 +895,26 @@ const CompanyPage: React.FC = () => {
   const [tempEndDate, setTempEndDate] = useState<Date | null>(null);
   const [appliedStartDate, setAppliedStartDate] = useState<Date | null>(null);
   const [appliedEndDate, setAppliedEndDate] = useState<Date | null>(null);
+
+  const [periodStats, setPeriodStats] = useState<{
+    regular_income: number;
+    regular_income_count: number;
+    report_income: number;
+    report_income_count: number;
+    total_expense: number;
+    income_count: number;
+    expense_count: number;
+    total_income: number;
+  }>({
+    regular_income: 0,
+    regular_income_count: 0,
+    report_income: 0,
+    report_income_count: 0,
+    total_expense: 0,
+    income_count: 0,
+    expense_count: 0,
+    total_income: 0,
+  });
   
   // Диалоги
   const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
@@ -647,83 +931,92 @@ const CompanyPage: React.FC = () => {
     severity: 'success',
   });
 
-  // Получаем список городов из транзакций
-  useEffect(() => {
-    if (transactions.length > 0) {
-      const uniqueCities = Array.from(new Set(
-        transactions
-          .map(t => t.city)
-          .filter((city): city is string => !!city)
-      )).sort();
-      setCities(uniqueCities);
-    }
-  }, [transactions]);
-
-  // Загрузка данных
-  const loadData = async () => {
+  const loadStats = useCallback(async () => {
     try {
-      setLoading(true);
-      
-      // Загружаем баланс (общий или по городу)
+      let params: any = {
+        period: dateRange,
+        city: selectedCity !== 'all' ? selectedCity : undefined,
+      };
+
+      if (dateRange === 'day') {
+        params.date = format(customDate, 'yyyy-MM-dd');
+      } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
+        params.date_from = format(appliedStartDate, 'yyyy-MM-dd');
+        params.date_to = format(appliedEndDate, 'yyyy-MM-dd');
+      }
+
+      const stats = await companyService.getStats(params);
+      setPeriodStats(stats);
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  }, [selectedCity, dateRange, customDate, appliedStartDate, appliedEndDate]);
+
+  // Загрузка данных дашборда
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    
+    // Загружаем баланс
+    setLoadingBalance(true);
+    try {
       const balanceData = selectedCity === 'all' 
         ? await companyService.getBalance()
         : await companyService.getBalanceByCity(selectedCity);
-      setBalance(balanceData.balance);
-      
-      // Загружаем транзакции (с фильтром по городу)
-      const transactionsData = await companyService.getTransactions({ 
-        limit: 100,
-        city: selectedCity !== 'all' ? selectedCity : undefined
-      });
-      setTransactions(transactionsData);
-      
-      // Загружаем историю в зависимости от выбранного периода
-      if (dateRange === 'day') {
-        const historyData = await companyService.getBalanceHistory({ 
-          days: 1,
-          granularity: 'hour',
-          date: format(customDate, 'yyyy-MM-dd'),
-          city: selectedCity !== 'all' ? selectedCity : undefined
-        });
-        setHistory(historyData);
-      } else if (dateRange === 'all') {
-        if (appliedStartDate && appliedEndDate) {
-          const daysDiff = Math.ceil((appliedEndDate.getTime() - appliedStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-          const historyData = await companyService.getBalanceHistory({ 
-            days: Math.min(daysDiff, 365),
-            granularity: 'day',
-            date: format(appliedStartDate, 'yyyy-MM-dd'),
-            city: selectedCity !== 'all' ? selectedCity : undefined
-          });
-          setHistory(historyData);
-        } else {
-          const historyData = await companyService.getBalanceHistory({ 
-            days: 365,
-            granularity: 'day',
-            city: selectedCity !== 'all' ? selectedCity : undefined
-          });
-          setHistory(historyData);
-        }
-      } else {
-        const days = dateRange === 'week' ? 7 : 30;
-        const historyData = await companyService.getBalanceHistory({ 
-          days,
-          granularity: 'day',
-          city: selectedCity !== 'all' ? selectedCity : undefined
-        });
-        setHistory(historyData);
-      }
+      setDashboardData(prev => ({ ...prev, balance: balanceData.balance }));
     } catch (error) {
-      console.error('Error loading company data:', error);
+      console.error('Error loading balance:', error);
+    } finally {
+      setLoadingBalance(false);
+    }
+
+    // Загружаем статистику с учетом произвольной даты
+    await loadStats();
+
+    // Загружаем данные для графиков
+    try {
+      let period = dateRange;
+      let date = undefined;
+      let date_from = undefined;
+      let date_to = undefined;
+      
+      if (dateRange === 'day') {
+        date = format(customDate, 'yyyy-MM-dd');
+      } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
+        // Для произвольного периода передаем даты
+        date_from = format(appliedStartDate, 'yyyy-MM-dd');
+        date_to = format(appliedEndDate, 'yyyy-MM-dd');
+        period = 'all'; // Оставляем period='all' но с датами
+      }
+      
+      const maxPoints = dateRange === 'all' ? 500 : 100;
+      
+      const data = await companyService.getDashboardData({
+        period,
+        city: selectedCity !== 'all' ? selectedCity : undefined,
+        date,
+        date_from,
+        date_to,
+        max_points: maxPoints
+      });
+      
+      setDashboardData(data);
+      
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
       showSnackbar('Ошибка загрузки данных', 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedCity, dateRange, customDate, appliedStartDate, appliedEndDate, loadStats]);
 
+  // Используем debounce для загрузки
   useEffect(() => {
-    loadData();
-  }, [dateRange, customDate, appliedStartDate, appliedEndDate, selectedCity]);
+    const timer = setTimeout(() => {
+      loadData();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [loadData]);
 
   const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
     setSnackbar({ open: true, message, severity });
@@ -733,15 +1026,22 @@ const CompanyPage: React.FC = () => {
     setSelectedCity(event.target.value);
   };
 
-  const getFilteredTransactions = () => {
-    let filtered = transactions;
+  // Мемоизированные вычисления
+  const filteredTransactions = useMemo(() => {
+    let filtered = dashboardData.transactions;
 
-    if (activeTab === 1) {
+    // Фильтрация по выбранному чипсу
+    if (activeTab === 1) { // Доходы (все)
       filtered = filtered.filter(t => t.operation_type === 'INCOME');
-    } else if (activeTab === 2) {
+    } else if (activeTab === 2) { // Доходы от отчетов
+      filtered = filtered.filter(t => 
+        t.operation_type === 'INCOME' && t.reference_type === 'REPORT'
+      );
+    } else if (activeTab === 3) { // Расходы
       filtered = filtered.filter(t => t.operation_type === 'EXPENSE');
     }
 
+    // Поиск по описанию
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter(t => 
@@ -750,40 +1050,93 @@ const CompanyPage: React.FC = () => {
       );
     }
 
-    if (operationFilter !== 'all') {
-      if (operationFilter === 'REPORT_INCOME') {
-        filtered = filtered.filter(t => 
-          t.operation_type === 'INCOME' && t.reference_type === 'REPORT'
-        );
-      } else {
-        filtered = filtered.filter(t => t.operation_type === operationFilter);
-      }
-    }
-
-    // Фильтр по дате
-    if (dateRange === 'day') {
-      const startOfSelectedDay = startOfDay(customDate);
-      const endOfSelectedDay = endOfDay(customDate);
-      
-      filtered = filtered.filter(t => {
-        const transactionDate = new Date(t.created_at);
-        return transactionDate >= startOfSelectedDay && transactionDate <= endOfSelectedDay;
-      });
-    } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
-      const startOfSelectedRange = startOfDay(appliedStartDate);
-      const endOfSelectedRange = endOfDay(appliedEndDate);
-      
-      filtered = filtered.filter(t => {
-        const transactionDate = new Date(t.created_at);
-        return transactionDate >= startOfSelectedRange && transactionDate <= endOfSelectedRange;
-      });
-    }
-
     return filtered;
-  };
+  }, [dashboardData.transactions, activeTab, searchTerm]);
 
-  const filteredTransactions = getFilteredTransactions();
-  
+  const chartData = useMemo(() => {
+    if (!dashboardData.history || dashboardData.history.length === 0) {
+      return [{
+        id: 'current',
+        index: 0,
+        displayLabel: dateRange === 'day' 
+          ? format(new Date(), 'HH:mm')
+          : format(new Date(), 'dd MMM', { locale: ru }),
+        balance: dashboardData.balance,
+        date: new Date().toISOString(),
+        city: selectedCity !== 'all' ? selectedCity : undefined,
+        timestamp: new Date().getTime(),
+        tooltipLabel: format(new Date(), 'dd MMM yyyy, HH:mm:ss', { locale: ru }),
+        uniqueKey: `current-${Date.now()}`
+      }];
+    }
+
+    return dashboardData.history.map((item, index) => {
+      const date = new Date(item.date);
+      
+      return {
+        ...item,
+        index,
+        displayLabel: dateRange === 'day' 
+          ? format(date, 'HH:mm')
+          : format(date, 'dd MMM', { locale: ru }),
+        tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru }),
+        timestamp: date.getTime(),
+        uniqueKey: `point-${index}-${date.getTime()}`
+      };
+    });
+  }, [dashboardData.history, dashboardData.balance, dateRange, selectedCity]);
+
+  const totalStats = useMemo(() => ({
+    totalIncome: dashboardData.transactions
+      .filter(t => t.operation_type === 'INCOME')
+      .reduce((sum, t) => sum + t.amount, 0),
+    totalExpense: dashboardData.transactions
+      .filter(t => t.operation_type === 'EXPENSE')
+      .reduce((sum, t) => sum + t.amount, 0),
+    transactionsCount: dashboardData.transactions.length,
+  }), [dashboardData.transactions]);
+
+  const pieData = useMemo(() => [
+    { 
+      name: 'Обычные доходы', 
+      value: periodStats.regular_income, 
+      color: '#4caf50' 
+    },
+    { 
+      name: 'Доходы от отчетов', 
+      value: periodStats.report_income, 
+      color: '#2196f3' 
+    },
+    { 
+      name: 'Расходы', 
+      value: periodStats.total_expense, 
+      color: '#f44336' 
+    },
+  ].filter(item => item.value > 0), [periodStats]);
+
+  const tabs = useMemo(() => [
+    {
+      label: 'Все',
+      icon: <HistoryIcon sx={{ fontSize: 18 }} />,
+      count: periodStats.income_count + periodStats.expense_count,
+    },
+    {
+      label: 'Доходы',
+      icon: <IncomeIcon sx={{ fontSize: 18 }} />,
+      count: periodStats.income_count,
+    },
+    {
+      label: 'Доходы от отчетов',
+      icon: <IncomeIcon sx={{ fontSize: 18 }} />,
+      count: periodStats.report_income_count,
+    },
+    {
+      label: 'Расходы',
+      icon: <ExpenseIcon sx={{ fontSize: 18 }} />,
+      count: periodStats.expense_count,
+    },
+  ], [periodStats]);
+
   const handleDateRangeChange = (newRange: DateRangeType) => {
     setDateRange(newRange);
     if (newRange !== 'all') {
@@ -806,7 +1159,6 @@ const CompanyPage: React.FC = () => {
     setTempEndDate(null);
     setAppliedStartDate(null);
     setAppliedEndDate(null);
-    loadData();
   };
 
   useEffect(() => {
@@ -816,129 +1168,8 @@ const CompanyPage: React.FC = () => {
     }
   }, [dateRange, appliedStartDate, appliedEndDate]);
 
-  const periodStats = {
-    totalRegularIncome: filteredTransactions
-      .filter(t => t.operation_type === 'INCOME' && t.reference_type !== 'REPORT')
-      .reduce((sum, t) => sum + t.amount, 0),
-    totalReportIncome: filteredTransactions
-      .filter(t => t.operation_type === 'INCOME' && t.reference_type === 'REPORT')
-      .reduce((sum, t) => sum + t.amount, 0),
-    totalExpense: filteredTransactions
-      .filter(t => t.operation_type === 'EXPENSE')
-      .reduce((sum, t) => sum + t.amount, 0),
-    transactionsCount: filteredTransactions.length,
-  };
-
-  // Общая статистика (за все время)
-  const totalStats = {
-    totalIncome: transactions
-      .filter(t => t.operation_type === 'INCOME')
-      .reduce((sum, t) => sum + t.amount, 0),
-    totalExpense: transactions
-      .filter(t => t.operation_type === 'EXPENSE')
-      .reduce((sum, t) => sum + t.amount, 0),
-    transactionsCount: transactions.length,
-  };
-
-  const getChartData = () => {
-    if (!history || history.length === 0) {
-      return [{
-        id: 'current',
-        displayLabel: dateRange === 'day' 
-          ? format(new Date(), 'HH:mm')
-          : format(new Date(), 'dd MMM', { locale: ru }),
-        balance: balance,
-        fullDate: new Date().toISOString(),
-        timestamp: new Date().getTime(),
-        uniqueKey: `current-${Date.now()}`
-      }];
-    }
-
-    const sortedHistory = [...history].sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-
-    return sortedHistory.map((item, index) => {
-      const date = new Date(item.date);
-      const timestamp = date.getTime();
-      const uniqueKey = `point-${index}-${timestamp}-${item.balance}-${Math.random()}`;
-      
-      if (dateRange === 'day') {
-        return {
-          id: uniqueKey,
-          displayLabel: format(date, 'HH:mm'),
-          balance: item.balance,
-          fullDate: item.date,
-          timestamp: timestamp,
-          index: index,
-          tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
-        };
-      } else {
-        return {
-          id: uniqueKey,
-          displayLabel: format(date, 'dd MMM', { locale: ru }),
-          balance: item.balance,
-          fullDate: item.date,
-          timestamp: timestamp,
-          index: index,
-          tooltipLabel: format(date, 'dd MMM yyyy, HH:mm:ss', { locale: ru })
-        };
-      }
-    });
-  };
-
-  const chartData = getChartData();
-
-  const pieData = [
-    { 
-      name: 'Обычные доходы', 
-      value: periodStats.totalRegularIncome, 
-      color: '#4caf50'
-    },
-    { 
-      name: 'Доходы от отчетов', 
-      value: periodStats.totalReportIncome, 
-      color: '#2196f3'
-    },
-    { 
-      name: 'Расходы', 
-      value: periodStats.totalExpense, 
-      color: '#f44336'
-    },
-  ].filter(item => item.value > 0);
-
-  const formatDate = (date: string) => {
-    return format(new Date(date), 'dd MMM yyyy, HH:mm', { locale: ru });
-  };
-
-  const tabs = [
-    {
-      label: 'Все',
-      icon: <HistoryIcon sx={{ fontSize: 18 }} />,
-      count: filteredTransactions.length,
-    },
-    {
-      label: 'Доходы',
-      icon: <IncomeIcon sx={{ fontSize: 18 }} />,
-      count: filteredTransactions.filter(t => t.operation_type === 'INCOME').length,
-    },
-    {
-      label: 'Расходы',
-      icon: <ExpenseIcon sx={{ fontSize: 18 }} />,
-      count: filteredTransactions.filter(t => t.operation_type === 'EXPENSE').length,
-    },
-  ];
-
-  if (loading && !transactions.length) {
-    return (
-      <Box sx={{ minHeight: '100vh', background: '#f5f3f6', py: 2 }}>
-        <Container maxWidth="xl">
-          <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-            <CircularProgress sx={{ color: '#674fb6' }} />
-          </Box>
-        </Container>
-      </Box>
-    );
+  if (loading && !dashboardData.transactions.length) {
+    return <DashboardSkeleton />;
   }
 
   return (
@@ -988,11 +1219,15 @@ const CompanyPage: React.FC = () => {
                 }}
               >
                 <MenuItem value="all">Все города</MenuItem>
-                {cities.map((city) => (
+                {dashboardData.cities.map((city) => (
                   <MenuItem key={city} value={city}>{city}</MenuItem>
                 ))}
               </Select>
             </FormControl>
+
+            {loadingBalance && (
+              <CircularProgress size={20} sx={{ color: '#674fb6', ml: 1 }} />
+            )}
           </Box>
 
           <IconButton
@@ -1038,7 +1273,7 @@ const CompanyPage: React.FC = () => {
                 {selectedCity !== 'all' && ` г. ${selectedCity}`}
               </Typography>
               <Typography variant="h2" component="div" sx={{ fontWeight: 700, mb: 1, color: '#000000' }}>
-                {formatAmount(balance)}
+                {formatAmount(dashboardData.balance)}
               </Typography>
               <Stack direction="row" spacing={2} flexWrap="wrap">
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -1136,6 +1371,7 @@ const CompanyPage: React.FC = () => {
                 borderRadius: 8,
                 backgroundColor: '#ffffff',
                 height: '100%',
+                boxShadow: 'none',
               }}
             >
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
@@ -1147,8 +1383,8 @@ const CompanyPage: React.FC = () => {
                       ? 'за неделю'
                       : dateRange === 'month'
                         ? 'за месяц'
-                        : startDate && endDate
-                          ? `с ${format(startDate, 'dd MMM yyyy', { locale: ru })} по ${format(endDate, 'dd MMM yyyy', { locale: ru })}`
+                        : appliedStartDate && appliedEndDate
+                          ? `с ${format(appliedStartDate, 'dd MMM yyyy', { locale: ru })} по ${format(appliedEndDate, 'dd MMM yyyy', { locale: ru })}`
                           : 'за все время'}
                 </Typography>
                 <DateRangeSelector
@@ -1165,47 +1401,13 @@ const CompanyPage: React.FC = () => {
                 />
               </Box>
 
-              <Box sx={{ height: 300 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart 
-                    data={chartData}
-                    key={`${dateRange}-${customDate.toISOString()}-${history.length}-${selectedCity}`}
-                  >
-                    <defs>
-                      <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="displayLabel"
-                      tick={{ fill: '#4c5454', fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                      interval={dateRange === 'day' ? 2 : 'preserveStartEnd'}
-                    />
-                    <YAxis 
-                      tick={{ fill: '#4c5454', fontSize: 12 }}
-                      axisLine={false}
-                      tickLine={false}
-                      tickFormatter={(value) => `${(value / 1000).toFixed(1)}K`}
-                    />
-                    <Tooltip content={<CustomAreaTooltip />} />
-                    <Area 
-                      type="monotone" 
-                      dataKey="balance" 
-                      stroke="#674fb6" 
-                      strokeWidth={2}
-                      fill="url(#balanceGradient)" 
-                      isAnimationActive={true}
-                      connectNulls={true}
-                      dot={{ r: 4, fill: '#674fb6', strokeWidth: 0 }}
-                      activeDot={{ r: 6, fill: '#674fb6', stroke: '#fff', strokeWidth: 2 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </Box>
+              <ChartSection
+                chartData={chartData}
+                dateRange={dateRange}
+                isMobile={isMobile}
+                loading={loading}
+                selectedCity={selectedCity}
+              />
             </Paper>
           </Grid>
           <Grid size={{ xs: 12, lg: 4 }}>
@@ -1266,9 +1468,9 @@ const CompanyPage: React.FC = () => {
                   </Stack>
                   <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #f0f0f0' }}>
                     <Typography variant="body2" color="#4c5454" align="center">
-                      Обычные доходы: {formatAmount(periodStats.totalRegularIncome)}<br />
-                      Доходы от отчетов: {formatAmount(periodStats.totalReportIncome)}<br />
-                      Расходы: {formatAmount(periodStats.totalExpense)}
+                        Обычные доходы: {formatAmount(periodStats.regular_income)}<br />
+                        Доходы от отчетов: {formatAmount(periodStats.report_income)}<br />
+                        Расходы: {formatAmount(periodStats.total_expense)}<br />
                     </Typography>
                   </Box>
                 </>
@@ -1332,44 +1534,6 @@ const CompanyPage: React.FC = () => {
                 size="small"
               />
             </Grid>
-            <Grid size={{ xs: 6, md: 3 }}>
-              <FormControl fullWidth size="small">
-                <Select
-                  value={operationFilter}
-                  onChange={(e) => setOperationFilter(e.target.value)}
-                  sx={{ 
-                    borderRadius: 8,
-                    backgroundColor: '#f5f3f6',
-                    '& fieldset': { border: 'none' },
-                  }}
-                >
-                  <MenuItem value="all">Все типы</MenuItem>
-                  <MenuItem value="INCOME">Доходы (все)</MenuItem>
-                  <MenuItem value="REPORT_INCOME">Доходы от отчетов</MenuItem>
-                  <MenuItem value="EXPENSE">Расходы</MenuItem>
-                  <MenuItem value="CORRECTION">Коррекции</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid size={{ xs: 6, md: 3 }}>
-              <Button
-                fullWidth
-                variant="text"
-                startIcon={<FilterIcon />}
-                onClick={() => {
-                  setSearchTerm('');
-                  setOperationFilter('all');
-                  setActiveTab(0);
-                }}
-                sx={{
-                  borderRadius: 8,
-                  color: '#674fb6',
-                  textTransform: 'none',
-                }}
-              >
-                Сбросить фильтры
-              </Button>
-            </Grid>
           </Grid>
         </Paper>
 
@@ -1395,151 +1559,11 @@ const CompanyPage: React.FC = () => {
           </Paper>
         ) : (
           <Grid container spacing={1.5}>
-            {filteredTransactions.map((transaction) => {
-              const isIncome = transaction.operation_type === 'INCOME';
-              const isExpense = transaction.operation_type === 'EXPENSE';
-              const isReportIncome = isIncome && transaction.reference_type === 'REPORT';
-
-              let IconComponent = isIncome ? IncomeIcon : isExpense ? ExpenseIcon : CorrectionIcon;
-              let color = '#ff9800';
-
-              if (isReportIncome) {
-                color = '#2196f3'; 
-              } else if (isIncome) {
-                color = '#4caf50'; 
-              } else if (isExpense) {
-                color = '#f44336'; 
-              }
-              
-              return (
-                <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={transaction.id}>
-                  <Fade in timeout={300}>
-                    <Card
-                      sx={{
-                        borderRadius: 8,
-                        backgroundColor: '#ffffff',
-                        transition: 'all 0.2s ease',
-                        height: '100%',
-                        border: '1px solid #f0f0f0',
-                        '&:hover': {
-                          transform: 'translateY(-2px)',
-                          boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
-                          borderColor: color,
-                        },
-                      }}
-                    >
-                      <CardContent sx={{ p: 2 }}>
-                        {/* Верхняя часть с типом и суммой */}
-                        <Box sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'space-between',
-                          mb: 1.5,
-                        }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <IconComponent sx={{ color, fontSize: 20 }} />
-                            <Box>
-                              <Typography variant="caption" color="#8E8E93">
-                                {formatDate(transaction.created_at)}
-                              </Typography>
-                              <Typography variant="subtitle2" color="#2a0f35" fontWeight={600}>
-                                {OperationTypeLabels[transaction.operation_type]}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          <Typography 
-                            variant="h6" 
-                            sx={{ 
-                              color,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {isIncome ? '+' : isExpense ? '-' : '±'}
-                            {formatAmount(transaction.amount)}
-                          </Typography>
-                        </Box>
-
-                        {/* Город */}
-                        {transaction.city && (
-                          <Chip
-                            size="small"
-                            icon={<LocationIcon sx={{ fontSize: 14 }} />}
-                            label={transaction.city}
-                            sx={{
-                              mb: 1,
-                              height: 20,
-                              fontSize: '0.6rem',
-                              backgroundColor: '#f0e6ff',
-                              color: '#674fb6',
-                            }}
-                          />
-                        )}
-
-                        {/* Описание */}
-                        <Typography 
-                          variant="body2" 
-                          color="#4c5454"
-                          sx={{ 
-                            mb: 1.5,
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                            minHeight: 40,
-                          }}
-                        >
-                          {transaction.description}
-                        </Typography>
-                        {!transaction.city && (
-                          <Box sx={{ height: 20, mb: 1 }} />
-                        )}
-
-                        {/* Дополнительная информация */}
-                        <Box sx={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'space-between',
-                          pt: 1,
-                          borderTop: '1px solid #f0f0f0',
-                        }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="caption" color="#8E8E93">
-                              Баланс: {formatAmount(transaction.balance)}
-                            </Typography>
-                            
-                            {transaction.created_by && (
-                              <Chip
-                                label={transaction.created_by_name || `ID: ${transaction.created_by}`}
-                                size="small"
-                                sx={{
-                                  height: 20,
-                                  fontSize: '0.6rem',
-                                  backgroundColor: '#e8e0f0',
-                                  color: '#674fb6',
-                                }}
-                              />
-                            )}
-                          </Box>
-                          
-                          {transaction.reference_type && (
-                            <Chip
-                              label={transaction.reference_type === 'REPORT' ? 'Отчет' : transaction.reference_type}
-                              size="small"
-                              sx={{
-                                height: 20,
-                                fontSize: '0.6rem',
-                                backgroundColor: '#f5f3f6',
-                                color: '#4c5454',
-                              }}
-                            />
-                          )}
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Fade>
-                </Grid>
-              );
-            })}
+            {filteredTransactions.map((transaction) => (
+              <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={transaction.id}>
+                <TransactionCard transaction={transaction} />
+              </Grid>
+            ))}
           </Grid>
         )}
 
