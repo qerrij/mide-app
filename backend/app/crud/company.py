@@ -5,9 +5,6 @@ from app.models.user import User
 from sqlalchemy import case, func, and_, desc
 from datetime import datetime, timedelta
 from cachetools import TTLCache
-import logging
-
-logger = logging.getLogger(__name__)
 
 class CRUDCompany:
     def __init__(self):
