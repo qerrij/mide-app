@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func
@@ -7,9 +8,13 @@ from app.crud.company import crud_company
 from app.api.dependencies import get_current_user, require_roles
 from app.models.company import CompanyBalance
 from app.models.user import UserRole
-from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/company", tags=["company"])
+
+def get_user_city(current_user) -> Optional[str]:
+    """Получить город пользователя из его данных"""
+    # Предполагаем, что у пользователя есть поле city
+    return getattr(current_user, 'city', None)
 
 @router.get("/balance")
 def get_company_balance(
@@ -18,6 +23,16 @@ def get_company_balance(
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
     """Получить текущий баланс компании (общий или по городу)"""
+    # Если пользователь бухгалтер, ограничиваем его городом
+    if current_user.role == UserRole.ACCOUNTANT:
+        user_city = get_user_city(current_user)
+        if not user_city:
+            raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
+        # Игнорируем переданный city, используем город бухгалтера
+        balance = crud_company.get_balance(db, user_city)
+        return {"balance": balance, "city": user_city}
+    
+    # Для OWNER - используем переданный city или глобальный
     balance = crud_company.get_balance(db, city)
     return {"balance": balance}
 
@@ -27,7 +42,13 @@ def get_balance_by_cities(
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
     """Получить баланс по городам"""
-    return crud_company.get_balance_by_city(db)
+    user_city = None
+    if current_user.role == UserRole.ACCOUNTANT:
+        user_city = get_user_city(current_user)
+        if not user_city:
+            raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
+    
+    return crud_company.get_balance_by_city(db, user_city)
 
 @router.get("/transactions")
 def get_company_transactions(
@@ -35,10 +56,12 @@ def get_company_transactions(
     city: Optional[str] = Query(None, description="Фильтр по городу"),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    page_size: int = Query(50, ge=1, le=100, description="Количество записей на странице"),
     db: Session = Depends(get_db),
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
-    """Получить все транзакции с информацией о создателе и фильтром по городу"""
+    """Получить транзакции с пагинацией"""
     date_from_dt = None
     date_to_dt = None
     
@@ -54,14 +77,36 @@ def get_company_transactions(
         except:
             date_to_dt = datetime.strptime(date_to, '%Y-%m-%d')
     
-    # Убираем skip и limit, загружаем все транзакции
+    # Для бухгалтера - ограничиваем его городом
+    if current_user.role == UserRole.ACCOUNTANT:
+        user_city = getattr(current_user, 'city', None)
+        if not user_city:
+            raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
+        city = user_city
+    
+    # Получаем общее количество
+    count_query = db.query(CompanyBalance)
+    if operation_type:
+        count_query = count_query.filter(CompanyBalance.operation_type == operation_type)
+    if date_from_dt:
+        count_query = count_query.filter(CompanyBalance.created_at >= date_from_dt)
+    if date_to_dt:
+        count_query = count_query.filter(CompanyBalance.created_at <= date_to_dt)
+    if city:
+        count_query = count_query.filter(CompanyBalance.city == city)
+    
+    total_count = count_query.count()
+    
+    # Получаем транзакции с пагинацией
+    offset = (page - 1) * page_size
     results = crud_company.get_transactions_with_users(
         db,
         operation_type=operation_type,
         date_from=date_from_dt,
         date_to=date_to_dt,
         city=city,
-        limit=None  # Без лимита - все транзакции
+        limit=page_size,
+        offset=offset
     )
     
     transactions = []
@@ -75,7 +120,7 @@ def get_company_transactions(
             'created_by_name': created_by_name or f"ID: {transaction.created_by}",
             'created_by_username': created_by_username,
             'amount': transaction.amount,
-            'balance': transaction.balance,
+            'balance': transaction.city_balance if transaction.city else transaction.balance,
             'description': transaction.description,
             'reference_type': transaction.reference_type,
             'city': transaction.city,
@@ -83,62 +128,13 @@ def get_company_transactions(
         }
         transactions.append(transaction_dict)
     
-    return transactions
-
-@router.get("/stats-by-city")
-def get_stats_by_city(
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
-):
-    """Получить статистику доходов/расходов по городам за период"""
-    date_from_dt = None
-    date_to_dt = None
-    
-    if date_from:
-        try:
-            date_from_dt = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
-        except:
-            date_from_dt = datetime.strptime(date_from, '%Y-%m-%d')
-    
-    if date_to:
-        try:
-            date_to_dt = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
-        except:
-            date_to_dt = datetime.strptime(date_to, '%Y-%m-%d')
-    
-    return crud_company.get_stats_by_city(db, date_from_dt, date_to_dt)
-
-@router.get("/balance-history")
-def get_balance_history(
-    days: int = Query(30, ge=1, le=365),
-    granularity: str = Query("day", regex="^(hour|day)$"),
-    date: Optional[str] = Query(None),
-    city: Optional[str] = Query(None, description="Фильтр по городу"),
-    max_points: int = Query(100, ge=10, le=500, description="Максимальное количество точек для графика"),
-    db: Session = Depends(get_db),
-    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
-):
-    """
-    Получить историю баланса
-    - granularity='day': данные по дням с автоматической агрегацией
-    - granularity='hour': почасовая статистика за указанную дату
-    """
-    if granularity == 'hour':
-        if date:
-            try:
-                target_date = datetime.fromisoformat(date)
-            except:
-                target_date = datetime.strptime(date, '%Y-%m-%d')
-        else:
-            target_date = datetime.now()
-        
-        history = crud_company.get_hourly_balance_history(db, target_date, city)
-    else:
-        history = crud_company.get_balance_history(db, days=days, city=city, max_points=max_points)
-    
-    return history
+    return {
+        "items": transactions,
+        "total": total_count,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total_count + page_size - 1) // page_size
+    }
 
 @router.get("/dashboard-data")
 def get_dashboard_data(
@@ -148,10 +144,18 @@ def get_dashboard_data(
     date_from: Optional[str] = Query(None, description="Начальная дата для произвольного периода"),
     date_to: Optional[str] = Query(None, description="Конечная дата для произвольного периода"),
     max_points: int = Query(100, ge=10, le=1000),
+    transactions_limit: int = Query(100, ge=1, le=500, description="Лимит транзакций для дашборда"),
     db: Session = Depends(get_db),
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
-    """Единый эндпоинт для получения всех данных дашборда"""
+    """Единый эндпоинт для дашборда - возвращает ограниченное количество транзакций"""
+    
+    # Для бухгалтера - ограничиваем его городом
+    if current_user.role == UserRole.ACCOUNTANT:
+        user_city = getattr(current_user, 'city', None)
+        if not user_city:
+            raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
+        city = user_city
     
     # Получаем баланс
     balance = crud_company.get_balance(db, city)
@@ -159,7 +163,6 @@ def get_dashboard_data(
     # Определяем параметры для транзакций и истории
     transactions_params = {
         'city': city
-        # Убираем limit - загружаем все транзакции
     }
     
     history_params = {
@@ -173,17 +176,14 @@ def get_dashboard_data(
         else:
             target_date = datetime.now()
         
-        # Убираем временную зону
         if target_date.tzinfo is not None:
             target_date = target_date.replace(tzinfo=None)
         
-        # Для транзакций - за указанную дату
         day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
         day_end = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59, 999999)
         transactions_params['date_from'] = day_start
         transactions_params['date_to'] = day_end
         
-        # Для истории - почасовая
         history = crud_company.get_hourly_balance_history(db, target_date, city)
         
     elif period == 'week':
@@ -214,7 +214,6 @@ def get_dashboard_data(
         
     elif period == 'all':
         if date_from and date_to:
-            # Произвольный период
             try:
                 start_date = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
                 end_date = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
@@ -222,13 +221,11 @@ def get_dashboard_data(
                 start_date = datetime.strptime(date_from, '%Y-%m-%d')
                 end_date = datetime.strptime(date_to, '%Y-%m-%d')
             
-            # Убираем временную зону
             if start_date.tzinfo is not None:
                 start_date = start_date.replace(tzinfo=None)
             if end_date.tzinfo is not None:
                 end_date = end_date.replace(tzinfo=None)
             
-            # Добавляем +1 день к end_date чтобы включить весь последний день
             end_date = end_date + timedelta(days=1)
             
             transactions_params['date_from'] = start_date
@@ -239,16 +236,16 @@ def get_dashboard_data(
             days = (end_date - start_date).days
             history = crud_company.get_balance_history(db, days=days, **history_params)
         else:
-            # Все время - загружаем все транзакции без фильтра по дате
+            # Для "все время" - берем последние 500 транзакций
             history = crud_company.get_balance_history(db, days=365*10, city=city, max_points=max_points)
     
-    # Получаем ВСЕ транзакции без лимита
+    # Получаем ОГРАНИЧЕННОЕ количество транзакций для дашборда
     transactions_data = crud_company.get_transactions_with_users(
         db,
-        city=transactions_params['city'],
+        city=transactions_params.get('city'),
         date_from=transactions_params.get('date_from'),
         date_to=transactions_params.get('date_to'),
-        limit=None  # Без лимита - все транзакции
+        limit=transactions_limit  # Ограничиваем количество
     )
     
     transactions = []
@@ -258,7 +255,7 @@ def get_dashboard_data(
             'operation_type': transaction.operation_type,
             'created_at': transaction.created_at,
             'amount': transaction.amount,
-            'balance': transaction.balance,
+            'balance': transaction.city_balance if transaction.city else transaction.balance,
             'description': transaction.description,
             'reference_type': transaction.reference_type,
             'city': transaction.city,
@@ -266,17 +263,21 @@ def get_dashboard_data(
             'created_by_name': created_by_name or f"ID: {transaction.created_by}"
         })
     
-    # Получаем список уникальных городов
-    cities_query = db.query(CompanyBalance.city).filter(
-        CompanyBalance.city.isnot(None)
-    ).distinct().all()
-    cities = [c[0] for c in cities_query]
+    # Получаем список городов (только для OWNER)
+    if current_user.role == UserRole.OWNER:
+        cities_query = db.query(CompanyBalance.city).filter(
+            CompanyBalance.city.isnot(None)
+        ).distinct().all()
+        cities = [c[0] for c in cities_query]
+    else:
+        cities = [city] if city else []
     
     return {
         "balance": balance,
         "transactions": transactions,
         "history": history,
-        "cities": cities
+        "cities": cities,
+        "has_more": len(transactions) == transactions_limit  # Флаг, что есть еще данные
     }
 
 @router.post("/add-income")
@@ -289,7 +290,14 @@ def add_company_income(
     db: Session = Depends(get_db),
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
-    """Добавить доход в общий банк с указанием города"""
+    """Добавить доход"""
+    # Для бухгалтера - принудительно используем его город
+    if current_user.role == UserRole.ACCOUNTANT:
+        user_city = get_user_city(current_user)
+        if not user_city:
+            raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
+        city = user_city
+    
     try:
         transaction = crud_company.add_income(
             db,
@@ -303,7 +311,7 @@ def add_company_income(
         return {
             "message": "Доход успешно добавлен",
             "transaction_id": transaction.id,
-            "new_balance": transaction.balance,
+            "new_balance": transaction.city_balance if city else transaction.balance,
             "city": transaction.city
         }
     except ValueError as e:
@@ -319,7 +327,14 @@ def add_company_expense(
     db: Session = Depends(get_db),
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
-    """Добавить расход из общего банка с указанием города"""
+    """Добавить расход"""
+    # Для бухгалтера - принудительно используем его город
+    if current_user.role == UserRole.ACCOUNTANT:
+        user_city = get_user_city(current_user)
+        if not user_city:
+            raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
+        city = user_city
+    
     try:
         transaction = crud_company.add_expense(
             db,
@@ -333,11 +348,12 @@ def add_company_expense(
         return {
             "message": "Расход успешно добавлен",
             "transaction_id": transaction.id,
-            "new_balance": transaction.balance,
+            "new_balance": transaction.city_balance if city else transaction.balance,
             "city": transaction.city
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
 
 @router.get("/stats")
 def get_company_stats(
@@ -351,8 +367,17 @@ def get_company_stats(
 ):
     """Получить статистику доходов/расходов за период"""
     
+    # Для бухгалтера - ограничиваем его городом
+    if current_user.role == UserRole.ACCOUNTANT:
+        user_city = getattr(current_user, 'city', None)
+        if not user_city:
+            raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
+        city = user_city
+    
     # Определяем период
     end_date = datetime.now()
+    if end_date.tzinfo is not None:
+        end_date = end_date.replace(tzinfo=None)
     
     if period == 'day':
         if date:
@@ -363,6 +388,9 @@ def get_company_stats(
         else:
             target_date = end_date
         
+        if target_date.tzinfo is not None:
+            target_date = target_date.replace(tzinfo=None)
+            
         start_date = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
         end_date = start_date + timedelta(days=1)
     elif period == 'week':
@@ -378,6 +406,11 @@ def get_company_stats(
         except:
             start_date = datetime.strptime(date_from, '%Y-%m-%d')
             end_date = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
+        
+        if start_date.tzinfo is not None:
+            start_date = start_date.replace(tzinfo=None)
+        if end_date.tzinfo is not None:
+            end_date = end_date.replace(tzinfo=None)
     else:
         start_date = datetime(2020, 1, 1)
     

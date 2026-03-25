@@ -237,9 +237,6 @@ def clear_table():
     # Для PostgreSQL
     session.execute(text("ALTER SEQUENCE IF EXISTS company_balance_id_seq RESTART WITH 1"))
     
-    # Для SQLite (раскомментировать если нужно)
-    # session.execute(text("DELETE FROM sqlite_sequence WHERE name='company_balance'"))
-    
     session.commit()
     print("✅ Таблица очищена")
 

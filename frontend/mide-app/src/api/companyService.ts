@@ -58,7 +58,15 @@ export const companyService = {
     date_from?: string;
     date_to?: string;
     city?: string;
-  }): Promise<CompanyTransaction[]> {
+    page?: number;
+    page_size?: number;
+  }): Promise<{
+    items: CompanyTransaction[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+  }> {
     const cacheKey = `transactions:${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
     if (cached) return cached;

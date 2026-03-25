@@ -7,17 +7,18 @@ class CompanyBalance(Base):
     __tablename__ = "company_balance"
     
     id = Column(Integer, primary_key=True, index=True)
-    balance = Column(Float, nullable=False, default=0.0)  # Текущий баланс компании
-    description = Column(String(255), nullable=True)      # Описание операции
-    operation_type = Column(String(50), nullable=False)   # Тип операции: INCOME, EXPENSE, CORRECTION
-    amount = Column(Float, nullable=False)                # Сумма операции
-    reference_id = Column(Integer, nullable=True)         # ID связанной сущности (отчет, заказ и т.д.)
-    reference_type = Column(String(50), nullable=True)    # Тип связанной сущности
+    balance = Column(Float, nullable=False, default=0.0)  # Глобальный баланс компании
+    city_balance = Column(Float, nullable=True)  # Баланс конкретного города
+    description = Column(String(255), nullable=True)
+    operation_type = Column(String(50), nullable=False)
+    amount = Column(Float, nullable=False)
+    reference_id = Column(Integer, nullable=True)
+    reference_type = Column(String(50), nullable=True)
     city = Column(String(100), nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    created_by = Column(Integer, nullable=True)           # Кто создал запись
+    created_by = Column(Integer, nullable=True)
     
     def __repr__(self):
         return f"<CompanyBalance {self.operation_type}: {self.amount}>"

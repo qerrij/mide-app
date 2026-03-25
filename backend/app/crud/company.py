@@ -25,22 +25,17 @@ class CRUDCompany:
         return balance
 
     def get_city_balance(self, db: Session, city: str) -> float:
-        """Получить баланс по городу (сумма всех операций города)"""
+        """Получить баланс по городу"""
         cache_key = self._get_cache_key(city)
         if cache_key in self._balance_cache:
             return self._balance_cache[cache_key]
             
-        result = db.query(
-            func.sum(
-                case(
-                    (CompanyBalance.operation_type == 'INCOME', CompanyBalance.amount),
-                    (CompanyBalance.operation_type == 'EXPENSE', -CompanyBalance.amount),
-                    else_=0
-                )
-            ).label('balance')
-        ).filter(CompanyBalance.city == city).first()
+        # Находим последнюю транзакцию для этого города
+        last_city_transaction = db.query(CompanyBalance).filter(
+            CompanyBalance.city == city
+        ).order_by(CompanyBalance.id.desc()).first()
         
-        balance = float(result[0] if result[0] is not None else 0.0)
+        balance = last_city_transaction.city_balance if last_city_transaction else 0.0
         self._balance_cache[cache_key] = balance
         return balance
 
@@ -76,8 +71,14 @@ class CRUDCompany:
         global_balance = self.get_global_balance(db)
         new_global_balance = global_balance + amount
         
+        # Получаем текущий баланс города (если city указан)
+        city_balance = None
+        if city:
+            city_balance = self.get_city_balance(db, city) + amount
+        
         transaction = CompanyBalance(
             balance=new_global_balance,
+            city_balance=city_balance,
             description=description,
             operation_type="INCOME",
             amount=amount,
@@ -106,15 +107,25 @@ class CRUDCompany:
         created_by: Optional[int] = None,
         city: Optional[str] = None
     ) -> CompanyBalance:
-        """Добавить расход из общего банка"""
-        # Получаем текущий баланс с учетом города
+        """Добавить расход"""
+        # Проверяем достаточно ли средств
         current_balance = self.get_balance(db, city)
         
         if current_balance < amount:
             raise ValueError(f"Недостаточно средств на балансе. Доступно: {current_balance}, требуется: {amount}")
         
+        # Получаем текущий глобальный баланс
+        global_balance = self.get_global_balance(db)
+        new_global_balance = global_balance - amount
+        
+        # Получаем текущий баланс города (если city указан)
+        city_balance = None
+        if city:
+            city_balance = self.get_city_balance(db, city) - amount
+        
         transaction = CompanyBalance(
-            balance=current_balance - amount,
+            balance=new_global_balance,
+            city_balance=city_balance,
             description=description,
             operation_type="EXPENSE",
             amount=amount,
@@ -140,9 +151,11 @@ class CRUDCompany:
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         city: Optional[str] = None,
-        limit: Optional[int] = None  # Добавляем None для загрузки всех
+        user_id: Optional[int] = None,
+        limit: Optional[int] = None,
+        offset: int = 0
     ) -> List[Tuple[CompanyBalance, Optional[str], Optional[str]]]:
-        """Получить все транзакции с информацией о создателе и фильтром по городу"""
+        """Получить транзакции с пагинацией"""
         query = db.query(
             CompanyBalance,
             User.full_name.label('created_by_name'),
@@ -163,7 +176,13 @@ class CRUDCompany:
         if city:
             query = query.filter(CompanyBalance.city == city)
         
+        if user_id:
+            query = query.filter(CompanyBalance.created_by == user_id)
+        
         query = query.order_by(CompanyBalance.id.desc())
+        
+        if offset:
+            query = query.offset(offset)
         
         if limit is not None:
             query = query.limit(limit)
@@ -181,13 +200,9 @@ class CRUDCompany:
     ) -> List[dict]:
         """
         Получить историю баланса
-        Если указаны start_date и end_date - используем их
-        Иначе - за последние N дней от текущей даты
         Если указан city - возвращается баланс этого города
-        Возвращаем ТОЛЬКО реальные транзакции, без искусственных точек
         """
         if start_date and end_date:
-            # Используем переданные даты, убираем временную зону если есть
             if start_date.tzinfo is not None:
                 start = start_date.replace(tzinfo=None)
             else:
@@ -198,7 +213,6 @@ class CRUDCompany:
             else:
                 end = end_date
         else:
-            # По умолчанию - последние N дней
             end = datetime.now()
             if end.tzinfo is not None:
                 end = end.replace(tzinfo=None)
@@ -215,21 +229,20 @@ class CRUDCompany:
             if not transactions:
                 return []
             
-            # Пересчитываем баланс начиная с первой транзакции в периоде
+            # Используем city_balance для отображения баланса города
             history = []
             for transaction in transactions:
-                # Убираем временную зону из даты транзакции если есть
                 transaction_date = transaction.created_at
                 if transaction_date.tzinfo is not None:
                     transaction_date = transaction_date.replace(tzinfo=None)
                 
                 history.append({
                     'date': transaction_date,
-                    'balance': transaction.balance,  # Баланс ПОСЛЕ этой транзакции
+                    'balance': transaction.city_balance,  # Используем city_balance вместо balance
                     'city': city
                 })
         else:
-            # Для глобального баланса - просто все транзакции за период
+            # Для глобального баланса - используем поле balance
             transactions = db.query(CompanyBalance).filter(
                 CompanyBalance.created_at >= start,
                 CompanyBalance.created_at <= end
@@ -237,20 +250,18 @@ class CRUDCompany:
             
             history = []
             for transaction in transactions:
-                # Убираем временную зону из даты транзакции если есть
                 transaction_date = transaction.created_at
                 if transaction_date.tzinfo is not None:
                     transaction_date = transaction_date.replace(tzinfo=None)
                 
                 history.append({
                     'date': transaction_date,
-                    'balance': transaction.balance,  # Баланс ПОСЛЕ этой транзакции
+                    'balance': transaction.balance,  # Для глобального баланса используем balance
                     'city': transaction.city
                 })
         
-        # Если слишком много точек - прореживаем, но сохраняем ТОЛЬКО реальные транзакции
+        # Если слишком много точек - прореживаем
         if len(history) > max_points:
-            # Берем каждую N-ую транзакцию, но обязательно первую и последнюю
             step = len(history) // max_points
             if step < 1:
                 step = 1
@@ -260,7 +271,29 @@ class CRUDCompany:
             history = [history[i] for i in indices]
         
         return history
-
+    
+    def get_balance_by_city(self, db: Session, user_city: Optional[str] = None) -> List[dict]:
+        """Получить баланс по городам (если user_city указан, возвращаем только его)"""
+        if user_city:
+            # Если у пользователя есть город, возвращаем только его
+            balance = self.get_balance(db, user_city)
+            return [{'city': user_city, 'balance': balance}]
+        
+        # Иначе возвращаем все города
+        cities = db.query(CompanyBalance.city).filter(
+            CompanyBalance.city.isnot(None)
+        ).distinct().all()
+        
+        result = []
+        for (city,) in cities:
+            balance = self.get_balance(db, city)
+            result.append({
+                'city': city,
+                'balance': balance
+            })
+        
+        return result
+    
     def get_hourly_balance_history(
         self,
         db: Session,
@@ -344,64 +377,5 @@ class CRUDCompany:
                 })
         
         return history
-    
-    def get_balance_by_city(self, db: Session) -> List[dict]:
-        """Получить баланс по городам"""
-        cities = db.query(CompanyBalance.city).filter(
-            CompanyBalance.city.isnot(None)
-        ).distinct().all()
-        
-        result = []
-        for (city,) in cities:
-            balance = self.get_balance(db, city)
-            result.append({
-                'city': city,
-                'balance': balance
-            })
-        
-        return result
-    
-    def get_stats_by_city(
-        self,
-        db: Session,
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None
-    ) -> List[dict]:
-        """Получить статистику доходов/расходов по городам за период"""
-        query = db.query(
-            CompanyBalance.city,
-            CompanyBalance.operation_type,
-            func.sum(CompanyBalance.amount).label('total_amount'),
-            func.count(CompanyBalance.id).label('transactions_count')
-        ).filter(CompanyBalance.city.isnot(None))
-        
-        if date_from:
-            query = query.filter(CompanyBalance.created_at >= date_from)
-        
-        if date_to:
-            query = query.filter(CompanyBalance.created_at <= date_to)
-        
-        query = query.group_by(CompanyBalance.city, CompanyBalance.operation_type)
-        
-        results = query.all()
-        
-        stats_by_city = {}
-        for city, op_type, amount, count in results:
-            if city not in stats_by_city:
-                stats_by_city[city] = {
-                    'city': city,
-                    'total_income': 0,
-                    'total_expense': 0,
-                    'transactions_count': 0
-                }
-            
-            if op_type == 'INCOME':
-                stats_by_city[city]['total_income'] = amount
-            elif op_type == 'EXPENSE':
-                stats_by_city[city]['total_expense'] = amount
-            
-            stats_by_city[city]['transactions_count'] += count
-        
-        return list(stats_by_city.values())
 
 crud_company = CRUDCompany()

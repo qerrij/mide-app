@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
 import {
   Container,
   Grid,
@@ -29,7 +29,6 @@ import {
   IconButton,
   SelectChangeEvent,
   Skeleton,
-  Divider,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -305,7 +304,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
 });
 
 // Кастомный Tooltip для графика
-const CustomAreaTooltip = ({ active, payload }: any) => {
+const CustomAreaTooltip = ({ active, payload, selectedCity }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
@@ -864,6 +863,8 @@ const CompanyPage: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const canEdit = user?.role === UserRole.OWNER || user?.role === UserRole.ACCOUNTANT;
+  const isOwner = user?.role === UserRole.OWNER;
+  const isAccountant = user?.role === UserRole.ACCOUNTANT;
 
   // Состояния для данных
   const [dashboardData, setDashboardData] = useState<{
@@ -881,6 +882,14 @@ const CompanyPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingBalance, setLoadingBalance] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
+  
+  // Пагинация
+  const [transactionsPage, setTransactionsPage] = useState(1);
+  const [transactionsTotal, setTransactionsTotal] = useState(0);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   
   // Города
   const [selectedCity, setSelectedCity] = useState<string>('all');
@@ -931,6 +940,15 @@ const CompanyPage: React.FC = () => {
     severity: 'success',
   });
 
+  // Для бухгалтера принудительно устанавливаем его город
+  useEffect(() => {
+    if (isAccountant && user && user.city) {
+      setSelectedCity(user.city);
+    } else if (isAccountant && user && !user.city) {
+      console.error('У бухгалтера не назначен город');
+    }
+  }, [isAccountant, user]);
+
   const loadStats = useCallback(async () => {
     try {
       let params: any = {
@@ -952,6 +970,95 @@ const CompanyPage: React.FC = () => {
     }
   }, [selectedCity, dateRange, customDate, appliedStartDate, appliedEndDate]);
 
+  // Загрузка транзакций с пагинацией
+  const loadTransactions = useCallback(async (page: number, reset: boolean = false) => {
+    setTransactionsLoading(true);
+    try {
+      let params: any = {
+        page: page,
+        page_size: 50,
+        city: isAccountant && user?.city ? user.city : (selectedCity !== 'all' ? selectedCity : undefined),
+      };
+
+      if (activeTab === 1) {
+        params.operation_type = 'INCOME';
+      } else if (activeTab === 2) {
+        params.operation_type = 'INCOME';
+        params.reference_type = 'REPORT';
+      } else if (activeTab === 3) {
+        params.operation_type = 'EXPENSE';
+      }
+
+      // Получаем текущую дату для end_date
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      if (dateRange === 'day') {
+        const selectedDate = new Date(customDate);
+        const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        
+        params.date_from = format(dayStart, 'yyyy-MM-dd');
+        params.date_to = format(dayEnd, 'yyyy-MM-dd');
+      } else if (dateRange === 'week') {
+        const end = new Date();
+        const start = subDays(end, 7);
+        // Устанавливаем start на начало дня
+        const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        // Устанавливаем end на конец сегодняшнего дня
+        const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        const endDateNext = new Date(endDate);
+        endDateNext.setDate(endDateNext.getDate() + 1);
+        
+        params.date_from = format(startDate, 'yyyy-MM-dd');
+        params.date_to = format(endDateNext, 'yyyy-MM-dd');
+      } else if (dateRange === 'month') {
+        const end = new Date();
+        const start = subMonths(end, 1);
+        const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        const endDateNext = new Date(endDate);
+        endDateNext.setDate(endDateNext.getDate() + 1);
+        
+        params.date_from = format(startDate, 'yyyy-MM-dd');
+        params.date_to = format(endDateNext, 'yyyy-MM-dd');
+      } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
+        const startDate = new Date(appliedStartDate);
+        const endDate = new Date(appliedEndDate);
+        const endDateNext = new Date(endDate);
+        endDateNext.setDate(endDateNext.getDate() + 1);
+        
+        params.date_from = format(startDate, 'yyyy-MM-dd');
+        params.date_to = format(endDateNext, 'yyyy-MM-dd');
+      } else if (dateRange === 'all' && !appliedStartDate && !appliedEndDate) {
+        // Для "все время" без выбранных дат - не передаем date_from и date_to
+        // backend вернет все транзакции
+      }
+
+      const response = await companyService.getTransactions(params);
+      
+      if (reset || page === 1) {
+        setDashboardData(prev => ({ ...prev, transactions: response.items }));
+      } else {
+        setDashboardData(prev => ({ 
+          ...prev, 
+          transactions: [...prev.transactions, ...response.items] 
+        }));
+      }
+      
+      setTransactionsTotal(response.total);
+      setHasMore(page < response.total_pages);
+      setTransactionsPage(page);
+    } catch (error) {
+      console.error('Error loading transactions:', error);
+    } finally {
+      setTransactionsLoading(false);
+    }
+  }, [selectedCity, activeTab, dateRange, customDate, appliedStartDate, appliedEndDate, isAccountant, user, searchTerm]);
+
   // Загрузка данных дашборда
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -959,9 +1066,14 @@ const CompanyPage: React.FC = () => {
     // Загружаем баланс
     setLoadingBalance(true);
     try {
-      const balanceData = selectedCity === 'all' 
-        ? await companyService.getBalance()
-        : await companyService.getBalanceByCity(selectedCity);
+      let balanceData: { balance: number };
+      if (isAccountant && user?.city) {
+        balanceData = await companyService.getBalanceByCity(user.city);
+      } else if (selectedCity === 'all') {
+        balanceData = await companyService.getBalance();
+      } else {
+        balanceData = await companyService.getBalanceByCity(selectedCity);
+      }
       setDashboardData(prev => ({ ...prev, balance: balanceData.balance }));
     } catch (error) {
       console.error('Error loading balance:', error);
@@ -969,7 +1081,7 @@ const CompanyPage: React.FC = () => {
       setLoadingBalance(false);
     }
 
-    // Загружаем статистику с учетом произвольной даты
+    // Загружаем статистику
     await loadStats();
 
     // Загружаем данные для графиков
@@ -982,24 +1094,27 @@ const CompanyPage: React.FC = () => {
       if (dateRange === 'day') {
         date = format(customDate, 'yyyy-MM-dd');
       } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
-        // Для произвольного периода передаем даты
         date_from = format(appliedStartDate, 'yyyy-MM-dd');
         date_to = format(appliedEndDate, 'yyyy-MM-dd');
-        period = 'all'; // Оставляем period='all' но с датами
+        period = 'all';
       }
       
-      const maxPoints = dateRange === 'all' ? 500 : 100;
+      const maxPoints = dateRange === 'all' ? 200 : 100;
       
       const data = await companyService.getDashboardData({
         period,
-        city: selectedCity !== 'all' ? selectedCity : undefined,
+        city: isAccountant && user?.city ? user.city : (selectedCity !== 'all' ? selectedCity : undefined),
         date,
         date_from,
         date_to,
         max_points: maxPoints
       });
       
-      setDashboardData(data);
+      setDashboardData(prev => ({ 
+        ...prev, 
+        history: data.history,
+        cities: data.cities 
+      }));
       
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -1007,9 +1122,14 @@ const CompanyPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedCity, dateRange, customDate, appliedStartDate, appliedEndDate, loadStats]);
+  }, [selectedCity, dateRange, customDate, appliedStartDate, appliedEndDate, loadStats, isAccountant, user]);
 
-  // Используем debounce для загрузки
+  // Загружаем транзакции при изменении фильтров
+  useEffect(() => {
+    loadTransactions(1, true);
+  }, [selectedCity, activeTab, dateRange, customDate, appliedStartDate, appliedEndDate, loadTransactions]);
+
+  // Загружаем основные данные при изменении
   useEffect(() => {
     const timer = setTimeout(() => {
       loadData();
@@ -1018,40 +1138,51 @@ const CompanyPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [loadData]);
 
+  // Настройка Intersection Observer для бесконечной прокрутки
+  useEffect(() => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !transactionsLoading) {
+          loadTransactions(transactionsPage + 1);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (sentinelRef.current) {
+      observerRef.current.observe(sentinelRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [hasMore, transactionsLoading, loadTransactions, transactionsPage]);
+
   const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
     setSnackbar({ open: true, message, severity });
   };
 
   const handleCityChange = (event: SelectChangeEvent) => {
     setSelectedCity(event.target.value);
+    setTransactionsPage(1);
   };
 
-  // Мемоизированные вычисления
+  // Фильтрация транзакций по поиску на клиенте
   const filteredTransactions = useMemo(() => {
-    let filtered = dashboardData.transactions;
-
-    // Фильтрация по выбранному чипсу
-    if (activeTab === 1) { // Доходы (все)
-      filtered = filtered.filter(t => t.operation_type === 'INCOME');
-    } else if (activeTab === 2) { // Доходы от отчетов
-      filtered = filtered.filter(t => 
-        t.operation_type === 'INCOME' && t.reference_type === 'REPORT'
-      );
-    } else if (activeTab === 3) { // Расходы
-      filtered = filtered.filter(t => t.operation_type === 'EXPENSE');
-    }
-
-    // Поиск по описанию
-    if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase();
-      filtered = filtered.filter(t => 
-        t.description.toLowerCase().includes(searchLower) ||
-        (t.reference_type?.toLowerCase() || '').includes(searchLower)
-      );
-    }
-
-    return filtered;
-  }, [dashboardData.transactions, activeTab, searchTerm]);
+    if (!searchTerm) return dashboardData.transactions;
+    
+    const searchLower = searchTerm.toLowerCase();
+    return dashboardData.transactions.filter(t => 
+      t.description.toLowerCase().includes(searchLower) ||
+      (t.reference_type?.toLowerCase() || '').includes(searchLower)
+    );
+  }, [dashboardData.transactions, searchTerm]);
 
   const chartData = useMemo(() => {
     if (!dashboardData.history || dashboardData.history.length === 0) {
@@ -1145,12 +1276,14 @@ const CompanyPage: React.FC = () => {
       setAppliedStartDate(null);
       setAppliedEndDate(null);
     }
+    setTransactionsPage(1);
   };
 
   const handleApplyDateRange = () => {
     if (tempStartDate && tempEndDate) {
       setAppliedStartDate(tempStartDate);
       setAppliedEndDate(tempEndDate);
+      setTransactionsPage(1);
     }
   };
 
@@ -1159,6 +1292,7 @@ const CompanyPage: React.FC = () => {
     setTempEndDate(null);
     setAppliedStartDate(null);
     setAppliedEndDate(null);
+    setTransactionsPage(1);
   };
 
   useEffect(() => {
@@ -1188,7 +1322,7 @@ const CompanyPage: React.FC = () => {
             <Box>
               <Typography variant="h5" component="h1" color="#2a0f35" fontWeight={600}>
                 Бухгалтерия
-                {selectedCity !== 'all' && (
+                {selectedCity !== 'all' && selectedCity && (
                   <Box component="span" sx={{ color: '#674fb6', ml: 1 }}>
                     {selectedCity}
                   </Box>
@@ -1199,31 +1333,33 @@ const CompanyPage: React.FC = () => {
               </Typography>
             </Box>
             
-            {/* Селект городов */}
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <Select
-                value={selectedCity}
-                onChange={handleCityChange}
-                displayEmpty
-                startAdornment={<LocationIcon sx={{ mr: 1, color: '#8E8E93', fontSize: 20 }} />}
-                sx={{
-                  borderRadius: 8,
-                  backgroundColor: '#ffffff',
-                  height: 40,
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: '#e0e0e0',
-                  },
-                  '&:hover .MuiOutlinedInput-notchedOutline': {
-                    borderColor: '#674fb6',
-                  },
-                }}
-              >
-                <MenuItem value="all">Все города</MenuItem>
-                {dashboardData.cities.map((city) => (
-                  <MenuItem key={city} value={city}>{city}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            {/* Селект городов - показываем только для OWNER */}
+            {isOwner && (
+              <FormControl size="small" sx={{ minWidth: 200 }}>
+                <Select
+                  value={selectedCity}
+                  onChange={handleCityChange}
+                  displayEmpty
+                  startAdornment={<LocationIcon sx={{ mr: 1, color: '#8E8E93', fontSize: 20 }} />}
+                  sx={{
+                    borderRadius: 8,
+                    backgroundColor: '#ffffff',
+                    height: 40,
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#e0e0e0',
+                    },
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: '#674fb6',
+                    },
+                  }}
+                >
+                  <MenuItem value="all">Все города</MenuItem>
+                  {dashboardData.cities.map((city) => (
+                    <MenuItem key={city} value={city}>{city}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            )}
 
             {loadingBalance && (
               <CircularProgress size={20} sx={{ color: '#674fb6', ml: 1 }} />
@@ -1231,7 +1367,11 @@ const CompanyPage: React.FC = () => {
           </Box>
 
           <IconButton
-            onClick={loadData}
+            onClick={() => {
+              setTransactionsPage(1);
+              loadData();
+              loadTransactions(1, true);
+            }}
             disabled={loading}
             sx={{
               backgroundColor: '#ffffff',
@@ -1497,7 +1637,10 @@ const CompanyPage: React.FC = () => {
         <Box sx={{ mb: 3 }}>
           <ChipTabs
             value={activeTab}
-            onChange={setActiveTab}
+            onChange={(value) => {
+              setActiveTab(value);
+              setTransactionsPage(1);
+            }}
             tabs={tabs}
           />
         </Box>
@@ -1534,6 +1677,11 @@ const CompanyPage: React.FC = () => {
                 size="small"
               />
             </Grid>
+            <Grid size={{ xs: 12, md: 6 }}>
+              <Typography variant="body2" color="#4c5454" align="right">
+                Показано {filteredTransactions.length} из {transactionsTotal} операций
+              </Typography>
+            </Grid>
           </Grid>
         </Paper>
 
@@ -1558,13 +1706,28 @@ const CompanyPage: React.FC = () => {
             </Typography>
           </Paper>
         ) : (
-          <Grid container spacing={1.5}>
-            {filteredTransactions.map((transaction) => (
-              <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={transaction.id}>
-                <TransactionCard transaction={transaction} />
-              </Grid>
-            ))}
-          </Grid>
+          <>
+            <Grid container spacing={1.5}>
+              {filteredTransactions.map((transaction) => (
+                <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={transaction.id}>
+                  <TransactionCard transaction={transaction} />
+                </Grid>
+              ))}
+            </Grid>
+            {/* Sentinel для бесконечной прокрутки */}
+            <div ref={sentinelRef} style={{ height: '20px', margin: '20px 0' }}>
+              {transactionsLoading && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                  <CircularProgress size={30} />
+                </Box>
+              )}
+              {!hasMore && transactionsTotal > 0 && (
+                <Typography variant="body2" color="#4c5454" align="center" sx={{ mt: 2 }}>
+                  Загружены все операции ({transactionsTotal})
+                </Typography>
+              )}
+            </div>
+          </>
         )}
 
         {/* Диалоги */}
@@ -1575,7 +1738,9 @@ const CompanyPage: React.FC = () => {
           onClose={() => setIncomeDialogOpen(false)}
           onSuccess={() => {
             showSnackbar('Доход успешно добавлен', 'success');
+            setTransactionsPage(1);
             loadData();
+            loadTransactions(1, true);
           }}
         />
 
@@ -1586,7 +1751,9 @@ const CompanyPage: React.FC = () => {
           onClose={() => setExpenseDialogOpen(false)}
           onSuccess={() => {
             showSnackbar('Расход успешно добавлен', 'success');
+            setTransactionsPage(1);
             loadData();
+            loadTransactions(1, true);
           }}
         />
 
