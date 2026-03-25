@@ -736,12 +736,13 @@ export interface InventoryItem {
   productId: number;
   quantity: number;
   reservedQuantity: number;
-  availableQuantity?: number;  // Добавлено
-  reservedDetails?: ReservationDetail[];  // Добавлено - детали резервов
+  availableQuantity?: number;
+  reservedDetails?: ReservationDetail[];
   productName?: string;
   productSku?: string;
   productPrice?: number;
-  userName?: string;
+  userName?: string;        // ДОБАВЛЯЕМ
+  userCity?: string;        // ДОБАВЛЯЕМ город пользователя
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -1272,6 +1273,74 @@ export interface CompanyBalanceHistory {
   amount: number;
   type: 'INCOME' | 'EXPENSE' | 'CORRECTION';
   description: string;
+}
+
+// ================ ДОЛГИ ================
+export interface DebtHistoryItem {
+  timestamp: string;
+  revision_id?: number;
+  change: number;
+  new_quantity: number;
+  cost_change: number;
+  new_total_cost: number;
+  product_price: number;
+  description: string;
+}
+
+export interface DebtItem {
+  product_id: number;
+  product_name: string;
+  product_sku: string;
+  product_price: number;
+  quantity: number;
+  total_cost: number;
+  history: DebtHistoryItem[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserDebtsResponse {
+  user_id: number;
+  total_quantity: number;
+  total_cost: number;
+  items: DebtItem[];
+}
+
+export interface DebtTransaction {
+  id: number;
+  user_id: number;
+  user_name: string;
+  product_id: number;
+  product_name: string;
+  product_sku: string;
+  revision_id?: number;
+  quantity_change: number;
+  new_quantity: number;
+  product_price: number;
+  cost_change: number;
+  new_total_cost: number;
+  description: string;
+  created_at: string;
+}
+
+export interface DebtStatistics {
+  total_debt_items: number;
+  total_quantity: number;
+  total_cost: number;
+  users_with_debt: number;
+  top_debtors: Array<{
+    user_id: number;
+    user_name: string;
+    total_quantity: number;
+    total_cost: number;
+  }>;
+  top_products: Array<{
+    product_id: number;
+    product_name: string;
+    product_sku: string;
+    total_quantity: number;
+    total_cost: number;
+  }>;
 }
 
 // Типы операций для отображения

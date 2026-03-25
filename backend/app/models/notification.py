@@ -11,6 +11,7 @@ class NotificationType(str, enum.Enum):
     REVISION_REQUEST = "REVISION_REQUEST"      # Запрос на ревизию
     REVISION_COMPLETED = "REVISION_COMPLETED"  # Ревизия заполнена
     REVISION_VERIFIED = "REVISION_VERIFIED"    # Ревизия проверена
+    REVISION_CANCELLED = "REVISION_CANCELLED"
 
     # Отчеты
     REPORT_SUBMITTED = "REPORT_SUBMITTED"      # Отчет отправлен

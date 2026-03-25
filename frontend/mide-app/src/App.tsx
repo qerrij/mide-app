@@ -36,6 +36,8 @@ import CreateDefectPage from './pages/defects/CreateDefectPage';
 import DefectDetailPage from './pages/defects/DefectDetailPage';
 import NotificationsPage from './pages/NotificationsPage';
 
+import DebtsPage from './pages/user/DebtsPage';
+
 import CompanyPage from './pages/company/CompanyPage';
 
 import DefectStatsPage from './pages/defects/DefectStatsPage';
@@ -347,6 +349,18 @@ function App() {
                           <CompanyPage />
                         </RoleBasedRoute>
                       } />
+
+                      <Route path="/debts" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER
+                        ]}>
+                          <DebtsPage />
+                        </RoleBasedRoute>
+                        } />
                       
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>

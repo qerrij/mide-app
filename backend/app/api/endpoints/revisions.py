@@ -352,6 +352,34 @@ def verify_revision(
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@router.post("/{revision_id}/cancel", response_model=RevisionResponse)
+def cancel_revision(
+    revision_id: int,
+    cancel_comment: Optional[str] = Query(None, description="Причина отмены"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Отменить ревизию (только владелец ревизии или OWNER)"""
+    try:
+        revision = crud_revision.cancel_revision(
+            db,
+            revision_id=revision_id,
+            user_id=current_user.id,
+            cancel_comment=cancel_comment
+        )
+        
+        # Добавляем статистику для ответа
+        revision.total_filled = 0
+        revision.total_users = len(crud_revision._get_users_for_revision(db, revision))
+        revision.is_group_revision = revision.type in [
+            RevisionType.GROUP, RevisionType.CLUSTER, RevisionType.CITY, RevisionType.GENERAL
+        ]
+        
+        return revision
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/{revision_id}/summary", response_model=RevisionSummaryResponse)
@@ -945,3 +973,134 @@ def revert_revision_changes(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
+# Удалите все модели DebtItem, UserDebtsResponse и т.д.
+
+# Простые эндпоинты без лишних моделей
+@router.get("/debts/my")
+def get_my_debts(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить долги текущего пользователя"""
+    from app.crud.debt import crud_debt
+    
+    debts = crud_debt.get_user_debts(db, current_user.id)
+    return debts
+
+
+@router.get("/debts/user/{user_id}")
+def get_user_debts(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить долги пользователя (только для руководителей)"""
+    from app.crud.debt import crud_debt
+    
+    # Проверяем права
+    if current_user.id != user_id:
+        if current_user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]:
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    debts = crud_debt.get_user_debts(db, user_id)
+    return debts
+
+
+@router.get("/debts/all")
+def get_all_debts(
+    role: Optional[str] = None,
+    cluster_id: Optional[int] = None,
+    group_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить все долги (только для руководителей)"""
+    from app.crud.debt import crud_debt
+    
+    admin_clusters = None
+    
+    # Если пользователь не OWNER, фильтруем по его подчиненным
+    if current_user.role == UserRole.ADMIN:
+        admin_clusters = getattr(current_user, 'admin_clusters', [])
+        if not admin_clusters:
+            return []
+    elif current_user.role == UserRole.SENIOR_SELLER:
+        cluster_id = current_user.cluster_id
+    elif current_user.role == UserRole.MENTOR:
+        group_id = current_user.group_id
+    elif current_user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    debts = crud_debt.get_all_debts(
+        db, 
+        role=role, 
+        cluster_id=cluster_id, 
+        group_id=group_id
+    )
+    
+    # Если админ, дополнительно фильтруем по его кустам
+    if admin_clusters:
+        debts = [d for d in debts if d.get('cluster_id') in admin_clusters]
+    
+    return debts
+
+
+@router.get("/debts/transactions")
+def get_debt_transactions(
+    user_id: Optional[int] = None,
+    product_id: Optional[int] = None,
+    limit: int = 100,
+    skip: int = 0,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить историю транзакций долгов"""
+    from app.crud.debt import crud_debt
+    
+    # Проверка прав
+    if user_id and user_id != current_user.id:
+        if current_user.role not in [UserRole.OWNER, UserRole.ADMIN]:
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    transactions = crud_debt.get_debt_transactions(
+        db,
+        user_id=user_id,
+        product_id=product_id,
+        limit=limit,
+        skip=skip
+    )
+    
+    return transactions
+
+
+@router.get("/debts/stats")
+def get_debt_statistics(
+    cluster_id: Optional[int] = None,
+    group_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]))
+):
+    """Получить статистику по долгам"""
+    from app.crud.debt import crud_debt
+    
+    # Если пользователь не OWNER, ограничиваем доступ
+    if current_user.role == UserRole.ADMIN:
+        admin_clusters = getattr(current_user, 'admin_clusters', [])
+        if admin_clusters:
+            cluster_id = None
+        else:
+            return {
+                'total_debt_items': 0,
+                'total_quantity': 0,
+                'total_cost': 0,
+                'users_with_debt': 0,
+                'top_debtors': [],
+                'top_products': []
+            }
+    elif current_user.role == UserRole.SENIOR_SELLER:
+        cluster_id = current_user.cluster_id
+    elif current_user.role == UserRole.MENTOR:
+        group_id = current_user.group_id
+    
+    stats = crud_debt.get_debt_statistics(db, cluster_id=cluster_id, group_id=group_id)
+    return stats

@@ -849,6 +849,7 @@ class CRUDRevision:
         
         from app.crud.inventory import crud_inventory
         from app.models.inventory import InventoryReservation, ReservationStatus
+        from app.crud.debt import crud_debt
         
         # Для каждого заполнения находим расхождения и сразу применяем их
         for filling in fillings:
@@ -858,7 +859,7 @@ class CRUDRevision:
                     UserInventory.product_id == item.product_id
                 ).first()
                 
-                # 🔴 ИСПРАВЛЕНИЕ: Получаем доступное количество (общее - все активные резервы)
+                # Получаем доступное количество (общее - все активные резервы)
                 total_quantity = inventory.quantity if inventory else 0
                 
                 # Получаем все активные резервы для этого пользователя и товара
@@ -886,6 +887,7 @@ class CRUDRevision:
                         is_positive=discrepancy > 0
                     )
                     db.add(disc)
+                    db.flush()  # Получаем ID расхождения
                     
                     # Применяем расхождение к инвентарю
                     try:
@@ -895,6 +897,16 @@ class CRUDRevision:
                             product_id=item.product_id,
                             quantity_change=discrepancy
                         )
+                        
+                        # *** НОВОЕ: Обновляем долг пользователя ***
+                        crud_debt.update_debt_from_discrepancy(
+                            db,
+                            user_id=filling.user_id,
+                            product_id=item.product_id,
+                            discrepancy=discrepancy,  # передаем как есть
+                            revision_id=revision.id
+                        )
+                        
                     except Exception as e:
                         print(f"Error updating inventory: {e}")
         
@@ -905,6 +917,115 @@ class CRUDRevision:
         self._create_verification_notifications(db, revision, verifier)
         
         return revision
+    
+    def cancel_revision(
+        self, 
+        db: Session, 
+        revision_id: int, 
+        user_id: int,
+        cancel_comment: Optional[str] = None
+    ) -> Revision:
+        """Отменить ревизию (только если не проверена)"""
+        revision = self.get(db, revision_id)
+        if not revision:
+            raise ValueError("Ревизия не найдена")
+        
+        # Проверяем права - отменить может только тот, кто запросил, или OWNER
+        if revision.requested_by_id != user_id:
+            current_user = db.query(User).filter(User.id == user_id).first()
+            if not current_user or current_user.role != UserRole.OWNER:
+                raise ValueError("Только владелец ревизии или OWNER могут отменить ревизию")
+        
+        # Проверяем статус - нельзя отменить уже проверенную
+        if revision.status == RevisionStatus.VERIFIED:
+            raise ValueError("Нельзя отменить проверенную ревизию")
+        
+        # Сохраняем старый статус
+        old_status = revision.status
+        
+        # Обновляем статус
+        revision.status = RevisionStatus.REJECTED
+        revision.verification_comment = cancel_comment or "Ревизия отменена"
+        
+        # Если ревизия была в процессе заполнения, удаляем все заполнения
+        if old_status in [RevisionStatus.REQUESTED, RevisionStatus.IN_PROGRESS, RevisionStatus.COMPLETED]:
+            # Получаем все заполнения
+            fillings = db.query(RevisionFilling).filter(
+                RevisionFilling.revision_id == revision_id
+            ).all()
+            
+            for filling in fillings:
+                # Удаляем фото заполнений
+                if filling.photos:
+                    import os
+                    from pathlib import Path
+                    for photo_path in filling.photos:
+                        try:
+                            full_path = Path(f"uploads/{photo_path}")
+                            if full_path.exists():
+                                os.remove(full_path)
+                        except Exception as e:
+                            print(f"Error deleting photo {photo_path}: {e}")
+                
+                # Удаляем товары заполнения
+                db.query(RevisionFillingItem).filter(
+                    RevisionFillingItem.filling_id == filling.id
+                ).delete()
+            
+            # Удаляем все заполнения
+            db.query(RevisionFilling).filter(
+                RevisionFilling.revision_id == revision_id
+            ).delete()
+            
+            # Удаляем расхождения, если были
+            db.query(RevisionDiscrepancy).filter(
+                RevisionDiscrepancy.revision_id == revision_id
+            ).delete()
+        
+        db.commit()
+        db.refresh(revision)
+        
+        # Создаем уведомления об отмене
+        self._create_cancel_notifications(db, revision, user_id, cancel_comment)
+        
+        return revision
+
+    def _create_cancel_notifications(self, db: Session, revision: Revision, cancelled_by_id: int, comment: Optional[str] = None):
+        """Создать уведомления об отмене ревизии"""
+        cancelled_by = db.query(User).filter(User.id == cancelled_by_id).first()
+        if not cancelled_by:
+            return
+        
+        # Получаем всех, кто должен был заполнять ревизию
+        users = self._get_users_for_revision(db, revision)
+        
+        notification_data = []
+        for user in users:
+            if user.id == cancelled_by_id:
+                continue
+                
+            notification_data.append({
+                'user_id': user.id,
+                'type': NotificationType.REVISION_CANCELLED,
+                'title': 'Ревизия отменена',
+                'message': f'Ревизия #{revision.id} была отменена пользователем {cancelled_by.full_name}.{f" Причина: {comment}" if comment else ""}',
+                'data': {
+                    'revision_id': revision.id,
+                    'cancelled_by': cancelled_by.full_name,
+                    'cancelled_by_id': cancelled_by.id,
+                    'comment': comment
+                },
+                'entity_type': 'revision',
+                'entity_id': revision.id,
+                'priority': 4
+            })
+        
+        if notification_data:
+            crud_notification.create_multiple(
+                db,
+                notifications_data=notification_data,
+                sender_id=cancelled_by_id
+            )
     
     def _find_and_save_discrepancies(self, db: Session, revision: Revision):
         """Найти и сохранить расхождения для ревизии"""

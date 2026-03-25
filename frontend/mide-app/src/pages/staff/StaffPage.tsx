@@ -1892,14 +1892,26 @@ const StaffPage: React.FC = () => {
 
   // ================ УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ================
   const handleCreateUser = async () => {
-    if (!newUser.username || !newUser.fullName) {
+    // Очищаем поля от лишних пробелов
+    const trimmedUser = {
+      ...newUser,
+      username: newUser.username?.trim(),
+      fullName: newUser.fullName?.trim(),
+      telegram: newUser.telegram?.trim(),
+      city: newUser.city?.trim(),
+      password: newUser.password, // пароль не очищаем
+      role: newUser.role,
+      rate: newUser.rate,
+    };
+
+    if (!trimmedUser.username || !trimmedUser.fullName) {
       showSnackbar('Заполните обязательные поля', 'error');
       return;
     }
 
     try {
       setLoading(true);
-      await userService.createUser(newUser);
+      await userService.createUser(trimmedUser);
       await loadUsers();
       setOpenCreateDialog(false);
       resetNewUserForm();
@@ -1948,9 +1960,31 @@ const StaffPage: React.FC = () => {
   const handleUpdateUser = async () => {
     if (!openEditDialog) return;
 
+    // Очищаем поля от лишних пробелов
+    const trimmedEditUser: UpdateUserDto = {};
+    
+    if (editUser.username !== undefined) {
+      trimmedEditUser.username = editUser.username?.trim();
+    }
+    if (editUser.fullName !== undefined) {
+      trimmedEditUser.fullName = editUser.fullName?.trim();
+    }
+    if (editUser.telegram !== undefined) {
+      trimmedEditUser.telegram = editUser.telegram?.trim();
+    }
+    if (editUser.city !== undefined) {
+      trimmedEditUser.city = editUser.city?.trim();
+    }
+    if (editUser.role !== undefined) {
+      trimmedEditUser.role = editUser.role;
+    }
+    if (editUser.rate !== undefined) {
+      trimmedEditUser.rate = editUser.rate;
+    }
+
     try {
       setLoading(true);
-      await userService.updateUser(openEditDialog.id, editUser);
+      await userService.updateUser(openEditDialog.id, trimmedEditUser);
       await loadUsers();
       setOpenEditDialog(null);
       setEditUser({});
@@ -1958,8 +1992,8 @@ const StaffPage: React.FC = () => {
     } catch (error: any) {
       console.error('Ошибка при обновлении пользователя:', error);
       const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при обновлении пользователя';
+                        error.response?.data?.message || 
+                        'Ошибка при обновлении пользователя';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2024,14 +2058,22 @@ const StaffPage: React.FC = () => {
 
   // ================ УПРАВЛЕНИЕ ГРУППАМИ ================
   const handleCreateGroup = async () => {
-    if (!newGroup.name || !newGroup.mentorId) {
+    // Очищаем поля от лишних пробелов
+    const trimmedGroup = {
+      ...newGroup,
+      name: newGroup.name?.trim(),
+      description: newGroup.description?.trim(),
+      mentorId: newGroup.mentorId,
+    };
+
+    if (!trimmedGroup.name || !trimmedGroup.mentorId) {
       showSnackbar('Заполните обязательные поля', 'error');
       return;
     }
 
     try {
       setLoading(true);
-      await groupService.createGroup(newGroup);
+      await groupService.createGroup(trimmedGroup);
       await loadGroups();
       await loadUsers();
       setOpenCreateGroupDialog(false);
@@ -2040,8 +2082,8 @@ const StaffPage: React.FC = () => {
     } catch (error: any) {
       console.error('Ошибка при создании группы:', error);
       const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при создании группы';
+                        error.response?.data?.message || 
+                        'Ошибка при создании группы';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2051,9 +2093,19 @@ const StaffPage: React.FC = () => {
   const handleUpdateGroup = async () => {
     if (!openEditGroupDialog) return;
 
+    // Очищаем поля от лишних пробелов
+    const trimmedEditGroup: UpdateGroupDto = {};
+    
+    if (editGroup.name !== undefined) {
+      trimmedEditGroup.name = editGroup.name?.trim();
+    }
+    if (editGroup.description !== undefined) {
+      trimmedEditGroup.description = editGroup.description?.trim();
+    }
+
     try {
       setLoading(true);
-      await groupService.updateGroup(openEditGroupDialog.id, editGroup);
+      await groupService.updateGroup(openEditGroupDialog.id, trimmedEditGroup);
       await loadGroups();
       setOpenEditGroupDialog(null);
       setEditGroup({});
@@ -2061,8 +2113,8 @@ const StaffPage: React.FC = () => {
     } catch (error: any) {
       console.error('Ошибка при обновлении группы:', error);
       const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при обновлении группы';
+                        error.response?.data?.message || 
+                        'Ошибка при обновлении группы';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2089,14 +2141,22 @@ const StaffPage: React.FC = () => {
 
   // ================ УПРАВЛЕНИЕ КУСТАМИ ================
   const handleCreateCluster = async () => {
-    if (!newCluster.name || !newCluster.seniorSellerId) {
+    // Очищаем поля от лишних пробелов
+    const trimmedCluster = {
+      ...newCluster,
+      name: newCluster.name?.trim(),
+      description: newCluster.description?.trim(),
+      seniorSellerId: newCluster.seniorSellerId,
+    };
+
+    if (!trimmedCluster.name || !trimmedCluster.seniorSellerId) {
       showSnackbar('Заполните обязательные поля', 'error');
       return;
     }
 
     try {
       setLoading(true);
-      await clusterService.createCluster(newCluster);
+      await clusterService.createCluster(trimmedCluster);
       await loadClusters();
       await loadUsers();
       setOpenCreateClusterDialog(false);
@@ -2105,8 +2165,8 @@ const StaffPage: React.FC = () => {
     } catch (error: any) {
       console.error('Ошибка при создании куста:', error);
       const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при создании куста';
+                        error.response?.data?.message || 
+                        'Ошибка при создании куста';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2116,9 +2176,19 @@ const StaffPage: React.FC = () => {
   const handleUpdateCluster = async () => {
     if (!openEditClusterDialog) return;
 
+    // Очищаем поля от лишних пробелов
+    const trimmedEditCluster: UpdateClusterDto = {};
+    
+    if (editCluster.name !== undefined) {
+      trimmedEditCluster.name = editCluster.name?.trim();
+    }
+    if (editCluster.description !== undefined) {
+      trimmedEditCluster.description = editCluster.description?.trim();
+    }
+
     try {
       setLoading(true);
-      await clusterService.updateCluster(openEditClusterDialog.id, editCluster);
+      await clusterService.updateCluster(openEditClusterDialog.id, trimmedEditCluster);
       await loadClusters();
       setOpenEditClusterDialog(null);
       setEditCluster({});
@@ -2126,8 +2196,8 @@ const StaffPage: React.FC = () => {
     } catch (error: any) {
       console.error('Ошибка при обновлении куста:', error);
       const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при обновлении куста';
+                        error.response?.data?.message || 
+                        'Ошибка при обновлении куста';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);

@@ -12,6 +12,7 @@ class RevisionStatus(str, enum.Enum):
     COMPLETED = "COMPLETED"      # Заполнена продавцом
     VERIFIED = "VERIFIED"        # Проверена руководителем
     REJECTED = "REJECTED"        # Отклонена
+    REVISION_CANCELLED = "REVISION_CANCELLED"
 
 
 class RevisionType(str, enum.Enum):

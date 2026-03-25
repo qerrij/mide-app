@@ -40,6 +40,7 @@ const transformInventoryItemFromApi = (item: any): InventoryItem => {
     productSku: item.product_sku,
     productPrice: item.product_price,
     userName: item.user_name,
+    userCity: item.user_city, 
     createdAt: item.created_at ? new Date(item.created_at) : undefined,
     updatedAt: item.updated_at ? new Date(item.updated_at) : undefined,
   };

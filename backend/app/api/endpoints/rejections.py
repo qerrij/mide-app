@@ -704,3 +704,4 @@ def get_team_detailed_rejection_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Ошибка при получении статистики: {str(e)}"
         )
+    

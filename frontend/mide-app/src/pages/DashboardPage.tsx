@@ -18,6 +18,7 @@ import {
   Warning,
   BarChart,
   Person,
+  ReceiptLong
 } from '@mui/icons-material';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import { useAuth } from '../contexts/AuthContext';
@@ -109,6 +110,19 @@ const DashboardPage: React.FC = () => {
       roles: [UserRole.OWNER, UserRole.ACCOUNTANT],
       description: 'Управление транзакциями',
       color: '#1976d2',
+    },
+    {
+      title: 'Долг',
+      icon: <ReceiptLong sx={{ fontSize: 40, color: '#f44336' }} />,
+      path: '/debts',
+      roles: [        
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.SENIOR_SELLER,
+        UserRole.MENTOR,
+        UserRole.SELLER,],
+      description: 'Управление транзакциями',
+      color: '#f44336',
     }
 
   ];

@@ -106,6 +106,8 @@ class CRUDInventory:
                     "product_name": item.product.name if item.product else None,
                     "product_sku": item.product.sku if item.product else None,
                     "product_price": item.product.price if item.product else None,
+                    "user_name": item.user.full_name if item.user else None,
+                    "user_city": item.user.city if item.user else None,
                     "created_at": item.created_at,
                     "updated_at": item.updated_at
                 })
@@ -149,6 +151,8 @@ class CRUDInventory:
                     "product_name": item.product.name if item.product else None,
                     "product_sku": item.product.sku if item.product else None,
                     "product_price": item.product.price if item.product else None,
+                    "user_name": item.user.full_name if item.user else None,
+                    "user_city": item.user.city if item.user else None,
                     "created_at": item.created_at,
                     "updated_at": item.updated_at
                 })
@@ -179,6 +183,8 @@ class CRUDInventory:
                         "product_name": item.product.name if item.product else None,
                         "product_sku": item.product.sku if item.product else None,
                         "product_price": item.product.price if item.product else None,
+                        "user_name": item.user.full_name if item.user else None,
+                        "user_city": item.user.city if item.user else None,
                         "created_at": item.created_at,
                         "updated_at": item.updated_at
                     })
@@ -223,6 +229,8 @@ class CRUDInventory:
                         "product_name": item.product.name if item.product else None,
                         "product_sku": item.product.sku if item.product else None,
                         "product_price": item.product.price if item.product else None,
+                        "user_name": item.user.full_name if item.user else None,
+                        "user_city": item.user.city if item.user else None,
                         "created_at": item.created_at,
                         "updated_at": item.updated_at
                     })
@@ -273,6 +281,8 @@ class CRUDInventory:
                     "product_name": item.product.name if item.product else None,
                     "product_sku": item.product.sku if item.product else None,
                     "product_price": item.product.price if item.product else None,
+                    "user_name": item.user.full_name if item.user else None,
+                    "user_city": item.user.city if item.user else None,
                     "created_at": item.created_at,
                     "updated_at": item.updated_at
                 })
@@ -316,6 +326,8 @@ class CRUDInventory:
                                 "product_name": item.product.name if item.product else None,
                                 "product_sku": item.product.sku if item.product else None,
                                 "product_price": item.product.price if item.product else None,
+                                "user_name": item.user.full_name if item.user else None,
+                                "user_city": item.user.city if item.user else None,
                                 "created_at": item.created_at,
                                 "updated_at": item.updated_at
                             })
@@ -358,6 +370,8 @@ class CRUDInventory:
                         "product_name": item.product.name if item.product else None,
                         "product_sku": item.product.sku if item.product else None,
                         "product_price": item.product.price if item.product else None,
+                        "user_name": item.user.full_name if item.user else None,
+                        "user_city": item.user.city if item.user else None,
                         "created_at": item.created_at,
                         "updated_at": item.updated_at
                     })

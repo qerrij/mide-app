@@ -410,4 +410,18 @@ export const revisionService = {
       throw error;
     }
   },
+  cancelRevision: async (revisionId: number, cancelComment?: string): Promise<Revision> => {
+    try {
+      const params = cancelComment ? { cancel_comment: cancelComment } : {};
+      const response = await axiosInstance.post<any>(
+        `/api/revisions/${revisionId}/cancel`,
+        null,
+        { params }
+      );
+      return transformRevisionFromApi(response.data);
+    } catch (error) {
+      console.error('Error cancelling revision:', error);
+      throw error;
+    }
+  },
 };

@@ -69,6 +69,7 @@ const VerifyRevisionPage: React.FC = () => {
   const [discrepancies, setDiscrepancies] = useState<UserDiscrepancySummary[]>([]);
 
   const [approveDialog, setApproveDialog] = useState(false);
+  const [rejectDialog, setRejectDialog] = useState(false); // Новый диалог для отклонения
   const [successDialog, setSuccessDialog] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -153,6 +154,27 @@ const VerifyRevisionPage: React.FC = () => {
     } finally {
       setVerifying(false);
       setApproveDialog(false);
+    }
+  };
+
+  // Новый обработчик отклонения ревизии
+  const handleReject = async () => {
+    if (!revision || !id) return;
+
+    try {
+      setVerifying(true);
+      await revisionService.cancelRevision(
+        parseInt(id),
+        comment || 'Ревизия отклонена при проверке'
+      );
+      setSuccessMessage('Ревизия отклонена');
+      setSuccessDialog(true);
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при отклонении ревизии');
+    } finally {
+      setVerifying(false);
+      setRejectDialog(false);
+      setComment('');
     }
   };
 
@@ -307,6 +329,7 @@ const VerifyRevisionPage: React.FC = () => {
               border: '1px solid rgba(202, 14, 192, 0.2)',
               color: '#ca0ec0',
             }}
+            onClose={() => setError(null)}
           >
             {error}
           </Alert>
@@ -745,7 +768,7 @@ const VerifyRevisionPage: React.FC = () => {
           </Card>
         )}
 
-        {/* Кнопки действий */}
+        {/* Кнопки действий - ОБНОВЛЕНЫ: добавлена кнопка "Отклонить" */}
         <Box sx={{
           display: 'flex',
           gap: 2,
@@ -756,7 +779,7 @@ const VerifyRevisionPage: React.FC = () => {
           <Button
             variant="outlined"
             startIcon={<CancelIcon />}
-            onClick={handleCancel}
+            onClick={() => setRejectDialog(true)} // Открываем диалог отклонения
             disabled={verifying}
             sx={{
               borderRadius: 4,
@@ -765,16 +788,16 @@ const VerifyRevisionPage: React.FC = () => {
               fontSize: '0.95rem',
               fontWeight: 600,
               borderWidth: 1.5,
-              borderColor: 'rgba(103, 79, 182, 0.5)',
-              color: '#674fb6',
+              borderColor: '#f44336',
+              color: '#f44336',
               '&:hover': {
                 borderWidth: 1.5,
-                borderColor: '#674fb6',
-                backgroundColor: 'rgba(103, 79, 182, 0.04)',
+                borderColor: '#d32f2f',
+                backgroundColor: 'rgba(244, 67, 54, 0.04)',
               },
             }}
           >
-            Отмена
+            Отклонить
           </Button>
           <Button
             variant="contained"
@@ -792,12 +815,12 @@ const VerifyRevisionPage: React.FC = () => {
               boxShadow: '0 4px 12px rgba(63, 31, 75, 0.25)',
             }}
           >
-            Проверить
+            Подтвердить
           </Button>
         </Box>
       </Container>
 
-      {/* Диалог проверки */}
+      {/* Диалог подтверждения проверки */}
       <Dialog
         open={approveDialog}
         onClose={() => {
@@ -896,7 +919,107 @@ const VerifyRevisionPage: React.FC = () => {
               fontWeight: 500,
             }}
           >
-            {verifying ? 'Сохранение...' : 'Проверить ревизию'}
+            {verifying ? 'Сохранение...' : 'Подтвердить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* НОВЫЙ ДИАЛОГ: Отклонение ревизии */}
+      <Dialog
+        open={rejectDialog}
+        onClose={() => {
+          setRejectDialog(false);
+          setComment('');
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            maxWidth: 520,
+            width: '100%',
+            m: 2,
+            boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+          }
+        }}
+      >
+        <DialogTitle sx={{ p: 2.5, pb: 1 }}>
+          <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ mb: 0.5 }}>
+            Отклонение ревизии
+          </Typography>
+          <Typography variant="body2" color="#4c5454" sx={{ fontSize: '0.85rem' }}>
+            Вы уверены, что хотите отклонить эту ревизию?
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: 2.5, pt: 2 }}>
+          <Stack spacing={2.5}>
+            <Box sx={{
+              p: 2,
+              backgroundColor: 'rgba(244, 67, 54, 0.04)',
+              borderRadius: 4,
+              border: '1px solid rgba(244, 67, 54, 0.2)',
+            }}>
+              <Typography variant="body2" color="#f44336" fontWeight={500}>
+                Внимание!
+              </Typography>
+              <Typography variant="caption" color="#4c5454">
+                После отклонения все заполнения будут удалены. Пользователям потребуется заполнить ревизию заново.
+              </Typography>
+            </Box>
+
+            <Box>
+              <Typography variant="caption" color="#4c5454" sx={{ mb: 0.5, display: 'block', fontWeight: 600, fontSize: '0.75rem' }}>
+                ПРИЧИНА ОТКЛОНЕНИЯ (НЕОБЯЗАТЕЛЬНО)
+              </Typography>
+              <TextField
+                fullWidth
+                placeholder="Укажите причину отклонения..."
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                multiline
+                rows={3}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 4,
+                    backgroundColor: '#f8f7fa',
+                  },
+                }}
+              />
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, pt: 1, gap: 1 }}>
+          <Button
+            onClick={() => {
+              setRejectDialog(false);
+              setComment('');
+            }}
+            sx={{
+              borderRadius: 4,
+              color: '#4c5454',
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+            }}
+          >
+            Назад
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleReject}
+            disabled={verifying}
+            sx={{
+              borderRadius: 4,
+              backgroundColor: '#f44336',
+              '&:hover': { backgroundColor: '#d32f2f' },
+              px: 3,
+              py: 1,
+              textTransform: 'none',
+              fontSize: '0.95rem',
+              fontWeight: 500,
+            }}
+          >
+            {verifying ? 'Отклонение...' : 'Отклонить ревизию'}
           </Button>
         </DialogActions>
       </Dialog>

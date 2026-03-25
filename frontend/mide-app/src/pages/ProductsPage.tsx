@@ -66,12 +66,13 @@ import {
   Error as RejectionIcon,
   Assignment as RevisionIcon,
   CalendarToday as CalendarIcon,
+  LocationOn as LocationIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { productService } from '../api/productService';
-import { userService } from '../api/userService';
 import { inventoryService } from '../api/inventoryService';
-import { Product, ProductCategory, UserRole, InventoryItem, User, ProductReservationsResponse } from '../types';
+import { Product, ProductCategory, UserRole, InventoryItem, ProductReservationsResponse } from '../types';
 
 // iOS стили с уменьшенными закруглениями
 const iOSStyles = {
@@ -489,13 +490,15 @@ const TabBadges: React.FC<TabBadgeProps> = ({ value, onChange, tabs }) => {
 
 // Компонент фильтров
 interface FilterSectionProps {
-  users: User[];
+  users: { id: number; name: string; city?: string }[];
   categories: ProductCategory[];
   products: Product[];
+  cities: string[];
   filters: {
     userId: number | 'all';
     categoryId: number | 'all';
     productId: number | 'all';
+    city: string | 'all';
   };
   onFilterChange: (filters: any) => void;
   onClearFilters: () => void;
@@ -505,6 +508,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({
   users,
   categories,
   products,
+  cities,
   filters,
   onFilterChange,
   onClearFilters,
@@ -517,8 +521,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({
   const [isProductSearching, setIsProductSearching] = useState(false);
 
   const filteredUsers = users.filter(user => 
-    user.fullName.toLowerCase().includes(userSearch.toLowerCase()) ||
-    user.username?.toLowerCase().includes(userSearch.toLowerCase())
+    user.name.toLowerCase().includes(userSearch.toLowerCase())
   );
 
   const filteredProducts = useMemo(() => {
@@ -564,6 +567,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({
     filters.userId !== 'all',
     filters.categoryId !== 'all',
     filters.productId !== 'all',
+    filters.city !== 'all',
   ].filter(Boolean).length;
 
   return (
@@ -604,7 +608,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({
 
       <Collapse in={showFilters}>
         <Grid container spacing={2}>
-          <Grid size={{ xs: 12, sm: 4 }}>
+          <Grid size={{ xs: 12, sm: 3 }}>
             <FormControl fullWidth size="small" sx={iOSStyles.input}>
               <InputLabel id="user-filter-label">Пользователь</InputLabel>
               <Select
@@ -635,11 +639,13 @@ const FilterSection: React.FC<FilterSectionProps> = ({
                   <MenuItem key={user.id} value={user.id}>
                     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
                       <Typography variant="body2" fontWeight={500}>
-                        {user.fullName}
+                        {user.name}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {user.username}
-                      </Typography>
+                      {user.city && (
+                        <Typography variant="caption" color="text.secondary">
+                          {user.city}
+                        </Typography>
+                      )}
                     </Box>
                   </MenuItem>
                 ))}
@@ -654,7 +660,24 @@ const FilterSection: React.FC<FilterSectionProps> = ({
             </FormControl>
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 4 }}>
+          <Grid size={{ xs: 12, sm: 3 }}>
+            <FormControl fullWidth size="small" sx={iOSStyles.input}>
+              <InputLabel id="city-filter-label">Город</InputLabel>
+              <Select
+                labelId="city-filter-label"
+                value={filters.city}
+                label="Город"
+                onChange={(e) => onFilterChange({ city: e.target.value })}
+              >
+                <MenuItem value="all">Все города</MenuItem>
+                {cities.map(city => (
+                  <MenuItem key={city} value={city}>{city}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 3 }}>
             <FormControl fullWidth size="small" sx={iOSStyles.input}>
               <InputLabel id="category-filter-label">Категория</InputLabel>
               <Select
@@ -662,9 +685,6 @@ const FilterSection: React.FC<FilterSectionProps> = ({
                 value={filters.categoryId}
                 label="Категория"
                 onChange={(e) => handleCategoryChange(e.target.value as number | 'all')}
-                MenuProps={{
-                  PaperProps: { sx: { borderRadius: 2 } },
-                }}
               >
                 <MenuItem value="all">Все категории</MenuItem>
                 {categories.map(category => (
@@ -676,7 +696,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({
             </FormControl>
           </Grid>
 
-          <Grid size={{ xs: 12, sm: 4 }}>
+          <Grid size={{ xs: 12, sm: 3 }}>
             <FormControl fullWidth size="small" sx={iOSStyles.input}>
               <InputLabel id="product-filter-label">Товар</InputLabel>
               <Select
@@ -722,13 +742,6 @@ const FilterSection: React.FC<FilterSectionProps> = ({
                     <Typography variant="body2" color="text.secondary">
                       {filters.categoryId !== 'all' ? 'Нет товаров в этой категории' : 'Товары не найдены'}
                     </Typography>
-                  </MenuItem>
-                )}
-                {isProductSearching && (
-                  <MenuItem disabled>
-                    <Box sx={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
-                      <CircularProgress size={20} />
-                    </Box>
                   </MenuItem>
                 )}
               </Select>
@@ -1184,9 +1197,7 @@ interface InventoryTableProps {
   items: InventoryItem[];
   products: Product[];
   categories: ProductCategory[];
-  users: User[];
   loading: boolean;
-  getUserFullName: (userId: number) => string;
   getCategoryName: (categoryId: number) => string;
   onReservedClick: (item: InventoryItem) => void;
   onEditClick: (item: InventoryItem) => void;
@@ -1196,9 +1207,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
   items,
   products,
   categories,
-  users,
   loading,
-  getUserFullName,
   getCategoryName,
   onReservedClick,
   onEditClick,
@@ -1346,9 +1355,26 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                     <Typography variant="caption" color="text.secondary" display="block">
                       Ответственный
                     </Typography>
-                    <Typography variant="body2" fontWeight={500}>
-                      {getUserFullName(item.userId)}
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <PersonIcon sx={{ fontSize: 14, color: theme.palette.text.secondary }} />
+                        <Typography variant="body2" fontWeight={500}>
+                          {item.userName || `Пользователь #${item.userId}`}
+                        </Typography>
+                      </Box>
+                      {item.userCity && (
+                        <Chip
+                          icon={<LocationIcon sx={{ fontSize: 12 }} />}
+                          label={item.userCity}
+                          size="small"
+                          sx={{
+                            height: 20,
+                            fontSize: '0.65rem',
+                            backgroundColor: alpha(theme.palette.info.main, 0.1),
+                          }}
+                        />
+                      )}
+                    </Box>
                   </Grid>
                 </Grid>
               </Card>
@@ -1378,6 +1404,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
             <TableCell sx={iOSStyles.tableHeader}>Категория</TableCell>
             <TableCell sx={iOSStyles.tableHeader}>Количество</TableCell>
             <TableCell sx={iOSStyles.tableHeader}>Ответственный</TableCell>
+            <TableCell sx={iOSStyles.tableHeader}>Город</TableCell>
             <TableCell sx={iOSStyles.tableHeader}>Цена</TableCell>
           </TableRow>
         </TableHead>
@@ -1463,9 +1490,30 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                   )}
                 </TableCell>
                 <TableCell>
-                  <Typography variant="body2">
-                    {getUserFullName(item.userId)}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <PersonIcon sx={{ fontSize: 14, color: theme.palette.text.secondary }} />
+                    <Typography variant="body2">
+                      {item.userName || `Пользователь #${item.userId}`}
+                    </Typography>
+                  </Box>
+                </TableCell>
+                <TableCell>
+                  {item.userCity ? (
+                    <Chip
+                      icon={<LocationIcon sx={{ fontSize: 14 }} />}
+                      label={item.userCity}
+                      size="small"
+                      sx={{
+                        height: 24,
+                        backgroundColor: alpha(theme.palette.info.main, 0.1),
+                        color: theme.palette.info.main,
+                      }}
+                    />
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      Не указан
+                    </Typography>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2" fontWeight="bold" color="success.main">
@@ -1487,7 +1535,6 @@ interface EditInventoryModalProps {
   onClose: () => void;
   onSave: (quantity: number) => Promise<void>;
   item: InventoryItem | null;
-  user: User | null;
   product: Product | null;
   loading?: boolean;
 }
@@ -1497,7 +1544,6 @@ const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
   onClose,
   onSave,
   item,
-  user,
   product,
   loading = false,
 }) => {
@@ -1539,7 +1585,7 @@ const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
     }
   };
 
-  if (!item || !user || !product) return null;
+  if (!item || !product) return null;
 
   return (
     <Dialog
@@ -1567,7 +1613,8 @@ const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Chip
-                label={user.fullName || user.username}
+                icon={<PersonIcon sx={{ fontSize: 14 }} />}
+                label={item.userName || `Пользователь #${item.userId}`}
                 size="small"
                 sx={{
                   backgroundColor: alpha(theme.palette.info.main, 0.1),
@@ -1575,6 +1622,17 @@ const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
                   fontWeight: 500,
                 }}
               />
+              {item.userCity && (
+                <Chip
+                  icon={<LocationIcon sx={{ fontSize: 14 }} />}
+                  label={item.userCity}
+                  size="small"
+                  sx={{
+                    backgroundColor: alpha(theme.palette.info.main, 0.1),
+                    color: theme.palette.info.main,
+                  }}
+                />
+              )}
               <Chip
                 label={product.name}
                 size="small"
@@ -1756,7 +1814,6 @@ const ProductsPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
   const [totalQuantity, setTotalQuantity] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1770,7 +1827,6 @@ const ProductsPage: React.FC = () => {
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedEditItem, setSelectedEditItem] = useState<InventoryItem | null>(null);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   
@@ -1779,6 +1835,7 @@ const ProductsPage: React.FC = () => {
     userId: 'all' as number | 'all',
     categoryId: 'all' as number | 'all',
     productId: 'all' as number | 'all',
+    city: 'all' as string | 'all',
   });
   
   const [sortConfig, setSortConfig] = useState({
@@ -1813,7 +1870,6 @@ const ProductsPage: React.FC = () => {
   });
   
   const [secondLevelTab, setSecondLevelTab] = useState<'products' | 'categories'>('products');
-// Для фильтрации товаров по категориям
   const [productCategoryFilter, setProductCategoryFilter] = useState<number | 'all'>('all');  
   
   // Состояния для модалки товара (единая)
@@ -1829,6 +1885,32 @@ const ProductsPage: React.FC = () => {
   const [editingCategoryId, setEditingCategoryId] = useState<number | null>(null);
   const [replenishCategoryFilter, setReplenishCategoryFilter] = useState<number | 'all'>('all');
 
+  // Получаем список уникальных пользователей из остатков
+  const usersList = useMemo(() => {
+    const userMap = new Map<number, { id: number; name: string; city?: string }>();
+    inventory.forEach(item => {
+      if (item.userId && !userMap.has(item.userId) && item.userName) {
+        userMap.set(item.userId, {
+          id: item.userId,
+          name: item.userName,
+          city: item.userCity,
+        });
+      }
+    });
+    return Array.from(userMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [inventory]);
+
+  // Получаем список уникальных городов из остатков
+  const cities = useMemo(() => {
+    const citySet = new Set<string>();
+    inventory.forEach(item => {
+      if (item.userCity) {
+        citySet.add(item.userCity);
+      }
+    });
+    return Array.from(citySet).sort();
+  }, [inventory]);
+
   useEffect(() => {
     if (user?.role === UserRole.OWNER) {
       loadData();
@@ -1839,29 +1921,22 @@ const ProductsPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [productsData, categoriesData, inventoryData, usersData] = await Promise.all([
+      const [productsData, categoriesData, inventoryData] = await Promise.all([
         productService.getAllProducts(),
         productService.getAllCategories(),
         productService.getCompanyInventory(),
-        userService.getAllUsers(0, 1000),
       ]);
       
       setProducts(productsData);
       setCategories(categoriesData);
       setInventory(inventoryData.items || []);
       setTotalQuantity(inventoryData.quantity || 0);
-      setUsers(usersData);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Ошибка загрузки данных');
       console.error('Error loading data:', err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const getUserFullName = (userId: number): string => {
-    const user = users.find(u => u.id === userId);
-    return user?.fullName || `Пользователь #${userId}`;
   };
 
   const getCategoryName = (categoryId: number): string => {
@@ -2012,7 +2087,7 @@ const ProductsPage: React.FC = () => {
   };
 
   const handleClearFilters = () => {
-    setFilters({ userId: 'all', categoryId: 'all', productId: 'all' });
+    setFilters({ userId: 'all', categoryId: 'all', productId: 'all', city: 'all' });
   };
 
   const handleSortChange = (sortBy: 'price' | 'quantity') => {
@@ -2055,16 +2130,14 @@ const ProductsPage: React.FC = () => {
 
   // Обработчик редактирования
   const handleEditClick = (item: InventoryItem) => {
-    const user = users.find(u => u.id === item.userId);
     const product = products.find(p => p.id === item.productId);
     
-    if (!user || !product) {
-      setError('Не удалось загрузить данные пользователя или товара');
+    if (!product) {
+      setError('Не удалось загрузить данные товара');
       return;
     }
     
     setSelectedEditItem(item);
-    setEditingUser(user);
     setEditingProduct(product);
     setEditModalOpen(true);
   };
@@ -2104,36 +2177,29 @@ const ProductsPage: React.FC = () => {
     setProductToEdit(product);
     setProductModalOpen(true);
   };
+
   const handleCategoryFilterChange = (value: string | number) => {
-  if (value === 'all') {
-    setProductCategoryFilter('all');
-  } else {
-    setProductCategoryFilter(Number(value));
-  }
-};
+    if (value === 'all') {
+      setProductCategoryFilter('all');
+    } else {
+      setProductCategoryFilter(Number(value));
+    }
+  };
 
-  // Фильтрация и сортировка инвентаря
-  const getFilteredAndSortedInventory = () => {
-    const aggregated = inventory.reduce((acc, item) => {
-      const existing = acc.find(i => i.productId === item.productId && i.userId === item.userId);
-      if (existing) {
-        existing.quantity += item.quantity;
-        existing.reservedQuantity += item.reservedQuantity;
-      } else {
-        acc.push({ ...item });
-      }
-      return acc;
-    }, [] as InventoryItem[]);
+  // Фильтрация и сортировка инвентаря с пересчетом общего количества и стоимости
+  const filteredInventory = useMemo(() => {
+    let filtered = [...inventory];
 
-    let filtered = aggregated.filter(item => {
+    filtered = filtered.filter(item => {
       const product = products.find(p => p.id === item.productId);
       if (!product) return false;
       
       const matchesUser = filters.userId === 'all' || item.userId === filters.userId;
       const matchesCategory = filters.categoryId === 'all' || product.categoryId === filters.categoryId;
       const matchesProduct = filters.productId === 'all' || item.productId === filters.productId;
+      const matchesCity = filters.city === 'all' || item.userCity === filters.city;
       
-      return matchesUser && matchesCategory && matchesProduct;
+      return matchesUser && matchesCategory && matchesProduct && matchesCity;
     });
 
     filtered.sort((a, b) => {
@@ -2156,19 +2222,22 @@ const ProductsPage: React.FC = () => {
     });
 
     return filtered;
-  };
+  }, [inventory, products, filters, sortConfig]);
 
-  const totalValue = useMemo(() => {
-    return inventory.reduce((sum, item) => {
+  // Пересчет общего количества и стоимости на основе отфильтрованных данных
+  const filteredStats = useMemo(() => {
+    const totalQuantity = filteredInventory.reduce((sum, item) => sum + item.quantity, 0);
+    const totalValue = filteredInventory.reduce((sum, item) => {
       const product = products.find(p => p.id === item.productId);
       if (product && item.quantity > 0) {
         return sum + (product.price * item.quantity);
       }
       return sum;
     }, 0);
-  }, [inventory, products]);
+    
+    return { totalQuantity, totalValue };
+  }, [filteredInventory, products]);
 
-  const filteredInventory = getFilteredAndSortedInventory();
   const filteredProductsForReplenish = replenishCategoryFilter === 'all'
     ? products
     : products.filter(product => product.categoryId === replenishCategoryFilter);
@@ -2248,7 +2317,7 @@ const ProductsPage: React.FC = () => {
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
                     <Typography variant="h3" color="primary" fontWeight={700} sx={{ fontSize: { xs: '2rem', sm: '3rem' } }}>
-                      {totalQuantity.toLocaleString()}
+                      {filteredStats.totalQuantity.toLocaleString()}
                     </Typography>
                     <Typography variant="h6" color="text.secondary" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
                       шт.
@@ -2264,7 +2333,7 @@ const ProductsPage: React.FC = () => {
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
                     <Typography variant="h3" color="success.main" fontWeight={700} sx={{ fontSize: { xs: '2rem', sm: '3rem' } }}>
-                      {totalValue.toLocaleString('ru-RU')}
+                      {filteredStats.totalValue.toLocaleString('ru-RU')}
                     </Typography>
                     <Typography variant="h6" color="text.secondary" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>
                       ₽
@@ -2302,9 +2371,10 @@ const ProductsPage: React.FC = () => {
             </Box>
 
             <FilterSection
-              users={users}
+              users={usersList}
               categories={categories}
               products={products}
+              cities={cities}
               filters={filters}
               onFilterChange={handleFilterChange}
               onClearFilters={handleClearFilters}
@@ -2320,9 +2390,7 @@ const ProductsPage: React.FC = () => {
               items={filteredInventory}
               products={products}
               categories={categories}
-              users={users}
               loading={loading}
-              getUserFullName={getUserFullName}
               getCategoryName={getCategoryName}
               onReservedClick={handleReservedClick}
               onEditClick={handleEditClick}
@@ -3339,12 +3407,10 @@ const ProductsPage: React.FC = () => {
         onClose={() => {
           setEditModalOpen(false);
           setSelectedEditItem(null);
-          setEditingUser(null);
           setEditingProduct(null);
         }}
         onSave={handleSaveEdit}
         item={selectedEditItem}
-        user={editingUser}
         product={editingProduct}
         loading={savingEdit}
       />

@@ -21,7 +21,7 @@ import {
   Warehouse,
   People,
   Close as CloseIcon,
-  
+  ReceiptLong
 } from '@mui/icons-material';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -142,6 +142,13 @@ const AppBar: React.FC<AppBarProps> = ({ onDrawerToggle, drawerOpen }) => {
       icon: <AccountBalanceIcon />,
       path: '/company',
       roles: ['OWNER', 'ACCOUNTANT']
+    },
+
+    {
+      title: 'Долг',
+      icon: <ReceiptLong />,
+      path: '/debts',
+      roles: ['OWNER', 'ADMIN', 'SENIOR_SELLER', 'MENTOR', 'SELLER'],
     },
 
   ];
