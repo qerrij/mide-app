@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
@@ -39,6 +39,8 @@ def create_product(
             'sku': product.sku,
             'description': product.description,
             'is_active': product.is_active,
+            'default_rate': product.default_rate,  # Добавлено
+            'city': product.city,  # Добавлено
             'created_at': product.created_at,
             'updated_at': product.updated_at,
             'category_name': product.category.name if product.category else None
@@ -78,6 +80,8 @@ def update_product(
             'sku': product.sku,
             'description': product.description,
             'is_active': product.is_active,
+            'default_rate': product.default_rate, 
+            'city': product.city, 
             'created_at': product.created_at,
             'updated_at': product.updated_at,
             'category_name': product.category.name if product.category else None
@@ -110,27 +114,29 @@ def get_products(
     skip: int = 0,
     limit: int = 100,
     category_id: int = Query(None, description="ID категории для фильтрации"),
+    city: Optional[str] = Query(None, description="Город для фильтрации товаров"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """
-    Получить список товаров с фильтрацией по категории
+    Получить список товаров с фильтрацией по категории и городу
     """
-    products = db.query(Product).options(
-        joinedload(Product.category)
-    ).filter(
-        Product.is_active == True
+    # Определяем город для фильтрации
+    filter_city = city
+    if not filter_city and current_user.city:
+        filter_city = current_user.city
+    
+    products = crud_product.get_all(
+        db, 
+        skip=skip, 
+        limit=limit, 
+        category_id=category_id,
+        city=filter_city
     )
     
-    if category_id:
-        products = products.filter(Product.category_id == category_id)
-    
-    products = products.offset(skip).limit(limit).all()
-    
-    # Преобразуем в dict с category_name
     result = []
     for product in products:
-        product_dict = {
+        result.append({
             'id': product.id,
             'name': product.name,
             'category_id': product.category_id,
@@ -138,11 +144,12 @@ def get_products(
             'sku': product.sku,
             'description': product.description,
             'is_active': product.is_active,
+            'default_rate': product.default_rate,
+            'city': product.city,
             'created_at': product.created_at,
             'updated_at': product.updated_at,
             'category_name': product.category.name if product.category else None
-        }
-        result.append(product_dict)
+        })
     
     return result
 
@@ -153,9 +160,6 @@ def get_product(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """
-    Получить товар по ID
-    """
     product = db.query(Product).options(
         joinedload(Product.category)
     ).filter(
@@ -166,7 +170,6 @@ def get_product(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    # Возвращаем с category_name
     return {
         'id': product.id,
         'name': product.name,
@@ -175,6 +178,8 @@ def get_product(
         'sku': product.sku,
         'description': product.description,
         'is_active': product.is_active,
+        'default_rate': product.default_rate,  # Добавить
+        'city': product.city,  # Добавить
         'created_at': product.created_at,
         'updated_at': product.updated_at,
         'category_name': product.category.name if product.category else None

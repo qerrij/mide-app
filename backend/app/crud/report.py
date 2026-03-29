@@ -29,7 +29,7 @@ class CRUDReport:
         db: Session, 
         filters: ReportFilter,
         current_user: User
-    ) -> List[Report]:
+    ) -> tuple[List[Report], int]:  # Изменяем возвращаемый тип на tuple
         """Получить отчеты с фильтрацией и сортировкой по роли"""
         query = db.query(Report)\
             .options(
@@ -72,10 +72,19 @@ class CRUDReport:
                 except:
                     pass
         
+        # Получаем общее количество ДО применения сортировки и пагинации
+        total_count = query.count()
+        
         # Применяем сортировку по приоритету для роли
         query = self._apply_priority_sorting(query, current_user.role, filters.sort_by)
         
-        return query.offset(filters.skip).limit(filters.limit).all()
+        # Применяем пагинацию
+        if filters.skip is not None:
+            query = query.offset(filters.skip)
+        if filters.limit is not None:
+            query = query.limit(filters.limit)
+        
+        return query.all(), total_count
     
 
     def _apply_role_filters(self, db: Session, query, current_user: User):

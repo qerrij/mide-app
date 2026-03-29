@@ -1,6 +1,16 @@
 import axiosInstance from './axios';
 import { Product, ProductCategory, InventoryItem, InventoryResponse } from '../types';
 
+export interface CreateProductData {
+  name: string;
+  sku: string;
+  categoryId: number;
+  price: number;
+  description?: string;
+  city?: string;
+  defaultRate?: number;
+}
+
 // Функция для трансформации snake_case в camelCase для товара
 const transformProductFromApi = (product: any): Product => {
   return {
@@ -11,6 +21,8 @@ const transformProductFromApi = (product: any): Product => {
     price: product.price,
     sku: product.sku,
     description: product.description,
+    city: product.city, // Добавляем city
+    defaultRate: product.default_rate, // Добавляем defaultRate
     createdAt: product.created_at ? new Date(product.created_at) : undefined,
     updatedAt: product.updated_at ? new Date(product.updated_at) : undefined,
   };
@@ -36,11 +48,12 @@ const transformInventoryItemFromApi = (item: any): InventoryItem => {
     productId: item.product_id,
     quantity: item.quantity,
     reservedQuantity: item.reserved_quantity,
+    availableQuantity: item.available_quantity,
     productName: item.product_name,
     productSku: item.product_sku,
     productPrice: item.product_price,
     userName: item.user_name,
-    userCity: item.user_city, 
+    userCity: item.user_city,
     createdAt: item.created_at ? new Date(item.created_at) : undefined,
     updatedAt: item.updated_at ? new Date(item.updated_at) : undefined,
   };
@@ -67,8 +80,10 @@ const transformToSnakeCase = (obj: any): any => {
 
 export const productService = {
   // Получить все товары
-  getAllProducts: async (categoryId?: number): Promise<Product[]> => {
-    const params = categoryId ? { category_id: categoryId } : {};
+  getAllProducts: async (categoryId?: number, city?: string): Promise<Product[]> => {
+    const params: any = {};
+    if (categoryId) params.category_id = categoryId;
+    if (city) params.city = city;
     const response = await axiosInstance.get<any[]>('/api/products', { params });
     return response.data.map(transformProductFromApi);
   },
@@ -80,13 +95,7 @@ export const productService = {
   },
 
   // Создать товар
-  createProduct: async (product: {
-    name: string;
-    sku: string;
-    categoryId: number;
-    price: number;
-    description?: string;
-  }): Promise<Product> => {
+  createProduct: async (product: CreateProductData): Promise<Product> => {
     const snakeCaseData = transformToSnakeCase(product);
     const response = await axiosInstance.post<any>('/api/products', snakeCaseData);
     return transformProductFromApi(response.data);
@@ -144,12 +153,41 @@ export const productService = {
   },
 
   // Получить общий инвентарь (для OWNER)
-  getCompanyInventory: async (): Promise<InventoryResponse> => {
-    const response = await axiosInstance.get<any>('/api/inventory/company-total');
+  getCompanyInventory: async (params?: {
+    page?: number;
+    limit?: number;
+    user_id?: number;
+    category_id?: number;
+    product_id?: number;
+    city?: string;
+  }): Promise<{
+    quantity: number;
+    total_value: number;
+    items: InventoryItem[];
+    total_count: number;
+    has_more: boolean;
+    page: number;
+    limit: number;
+  }> => {
+    const response = await axiosInstance.get<any>('/api/inventory/company-total', { 
+      params: {
+        page: params?.page ?? 0,
+        limit: params?.limit ?? 100,
+        user_id: params?.user_id,
+        category_id: params?.category_id,
+        product_id: params?.product_id,
+        city: params?.city,
+      }
+    });
     
     return {
       quantity: response.data.quantity || 0,
-      items: (response.data.items || []).map(transformInventoryItemFromApi)
+      total_value: response.data.total_value || 0,
+      items: (response.data.items || []).map(transformInventoryItemFromApi),
+      total_count: response.data.total_count || 0,
+      has_more: response.data.has_more ?? false,
+      page: response.data.page ?? 0,
+      limit: response.data.limit ?? 100,
     };
   },
 
@@ -173,10 +211,12 @@ export const productService = {
       categoryId: number;
       price: number;
       description?: string;
+      city?: string;
+      defaultRate?: number;
     };
   }): Promise<any> => {
     const snakeCaseData = transformToSnakeCase(data);
     const response = await axiosInstance.post('/api/inventory/replenish', snakeCaseData);
     return response.data;
-  }
+  },
 };

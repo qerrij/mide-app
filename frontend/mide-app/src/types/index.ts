@@ -97,22 +97,39 @@ export interface UpdateUserDto {
 export interface Product {
   id: number;
   name: string;
-  categoryId: number;  // Меняем с enum на ID категории
-  categoryName?: string;  // Добавляем имя категории для отображения
+  categoryId: number;
+  categoryName?: string;
   price: number;
   sku: string;
   description?: string;
+  defaultRate?: number;  
+  city?: string;         
   createdAt?: Date;
   updatedAt?: Date;
 }
 
+
+export interface ProductCreateDto {
+  name: string;
+  sku: string;
+  categoryId: number;
+  price: number;
+  description?: string;
+  defaultRate?: number;  
+  city?: string;        
+}
+
 export interface ProductUpdateDto {
   name?: string;
+  sku?: string;
   categoryId?: number;
   price?: number;
-  sku?: string;
   description?: string;
+  defaultRate?: number; 
+  city?: string;        
+  isActive?: boolean;
 }
+
 
 // ================ ОТЧЕТЫ ================
 export interface ReportProduct {
@@ -1363,3 +1380,172 @@ export const OperationTypeIcons = {
   EXPENSE: '💸',
   CORRECTION: '📝',
 };
+
+
+// ================ СТАТИСТИКА ПРОДАННЫХ ТОВАРОВ ================
+
+export interface SoldProductPeriodInfo {
+  period: string;
+  start_date: string;
+  end_date: string;
+}
+
+export interface SoldProductTrendType {
+  UP: 'up';
+  DOWN: 'down';
+  STABLE: 'stable';
+}
+
+// Статистика продавца
+export interface SellerSoldProductStats {
+  seller_id: number;
+  seller_name: string;
+  seller_role?: string;
+  seller_city?: string;
+  sales_count: number;
+  total_quantity: number;
+  total_revenue: number;
+  average_revenue: number;
+}
+
+// Статистика товара
+export interface SoldProductStats {
+  product_id: number;
+  product_name: string;
+  product_sku: string;
+  category?: string;
+  sales_count: number;
+  total_quantity: number;
+  total_revenue: number;
+  average_price: number;
+}
+
+// Статистика категории
+export interface CategorySoldProductStats {
+  category: string;
+  sales_count: number;
+  total_quantity: number;
+  total_revenue: number;
+  average_price: number;
+}
+
+// Статистика города
+export interface CitySoldProductStats {
+  city: string;
+  sales_count: number;
+  total_quantity: number;
+  total_revenue: number;
+  active_sellers: number;
+}
+
+// Ежедневная динамика
+export interface SoldProductDailyStats {
+  date: string;
+  sales_count: number;
+  total_quantity: number;
+  total_revenue: number;
+}
+
+// Обзорная статистика
+export interface SoldProductsOverviewResponse {
+  period: string;
+  start_date: string;
+  end_date: string;
+  total_revenue: number;
+  total_sales_count: number;
+  total_quantity: number;
+  average_revenue: number;
+  active_sellers: number;
+  revenue_change?: number;
+  revenue_change_percent?: number;
+  revenue_trend?: 'up' | 'down' | 'stable';
+  sales_change?: number;
+  sales_change_percent?: number;
+  sales_trend?: 'up' | 'down' | 'stable';
+}
+
+// Топ продавцов
+export interface TopSellersSoldProductsResponse {
+  period: string;
+  start_date: string;
+  end_date: string;
+  sellers: SellerSoldProductStats[];
+  total_sellers: number;
+  total_revenue: number;
+}
+
+// Топ товаров
+export interface TopSoldProductsResponse {
+  period: string;
+  start_date: string;
+  end_date: string;
+  products: SoldProductStats[];
+}
+
+// Статистика по категориям
+export interface CategoriesSoldProductsResponse {
+  period: string;
+  start_date: string;
+  end_date: string;
+  categories: CategorySoldProductStats[];
+}
+
+// Статистика по городам
+export interface CitiesSoldProductsResponse {
+  period: string;
+  start_date: string;
+  end_date: string;
+  cities: CitySoldProductStats[];
+}
+
+// Динамика продаж
+export interface SoldProductsTrendResponse {
+  period: string;
+  start_date: string;
+  end_date: string;
+  daily_stats: SoldProductDailyStats[];
+}
+
+// Сравнение периодов
+export interface SoldProductComparisonMetric {
+  current: number;
+  previous: number;
+  change: number;
+  change_percent: number;
+  trend: 'up' | 'down' | 'stable';
+}
+
+export interface SoldProductsComparisonResponse {
+  current_period: string;
+  previous_period: string;
+  revenue: SoldProductComparisonMetric;
+  sales_count: SoldProductComparisonMetric;
+  quantity: SoldProductComparisonMetric;
+}
+
+// Детальная статистика продавца
+export interface SellerSoldProductDetailStats {
+  seller_id: number;
+  seller_name: string;
+  seller_role: string;
+  seller_city?: string;
+  period: string;
+  start_date: string;
+  end_date: string;
+  total_sales: number;
+  total_quantity: number;
+  total_revenue: number;
+  average_revenue: number;
+  top_products: SoldProductStats[];
+  daily_trend: SoldProductDailyStats[];
+}
+
+// Дашборд
+export interface SoldProductsDashboardResponse {
+  period: string;
+  overview: SoldProductsOverviewResponse;
+  top_sellers: SellerSoldProductStats[];
+  top_products: SoldProductStats[];
+  categories: CategorySoldProductStats[];
+  trend: SoldProductDailyStats[];
+}

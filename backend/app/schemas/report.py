@@ -203,3 +203,10 @@ class ReportFilter(BaseModel):
     @classmethod
     def limit_max(cls, v):
         return min(v, 500)
+    
+class ReportsPaginatedResponse(BaseModel):
+    items: List[ReportResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int

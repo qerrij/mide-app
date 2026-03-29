@@ -53,6 +53,8 @@ interface SelectedProduct {
   availableQuantity: number;
   productName: string;
   productPrice: number;
+  productDefaultRate?: number;
+  effectiveRate?: number;
 }
 
 const CreateReportPage: React.FC = () => {
@@ -126,6 +128,8 @@ const CreateReportPage: React.FC = () => {
     }
   };
 
+
+
   // Получить доступное количество товара
   const getAvailableQuantity = (productId: number): number => {
     const item = userInventory.find(i => i.productId === productId);
@@ -145,6 +149,15 @@ const CreateReportPage: React.FC = () => {
     const availableProducts = getAvailableProductsForUser();
     const categoryIds = new Set(availableProducts.map(p => p.categoryId));
     return categories.filter(cat => categoryIds.has(cat.id));
+  };
+
+  const getEffectiveRate = (product: Product): number => {
+    // Сначала проверяем ставку товара
+    if (product.defaultRate && product.defaultRate > 0) {
+      return product.defaultRate;
+    }
+    // Если нет, используем ставку продавца
+    return sellerRate;
   };
 
   // Добавить товар
@@ -184,6 +197,9 @@ const CreateReportPage: React.FC = () => {
         )
       );
     } else {
+      // Рассчитываем эффективную ставку для этого товара
+      const effectiveRate = getEffectiveRate(product);
+      
       setSelectedProducts(prev => [...prev, {
         productId: product.id,
         quantity: newQuantity,
@@ -191,6 +207,8 @@ const CreateReportPage: React.FC = () => {
         availableQuantity,
         productName: product.name,
         productPrice: product.price,
+        productDefaultRate: product.defaultRate, // Сохраняем ставку товара
+        effectiveRate, // Сохраняем эффективную ставку
       }]);
     }
 
@@ -356,7 +374,9 @@ const CreateReportPage: React.FC = () => {
 
   // Общая сумма за товары (с учетом ставки продавца)
   const totalProductAmount = selectedProducts.reduce((sum, p) => {
-    const amountPerUnit = p.soldAmount - sellerRate;
+    const product = products.find(prod => prod.id === p.productId);
+    const effectiveRate = product ? getEffectiveRate(product) : sellerRate;
+    const amountPerUnit = p.soldAmount - effectiveRate;
     return sum + (p.quantity * Math.max(0, amountPerUnit));
   }, 0);
 
@@ -575,7 +595,7 @@ const CreateReportPage: React.FC = () => {
 
                           <Stack spacing={2}>
                             {selectedProducts.map((item) => {
-                              const amountAfterCommission = item.soldAmount - sellerRate;
+                              const amountAfterCommission = item.soldAmount - (item.effectiveRate || getEffectiveRate(products.find(p => p.id === item.productId)!));
                               const totalAfterCommission = amountAfterCommission * item.quantity;
                               
                               return (

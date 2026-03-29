@@ -11,9 +11,10 @@ from app.crud.company import crud_company
 from app.crud.report import crud_report
 from app.crud.product import crud_product
 from app.crud.notification import crud_notification
+from app.models.product import Product
 from app.schemas.report import (
     ReportCreate, ReportUpdate, ReportResponse, 
-    ReportFilter, ReportProductCreate, ReportStatus
+    ReportFilter, ReportProductCreate, ReportStatus, ReportsPaginatedResponse
 )
 from app.schemas.notification import NotificationType
 from app.api.dependencies import get_current_user, require_roles
@@ -21,6 +22,7 @@ from app.models.user import User, UserRole
 from app.models.report import Report, ReportProduct, ReportStatus as ReportStatusModel
 from app.models.cluster import Cluster
 from app.core.file_utils import save_uploaded_files, validate_files, delete_file
+
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -94,6 +96,16 @@ def _check_manager_access(db: Session, report: Report, user: User) -> bool:
         return seller.mentor_id == user.id
     
     return False
+
+def _calculate_product_rate(db: Session, product: Product, seller: User) -> float:
+    """
+    Рассчитать ставку для товара:
+    - Если у товара есть default_rate, используем его
+    - Иначе используем ставку продавца
+    """
+    if product.default_rate is not None and product.default_rate > 0:
+        return product.default_rate
+    return seller.rate or 0.0
 
 
 # ==================== УВЕДОМЛЕНИЯ ====================
@@ -312,10 +324,11 @@ def enrich_reports_response(reports):
 
 # ==================== ОСНОВНЫЕ ЭНДПОИНТЫ ====================
 
-@router.get("", response_model=List[ReportResponse])
+@router.get("", response_model=ReportsPaginatedResponse)  # Используем правильную модель
 def get_reports(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(50, ge=1, le=100, description="Количество записей на странице"),
+    page: int = Query(1, ge=1, description="Номер страницы"),
     seller_id: Optional[int] = None,
     status: Optional[ReportStatus] = None,
     date_from: Optional[str] = None,
@@ -326,16 +339,15 @@ def get_reports(
 ):
     """
     Получить отчеты с фильтрацией и сортировкой по приоритету
-    
-    Для продавца: сначала отчеты, требующие исправления (AWAITING_FIX), потом остальные по дате
-    Для бухгалтера: сначала отчеты, требующие проверки (AWAITING_ACCOUNTANT), потом остальные
-    Для руководителя: сначала отчеты, требующие утверждения (AWAITING_MANAGER), потом остальные
     """
     date_from_dt = _parse_date(date_from)
     date_to_dt = _parse_date(date_to)
     
+    # Вычисляем offset
+    offset = (page - 1) * limit
+    
     filters = ReportFilter(
-        skip=skip,
+        skip=offset,
         limit=limit,
         seller_id=seller_id,
         status=status,
@@ -344,8 +356,18 @@ def get_reports(
         sort_by=sort_by
     )
     
-    reports = crud_report.get_all_with_filters(db, filters=filters, current_user=current_user)
-    return enrich_reports_response(reports)
+    reports, total_count = crud_report.get_all_with_filters(db, filters=filters, current_user=current_user)
+    
+    # Обогащаем отчеты данными
+    enriched_reports = enrich_reports_response(reports)
+    
+    return {
+        "items": enriched_reports,
+        "total": total_count,
+        "page": page,
+        "page_size": limit,
+        "total_pages": (total_count + limit - 1) // limit
+    }
 
 
 @router.get("/{report_id}", response_model=ReportResponse)
@@ -389,8 +411,6 @@ async def create_report(
         total_amount = 0
         
         # Получаем ставку продавца
-        seller_rate = current_user.rate or 0.0
-        
         for product_item in products_json:
             product_id = product_item.get('productId') or product_item.get('product_id')
             quantity = product_item.get('quantity', 1)
@@ -403,8 +423,9 @@ async def create_report(
             if not sold_amount or sold_amount == 0:
                 sold_amount = db_product.price
             
-            # Вычитаем ставку продавца из каждой единицы товара
-            amount_after_rate = max(0, sold_amount - seller_rate)
+            # Рассчитываем ставку для товара
+            rate = _calculate_product_rate(db, db_product, current_user)
+            amount_after_rate = max(0, sold_amount - rate)
             
             report_products.append({
                 'product_id': product_id,
@@ -720,40 +741,56 @@ def final_approve_report(
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
     if action == "approve":
-        report.status = ReportStatus.APPROVED
-        report.reviewed_by = current_user.id
-        report.review_date = datetime.now()
-        report.comment = comment
-        
-        db.commit()
-        
-        # Перезагружаем отчет со всеми связанными объектами
-        report = crud_report.get(db, report_id=report_id)
-        
-        # Освобождаем зарезервированные товары
-        crud_inventory.finalize_report_reservations(db, report.seller_id, report.id)
-        
-        # Получаем город бухгалтера, который утвердил отчет
-        accountant_city = None
-        if report.accountant_reviewed_by:
-            accountant = db.query(User).filter(User.id == report.accountant_reviewed_by).first()
-            if accountant:
-                accountant_city = accountant.city
-        
-        # Добавляем деньги в общий банк
-        description = f"Отчет №{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
-        crud_company.add_income(
-            db,
-            amount=report.accountant_final_amount,
-            description=description,
-            reference_id=report_id,
-            reference_type="REPORT",
-            created_by=report.accountant_reviewed_by,  # ID бухгалтера, а не руководителя
-            city=accountant_city  # Город бухгалтера
-        )
-        
-        # Уведомляем продавца об утверждении
-        _notify_seller_about_approval(db, report, current_user)
+        try:
+            # Освобождаем зарезервированные товары
+            crud_inventory.finalize_report_reservations(db, report.seller_id, report.id)
+            
+            # СОЗДАЕМ ЗАПИСИ О ПРОДАННЫХ ТОВАРАХ (до изменения статуса)
+            sold_count = crud_inventory.finalize_report_sales(
+                db, 
+                report_id=report.id, 
+                approved_by=current_user.id
+            )
+            
+            # Получаем город бухгалтера, который утвердил отчет
+            accountant_city = None
+            if report.accountant_reviewed_by:
+                accountant = db.query(User).filter(User.id == report.accountant_reviewed_by).first()
+                if accountant:
+                    accountant_city = accountant.city
+            
+            # Добавляем деньги в общий банк
+            description = f"Отчет №{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
+            crud_company.add_income(
+                db,
+                amount=report.accountant_final_amount,
+                description=description,
+                reference_id=report_id,
+                reference_type="REPORT",
+                created_by=report.accountant_reviewed_by,
+                city=accountant_city
+            )
+            
+            # ТОЛЬКО ПОСЛЕ ВСЕХ УСПЕШНЫХ ОПЕРАЦИЙ меняем статус
+            report.status = ReportStatus.APPROVED
+            report.reviewed_by = current_user.id
+            report.review_date = datetime.now()
+            report.comment = comment
+            
+            db.commit()
+            
+            # Уведомляем продавца об утверждении
+            _notify_seller_about_approval(db, report, current_user)
+            
+        except Exception as e:
+            db.rollback()
+            print(f"Error in final approval: {e}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Ошибка при утверждении отчета: {str(e)}"
+            )
         
     elif action == "reject":
         report.status = ReportStatus.REJECTED

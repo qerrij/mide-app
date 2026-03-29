@@ -38,6 +38,8 @@ import NotificationsPage from './pages/NotificationsPage';
 
 import DebtsPage from './pages/user/DebtsPage';
 
+import SoldProductsStatsPage from './pages/SoldProductsStatsPage';
+
 import CompanyPage from './pages/company/CompanyPage';
 
 import DefectStatsPage from './pages/defects/DefectStatsPage';
@@ -335,7 +337,13 @@ function App() {
                       } />
 
                       <Route path="/products" element={
-                        <RoleBasedRoute allowedRoles={[UserRole.OWNER]}>
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER
+                        ]}>
                           <ProductsPage />
                         </RoleBasedRoute>
                       } />
@@ -359,6 +367,18 @@ function App() {
                           UserRole.SELLER
                         ]}>
                           <DebtsPage />
+                        </RoleBasedRoute>
+                        } />
+
+                      <Route path="/sold-products-stats" element={
+                        <RoleBasedRoute allowedRoles={[
+                          UserRole.OWNER,
+                          UserRole.ADMIN,
+                          UserRole.SENIOR_SELLER,
+                          UserRole.MENTOR,
+                          UserRole.SELLER
+                        ]}>
+                          <SoldProductsStatsPage />
                         </RoleBasedRoute>
                         } />
                       

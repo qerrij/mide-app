@@ -18,7 +18,8 @@ import {
   Warning,
   BarChart,
   Person,
-  ReceiptLong
+  ReceiptLong,
+  MonetizationOn
 } from '@mui/icons-material';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import { useAuth } from '../contexts/AuthContext';
@@ -99,7 +100,12 @@ const DashboardPage: React.FC = () => {
       title: 'Товары',
       icon: <Inventory sx={{ fontSize: 40, color: '#1976d2' }} />,
       path: '/products',
-      roles: [UserRole.OWNER],
+      roles: [        
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.SENIOR_SELLER,
+        UserRole.MENTOR,
+        UserRole.SELLER,],
       description: 'Управление товарами и остатками',
       color: '#1976d2',
     },
@@ -112,6 +118,19 @@ const DashboardPage: React.FC = () => {
       color: '#1976d2',
     },
     {
+      title: 'Продажи',
+      icon: <MonetizationOn sx={{ fontSize: 40, color: '#19d254' }} />,
+      path: '/sold-products-stats',
+      roles: [        
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.SENIOR_SELLER,
+        UserRole.MENTOR,
+        UserRole.SELLER,],
+      description: 'Продажи товаров',
+      color: '#19d254',
+    },
+    {
       title: 'Долг',
       icon: <ReceiptLong sx={{ fontSize: 40, color: '#f44336' }} />,
       path: '/debts',
@@ -121,7 +140,7 @@ const DashboardPage: React.FC = () => {
         UserRole.SENIOR_SELLER,
         UserRole.MENTOR,
         UserRole.SELLER,],
-      description: 'Управление транзакциями',
+      description: 'Управление долгами',
       color: '#f44336',
     }
 

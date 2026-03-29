@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Container,
   Grid,
@@ -27,6 +27,7 @@ import {
   Fab,
   useTheme,
   useMediaQuery,
+  Skeleton,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -60,14 +61,43 @@ import {
   getReportActionText,
 } from '../../types';
 
+// Скелетон карточки отчета
+const ReportCardSkeleton: React.FC = () => (
+  <Card sx={{ borderRadius: 8, p: 2 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+      <Skeleton variant="text" width={100} height={24} />
+      <Skeleton variant="rounded" width={80} height={24} />
+    </Box>
+    <Divider sx={{ my: 1.5 }} />
+    <Stack spacing={1.5}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Skeleton variant="circular" width={36} height={36} />
+        <Box sx={{ flex: 1 }}>
+          <Skeleton variant="text" width={60} height={16} />
+          <Skeleton variant="text" width={120} height={20} />
+        </Box>
+      </Box>
+      <Skeleton variant="text" width={150} height={20} />
+      <Skeleton variant="text" width={100} height={20} />
+      <Skeleton variant="text" width={180} height={20} />
+    </Stack>
+    <Skeleton variant="rounded" height={36} sx={{ mt: 2 }} />
+  </Card>
+);
+
 const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
+  // Состояния для данных с пагинацией
   const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [reportsTotal, setReportsTotal] = useState(0);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsPage, setReportsPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userInventory, setUserInventory] = useState<InventoryItem[]>([]);
   
@@ -75,69 +105,116 @@ const ReportsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ReportStatus | 'all'>('all');
   
-  // Загрузка отчетов
-  const loadReports = async () => {
+  // Refs для Intersection Observer
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  
+  // Загрузка отчетов с пагинацией
+  const loadReports = useCallback(async (page: number, reset: boolean = false) => {
+    if (reportsLoading) return;
+    
+    setReportsLoading(true);
+    
     try {
-      setLoading(true);
-      setError(null);
+      const params: any = {
+        page: page,
+        page_size: 50,
+      };
       
-      const reportsData = await reportService.getReports();
-      setReports(reportsData);
-      
-      // Загружаем инвентарь только для продавца
-      if (user?.role === UserRole.SELLER) {
-        const inventory = await productService.getMyInventory();
-        setUserInventory(inventory.items || []);
+      if (statusFilter !== 'all') {
+        params.status = statusFilter;
       }
+      
+      const response = await reportService.getReports(params);
+      
+      if (reset || page === 1) {
+        setReports(response.items);
+      } else {
+        setReports(prev => [...prev, ...response.items]);
+      }
+      
+      setReportsTotal(response.total);
+      setHasMore(page < response.total_pages);
+      setReportsPage(page);
+      setError(null);
     } catch (err: any) {
       setError(err.message || 'Ошибка при загрузке отчетов');
       console.error('Error loading reports:', err);
     } finally {
-      setLoading(false);
+      setReportsLoading(false);
+      setInitialLoading(false);
     }
-  };
-
-  useEffect(() => {
-    loadReports();
+  }, [statusFilter, reportsLoading]);
+  
+  // Загрузка инвентаря для продавца
+  const loadInventory = useCallback(async () => {
+    if (user?.role === UserRole.SELLER) {
+      try {
+        const inventory = await productService.getMyInventory();
+        setUserInventory(inventory.items || []);
+      } catch (err) {
+        console.error('Error loading inventory:', err);
+      }
+    }
   }, [user]);
-
-  // Определяет приоритет отчета (требует действия или нет)
-  const getReportPriority = (report: Report): number => {
-    if (user?.role === UserRole.ACCOUNTANT && report.status === ReportStatus.AWAITING_ACCOUNTANT) return 1;
-    if (user?.role === UserRole.SELLER && report.status === ReportStatus.AWAITING_FIX) return 1;
-    if ([UserRole.MENTOR, UserRole.SENIOR_SELLER, UserRole.ADMIN, UserRole.OWNER].includes(user?.role as UserRole) 
-        && report.status === ReportStatus.AWAITING_MANAGER) return 1;
-    return 2;
-  };
-
-  // Сортировка отчетов
-  const sortReports = (reports: Report[]): Report[] => {
-    return [...reports].sort((a, b) => {
-      const priorityA = getReportPriority(a);
-      const priorityB = getReportPriority(b);
-      if (priorityA !== priorityB) return priorityA - priorityB;
-      return new Date(b.date).getTime() - new Date(a.date).getTime();
-    });
-  };
-
-  // Фильтрация отчетов
-  const filteredReports = sortReports(reports.filter(report => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = 
-      report.id.toString().includes(searchTerm) ||
-      report.sellerName?.toLowerCase().includes(searchLower) ||
-      report.comment?.toLowerCase().includes(searchLower);
+  
+  // Загрузка при изменении фильтров
+  useEffect(() => {
+    setReportsPage(1);
+    setReports([]);
+    loadReports(1, true);
+  }, [statusFilter]);
+  
+  // Загрузка инвентаря при монтировании
+  useEffect(() => {
+    loadInventory();
+  }, [loadInventory]);
+  
+  // Настройка Intersection Observer для бесконечной прокрутки
+  useEffect(() => {
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
     
-    const matchesStatus = statusFilter === 'all' || report.status === statusFilter;
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !reportsLoading && !initialLoading) {
+          loadReports(reportsPage + 1);
+        }
+      },
+      { threshold: 0.1 }
+    );
     
-    return matchesSearch && matchesStatus;
-  }));
-
+    if (sentinelRef.current) {
+      observerRef.current.observe(sentinelRef.current);
+    }
+    
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [hasMore, reportsLoading, loadReports, reportsPage, initialLoading]);
+  
+  // Ручное обновление
+  const handleRefresh = useCallback(() => {
+    setReportsPage(1);
+    setReports([]);
+    loadReports(1, true);
+    loadInventory();
+  }, [loadReports, loadInventory]);
+  
+  // Сброс фильтров
+  const handleResetFilters = useCallback(() => {
+    setSearchTerm('');
+    setStatusFilter('all');
+  }, []);
+  
   // Обработчик создания нового отчета
   const handleCreateReport = () => {
     navigate('/reports/create');
   };
-
+  
   // Обработчик действия над отчетом
   const handleReportAction = (report: Report) => {
     if (user?.role === UserRole.ACCOUNTANT && report.status === ReportStatus.AWAITING_ACCOUNTANT) {
@@ -151,7 +228,16 @@ const ReportsPage: React.FC = () => {
       navigate(`/reports/${report.id}`);
     }
   };
-
+  
+  // Определяет приоритет отчета (требует действия или нет)
+  const getReportPriority = useCallback((report: Report): number => {
+    if (user?.role === UserRole.ACCOUNTANT && report.status === ReportStatus.AWAITING_ACCOUNTANT) return 1;
+    if (user?.role === UserRole.SELLER && report.status === ReportStatus.AWAITING_FIX) return 1;
+    if ([UserRole.MENTOR, UserRole.SENIOR_SELLER, UserRole.ADMIN, UserRole.OWNER].includes(user?.role as UserRole) 
+        && report.status === ReportStatus.AWAITING_MANAGER) return 1;
+    return 2;
+  }, [user]);
+  
   // Форматирование даты
   const formatDate = (date: Date): string => {
     return new Date(date).toLocaleDateString('ru-RU', {
@@ -160,7 +246,7 @@ const ReportsPage: React.FC = () => {
       year: 'numeric',
     });
   };
-
+  
   // Форматирование времени
   const formatTime = (date: Date): string => {
     return new Date(date).toLocaleTimeString('ru-RU', {
@@ -168,7 +254,7 @@ const ReportsPage: React.FC = () => {
       minute: '2-digit',
     });
   };
-
+  
   // Получить иконку статуса
   const getStatusIcon = (status: ReportStatus) => {
     switch (status) {
@@ -185,25 +271,44 @@ const ReportsPage: React.FC = () => {
         return <ScheduleIcon sx={{ fontSize: 18 }} />;
     }
   };
-
-  // Получить доступное количество товара
-  const getAvailableQuantity = (productId: number): number => {
-    const item = userInventory.find(i => i.productId === productId);
-    return item ? item.quantity - (item.reservedQuantity || 0) : 0;
-  };
-
-  if (loading) {
+  
+  // Фильтрация отчетов на клиенте (поиск)
+  const filteredReports = useMemo(() => {
+    if (!searchTerm) return reports;
+    
+    const searchLower = searchTerm.toLowerCase();
+    return reports.filter(report => 
+      report.id.toString().includes(searchTerm) ||
+      report.sellerName?.toLowerCase().includes(searchLower) ||
+      report.comment?.toLowerCase().includes(searchLower)
+    );
+  }, [reports, searchTerm]);
+  
+  // Сортировка отчетов по приоритету (только для отображения)
+  const sortedReports = useMemo(() => {
+    return [...filteredReports].sort((a, b) => {
+      const priorityA = getReportPriority(a);
+      const priorityB = getReportPriority(b);
+      if (priorityA !== priorityB) return priorityA - priorityB;
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+  }, [filteredReports, getReportPriority]);
+  
+  // Начальная загрузка
+  if (initialLoading) {
     return (
       <Box sx={{ minHeight: '100vh', background: '#f5f3f6', py: 4 }}>
         <Container maxWidth="lg">
-          <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-            <CircularProgress sx={{ color: '#674fb6' }} />
-          </Box>
+          <Stack spacing={1.5}>
+            {[1, 2, 3].map(i => (
+              <ReportCardSkeleton key={i} />
+            ))}
+          </Stack>
         </Container>
       </Box>
     );
   }
-
+  
   return (
     <Box sx={{ minHeight: '100vh', py: 3, backgroundColor: '#f5f3f6' }}>
       <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 3, md: 4 } }}>
@@ -244,7 +349,8 @@ const ReportsPage: React.FC = () => {
                 <Button
                   variant="outlined"
                   startIcon={<RefreshIcon />}
-                  onClick={loadReports}
+                  onClick={handleRefresh}
+                  disabled={reportsLoading}
                   fullWidth
                   sx={{
                     borderRadius: 8,
@@ -259,13 +365,13 @@ const ReportsPage: React.FC = () => {
                     fontSize: '0.95rem',
                   }}
                 >
-                  Обновить
+                  {reportsLoading ? <CircularProgress size={20} /> : 'Обновить'}
                 </Button>
               </Stack>
             </Grid>
           </Grid>
         </Box>
-
+        
         {error && (
           <Alert 
             severity="error" 
@@ -281,7 +387,7 @@ const ReportsPage: React.FC = () => {
             {error}
           </Alert>
         )}
-
+        
         {/* Фильтры */}
         <Paper 
           sx={{ 
@@ -296,7 +402,7 @@ const ReportsPage: React.FC = () => {
           <Stack spacing={2}>
             <TextField
               fullWidth
-              placeholder="Поиск отчетов..."
+              placeholder="Поиск отчетов по ID, продавцу или комментарию..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -338,14 +444,11 @@ const ReportsPage: React.FC = () => {
                 </FormControl>
               </Grid>
             </Grid>
-
+            
             <Button
               variant="text"
               startIcon={<FilterIcon />}
-              onClick={() => {
-                setSearchTerm('');
-                setStatusFilter('all');
-              }}
+              onClick={handleResetFilters}
               sx={{
                 borderRadius: 8,
                 color: '#674fb6',
@@ -357,14 +460,14 @@ const ReportsPage: React.FC = () => {
             </Button>
           </Stack>
         </Paper>
-
+        
         {/* Счетчик отчетов */}
         <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="subtitle1" color="#2a0f35" fontWeight={500}>
             Все отчеты
           </Typography>
           <Chip
-            label={`${filteredReports.length}`}
+            label={`${filteredReports.length} из ${reportsTotal}`}
             size="small"
             sx={{
               backgroundColor: '#f5f3f6',
@@ -375,9 +478,9 @@ const ReportsPage: React.FC = () => {
             }}
           />
         </Box>
-
+        
         {/* Список отчетов */}
-        {filteredReports.length === 0 ? (
+        {sortedReports.length === 0 && !reportsLoading ? (
           <Paper
             sx={{
               p: 4,
@@ -392,12 +495,14 @@ const ReportsPage: React.FC = () => {
               Отчеты не найдены
             </Typography>
             <Typography variant="body2" color="#4c5454" sx={{ mt: 0.5 }}>
-              Попробуйте изменить параметры поиска
+              {searchTerm || statusFilter !== 'all' 
+                ? 'Попробуйте изменить параметры поиска' 
+                : 'У вас пока нет отчетов'}
             </Typography>
           </Paper>
         ) : (
           <Stack spacing={1.5}>
-            {filteredReports.map((report) => {
+            {sortedReports.map((report) => {
               const priority = getReportPriority(report);
               const requiresAction = priority === 1;
               const actionText = getReportActionText(report.status, user?.role);
@@ -457,9 +562,9 @@ const ReportsPage: React.FC = () => {
                         )}
                       </Box>
                     </Box>
-
+                    
                     <Divider sx={{ my: 1.5, opacity: 0.1 }} />
-
+                    
                     {/* Информация */}
                     <Stack spacing={1.5}>
                       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
@@ -483,7 +588,7 @@ const ReportsPage: React.FC = () => {
                           </Typography>
                         </Box>
                       </Box>
-
+                      
                       <Box>
                         <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                           Товаров в отчете
@@ -495,7 +600,7 @@ const ReportsPage: React.FC = () => {
                           </Typography>
                         </Box>
                       </Box>
-
+                      
                       <Box>
                         <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                           Сумма
@@ -514,7 +619,7 @@ const ReportsPage: React.FC = () => {
                           )}
                         </Box>
                       </Box>
-
+                      
                       <Box>
                         <Typography variant="caption" color="#4c5454" display="block" gutterBottom>
                           Дата создания
@@ -526,7 +631,7 @@ const ReportsPage: React.FC = () => {
                           </Typography>
                         </Box>
                       </Box>
-
+                      
                       {report.accountantComment && report.status === ReportStatus.AWAITING_FIX && (
                         <Alert 
                           severity="error" 
@@ -548,7 +653,7 @@ const ReportsPage: React.FC = () => {
                       )}
                     </Stack>
                   </CardContent>
-
+                  
                   <CardActions sx={{ p: 2, pt: 0 }}>
                     <Button
                       fullWidth
@@ -581,6 +686,21 @@ const ReportsPage: React.FC = () => {
                 </Card>
               );
             })}
+            
+            {/* Индикатор загрузки и Sentinel для бесконечной прокрутки */}
+            <div ref={sentinelRef} style={{ height: '20px', margin: '20px 0' }}>
+              {reportsLoading && (
+                <Stack spacing={1.5}>
+                  <ReportCardSkeleton />
+                  <ReportCardSkeleton />
+                </Stack>
+              )}
+              {!hasMore && reportsTotal > 0 && (
+                <Typography variant="body2" color="#4c5454" align="center" sx={{ mt: 2 }}>
+                  Загружены все отчеты ({reportsTotal})
+                </Typography>
+              )}
+            </div>
           </Stack>
         )}
       </Container>

@@ -50,17 +50,36 @@ const transformReportFromApi = (report: any): Report => {
 
 export const reportService = {
   // Получить отчеты с фильтрацией
-  getReports: async (filters: ReportFilter = {}): Promise<Report[]> => {
-    const params: any = { ...filters };
+  getReports: async (params?: {
+    page?: number;
+    page_size?: number;
+    status?: ReportStatus;
+    seller_id?: number;
+    date_from?: string;
+    date_to?: string;
+    sort_by?: string;
+  }): Promise<{
+    items: Report[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+  }> => {
+    const response = await axiosInstance.get<{
+      items: any[];
+      total: number;
+      page: number;
+      page_size: number;
+      total_pages: number;
+    }>('/api/reports', { params });
     
-    Object.keys(params).forEach(key => {
-      if (params[key] === undefined || params[key] === null) {
-        delete params[key];
-      }
-    });
-    
-    const response = await axiosInstance.get<any[]>('/api/reports', { params });
-    return response.data.map(transformReportFromApi);
+    return {
+      items: response.data.items.map(transformReportFromApi),
+      total: response.data.total,
+      page: response.data.page,
+      page_size: response.data.page_size,
+      total_pages: response.data.total_pages,
+    };
   },
 
   // Получить отчет по ID
@@ -167,7 +186,6 @@ export const reportService = {
     if (comment) {
       formData.append('comment', comment);
     }
-    
     const response = await axiosMultipartInstance.post<any>(
       `/api/reports/${reportId}/final-approval`,
       formData

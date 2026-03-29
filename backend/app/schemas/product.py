@@ -14,10 +14,12 @@ class ProductCategory(str, enum.Enum):
 
 class ProductBase(BaseModel):
     name: str
-    category_id: int  # Меняем с ProductCategory на int (ID категории)
+    category_id: int
     price: float
     sku: str
     description: Optional[str] = None
+    default_rate: Optional[float] = 0.0  # Добавляем ставку
+    city: Optional[str] = None  # Добавляем город
 
 
 class ProductCreate(ProductBase):
@@ -26,10 +28,13 @@ class ProductCreate(ProductBase):
 
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
-    category_id: Optional[int] = None  # Меняем на category_id
+    category_id: Optional[int] = None
     price: Optional[float] = None
     sku: Optional[str] = None
     description: Optional[str] = None
+    default_rate: Optional[float] = None  # Добавляем ставку
+    city: Optional[str] = None  # Добавляем город
+    is_active: Optional[bool] = None
 
 
 class ProductResponse(ProductBase):
@@ -43,18 +48,13 @@ class ProductResponse(ProductBase):
     @classmethod
     def get_category_name(cls, v, info):
         """Получить название категории из relationship"""
-        # Если category_name уже задан, возвращаем его
         if v is not None:
             return v
         
-        # Если в данных есть объект category с полем name
         if hasattr(info, 'data') and info.data:
-            # Проверяем, есть ли объект category в данных
             if 'category' in info.data and info.data['category']:
-                # Если это dict
                 if isinstance(info.data['category'], dict):
                     return info.data['category'].get('name')
-                # Если это объект SQLAlchemy
                 elif hasattr(info.data['category'], 'name'):
                     return info.data['category'].name
         
@@ -77,7 +77,7 @@ class ProductResponse(ProductBase):
         from_attributes = True
 
 
-# Схема для категорий
+# Схема для категорий (без изменений)
 class ProductCategoryBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -96,7 +96,7 @@ class ProductCategoryUpdate(BaseModel):
 class ProductCategoryResponse(ProductCategoryBase):
     id: int
     is_active: bool
-    products_count: Optional[int] = 0  # Количество товаров в категории
+    products_count: Optional[int] = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     

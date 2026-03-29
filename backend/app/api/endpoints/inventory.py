@@ -1,5 +1,5 @@
-from typing import List, Dict
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Dict, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -40,16 +40,32 @@ def get_user_inventory(
     return crud_inventory.get_total_inventory_for_user(db, user_id)
 
 
-@router.get("/company-total", response_model=InventoryResponse)
+@router.get("/company-total", response_model=dict)
 def get_company_total_inventory(
+    page: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    user_id: Optional[int] = Query(None),
+    category_id: Optional[int] = Query(None),
+    product_id: Optional[int] = Query(None),
+    city: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Получить общий инвентарь компании (только OWNER)"""
-    if current_user.role not in [UserRole.OWNER]:
+    if current_user.role != UserRole.OWNER:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
-    return crud_inventory.get_total_inventory_for_user(db, current_user.id)
+    result = crud_inventory.get_total_inventory_for_user(
+        db, 
+        current_user.id,
+        page=page,
+        limit=limit,
+        user_filter=user_id,
+        category_filter=category_id,
+        product_filter=product_id,
+        city_filter=city
+    )
+    
+    return result
 
 
 @router.post("/replenish", response_model=ReplenishResponse, status_code=status.HTTP_201_CREATED)
@@ -60,27 +76,6 @@ def replenish_inventory(
 ):
     """
     Пополнить инвентарь (только OWNER)
-    
-    Для существующего товара:
-    {
-        "product_id": 1,
-        "quantity": 10,
-        "is_new_product": false
-    }
-    
-    Для нового товара:
-    {
-        "product_id": 0,
-        "quantity": 10,
-        "is_new_product": true,
-        "new_product_data": {
-            "name": "Название товара",
-            "sku": "ART-12345",
-            "category_id": 1,
-            "price": 999.99,
-            "description": "Описание"
-        }
-    }
     """
     try:
         product_id = replenish_data.product_id
@@ -163,6 +158,9 @@ def replenish_inventory(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Внутренняя ошибка: {str(e)}")
+    
+
+
     
 @router.get("/reservations/all", response_model=List[Dict])
 def get_all_reservations(

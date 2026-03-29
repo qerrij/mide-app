@@ -70,319 +70,403 @@ class CRUDInventory:
             db.refresh(inventory)
             return inventory
     
-    def get_total_inventory_for_user(self, db: Session, user_id: int) -> Dict:
+    def get_total_inventory_for_user(
+        self, 
+        db: Session, 
+        user_id: int,
+        page: int = 0, 
+        limit: int = 100,
+        user_filter: Optional[int] = None,
+        category_filter: Optional[int] = None,
+        product_filter: Optional[int] = None,
+        city_filter: Optional[str] = None
+    ) -> Dict:
         """Получить общее количество товаров у пользователя с учетом подчиненных"""
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
-            return {"quantity": 0, "items": []}
+            return {"quantity": 0, "items": [], "total_count": 0, "has_more": False}
         
         # Базовая логика в зависимости от роли
         if user.role == UserRole.SELLER:
-            # Только свои товары
-            inventory = db.query(UserInventory).options(
-                joinedload(UserInventory.product)
-            ).filter(
-                UserInventory.user_id == user_id
-            ).all()
-            
-            total = sum(item.quantity for item in inventory)
-            
-            items = []
-            for item in inventory:
-                # Получаем активные резервы для этого товара
-                reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
-                    InventoryReservation.user_id == user_id,
-                    InventoryReservation.product_id == item.product_id,
-                    InventoryReservation.status == ReservationStatus.ACTIVE
-                ).scalar() or 0
-                
-                items.append({
-                    "id": item.id,
-                    "user_id": item.user_id,
-                    "product_id": item.product_id,
-                    "quantity": item.quantity,
-                    "reserved_quantity": reserved,
-                    "available_quantity": item.quantity - reserved,
-                    "product_name": item.product.name if item.product else None,
-                    "product_sku": item.product.sku if item.product else None,
-                    "product_price": item.product.price if item.product else None,
-                    "user_name": item.user.full_name if item.user else None,
-                    "user_city": item.user.city if item.user else None,
-                    "created_at": item.created_at,
-                    "updated_at": item.updated_at
-                })
-            
-            return {
-                "quantity": total,
-                "items": items
-            }
+            return self._get_seller_inventory(db, user_id)
         
         elif user.role == UserRole.MENTOR:
-            # Свои товары + товары подопечных продавцов
-            sellers = db.query(User).filter(
-                User.mentor_id == user_id,
-                User.is_active == True
-            ).all()
-            
-            all_items = []
-            total_quantity = 0
-            
-            # Добавляем свои товары
-            own_inventory = db.query(UserInventory).options(
-                joinedload(UserInventory.product)
-            ).filter(
-                UserInventory.user_id == user_id
-            ).all()
-            
-            for item in own_inventory:
-                reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
-                    InventoryReservation.user_id == user_id,
-                    InventoryReservation.product_id == item.product_id,
-                    InventoryReservation.status == ReservationStatus.ACTIVE
-                ).scalar() or 0
-                
-                all_items.append({
-                    "id": item.id,
-                    "user_id": item.user_id,
-                    "product_id": item.product_id,
-                    "quantity": item.quantity,
-                    "reserved_quantity": reserved,
-                    "available_quantity": item.quantity - reserved,
-                    "product_name": item.product.name if item.product else None,
-                    "product_sku": item.product.sku if item.product else None,
-                    "product_price": item.product.price if item.product else None,
-                    "user_name": item.user.full_name if item.user else None,
-                    "user_city": item.user.city if item.user else None,
-                    "created_at": item.created_at,
-                    "updated_at": item.updated_at
-                })
-                total_quantity += item.quantity
-            
-            # Добавляем товары продавцов
-            for seller in sellers:
-                seller_inventory = db.query(UserInventory).options(
-                    joinedload(UserInventory.product)
-                ).filter(
-                    UserInventory.user_id == seller.id
-                ).all()
-                
-                for item in seller_inventory:
-                    reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
-                        InventoryReservation.user_id == seller.id,
-                        InventoryReservation.product_id == item.product_id,
-                        InventoryReservation.status == ReservationStatus.ACTIVE
-                    ).scalar() or 0
-                    
-                    all_items.append({
-                        "id": item.id,
-                        "user_id": item.user_id,
-                        "product_id": item.product_id,
-                        "quantity": item.quantity,
-                        "reserved_quantity": reserved,
-                        "available_quantity": item.quantity - reserved,
-                        "product_name": item.product.name if item.product else None,
-                        "product_sku": item.product.sku if item.product else None,
-                        "product_price": item.product.price if item.product else None,
-                        "user_name": item.user.full_name if item.user else None,
-                        "user_city": item.user.city if item.user else None,
-                        "created_at": item.created_at,
-                        "updated_at": item.updated_at
-                    })
-                    total_quantity += item.quantity
-            
-            return {
-                "quantity": total_quantity,
-                "items": all_items
-            }
+            return self._get_mentor_inventory(db, user_id)
         
         elif user.role == UserRole.SENIOR_SELLER:
-            # Товары своего куста
-            users_in_cluster = db.query(User).filter(
-                User.cluster_id == user.cluster_id,
-                User.is_active == True
-            ).all()
-            
-            all_items = []
-            total_quantity = 0
-            
-            for cluster_user in users_in_cluster:
-                user_inventory = db.query(UserInventory).options(
-                    joinedload(UserInventory.product)
-                ).filter(
-                    UserInventory.user_id == cluster_user.id
-                ).all()
-                
-                for item in user_inventory:
-                    reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
-                        InventoryReservation.user_id == cluster_user.id,
-                        InventoryReservation.product_id == item.product_id,
-                        InventoryReservation.status == ReservationStatus.ACTIVE
-                    ).scalar() or 0
-                    
-                    all_items.append({
-                        "id": item.id,
-                        "user_id": item.user_id,
-                        "product_id": item.product_id,
-                        "quantity": item.quantity,
-                        "reserved_quantity": reserved,
-                        "available_quantity": item.quantity - reserved,
-                        "product_name": item.product.name if item.product else None,
-                        "product_sku": item.product.sku if item.product else None,
-                        "product_price": item.product.price if item.product else None,
-                        "user_name": item.user.full_name if item.user else None,
-                        "user_city": item.user.city if item.user else None,
-                        "created_at": item.created_at,
-                        "updated_at": item.updated_at
-                    })
-                    total_quantity += item.quantity
-            
-            return {
-                "quantity": total_quantity,
-                "items": all_items
-            }
+            return self._get_senior_seller_inventory(db, user_id)
         
         elif user.role == UserRole.ADMIN:
-            # Товары своих кустов + собственные товары
-            admin_clusters = []
+            return self._get_admin_inventory(db, user_id)
+        
+        elif user.role == UserRole.OWNER:
+            return self._get_owner_inventory(
+                db, 
+                page=page, 
+                limit=limit,
+                user_filter=user_filter,
+                category_filter=category_filter,
+                product_filter=product_filter,
+                city_filter=city_filter
+            )
+        
+        return {"quantity": 0, "items": [], "total_count": 0, "has_more": False}
+    
+    def _get_seller_inventory(self, db: Session, user_id: int) -> Dict:
+        """Получение инвентаря для продавца (только свои товары)"""
+        # Получаем свои товары
+        inventory_items = db.query(UserInventory).options(
+            joinedload(UserInventory.product),
+            joinedload(UserInventory.user)
+        ).filter(
+            UserInventory.user_id == user_id,
+            UserInventory.quantity > 0
+        ).all()
+        
+        total_quantity = sum(item.quantity for item in inventory_items)
+        
+        # Получаем резервы для всех товаров
+        items = []
+        for inventory in inventory_items:
+            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                InventoryReservation.user_id == user_id,
+                InventoryReservation.product_id == inventory.product_id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).scalar() or 0
             
-            if user.admin_clusters:
-                if isinstance(user.admin_clusters, str):
-                    try:
-                        admin_clusters = json.loads(user.admin_clusters)
-                    except:
-                        admin_clusters = []
-                elif isinstance(user.admin_clusters, list):
-                    admin_clusters = user.admin_clusters
+            items.append({
+                "id": inventory.id,
+                "user_id": inventory.user_id,
+                "product_id": inventory.product_id,
+                "quantity": inventory.quantity,
+                "reserved_quantity": reserved,
+                "available_quantity": inventory.quantity - reserved,
+                "product_name": inventory.product.name if inventory.product else None,
+                "product_sku": inventory.product.sku if inventory.product else None,
+                "product_price": inventory.product.price if inventory.product else None,
+                "user_name": inventory.user.full_name if inventory.user else None,
+                "user_city": inventory.user.city if inventory.user else None,
+                "created_at": inventory.created_at,
+                "updated_at": inventory.updated_at
+            })
+        
+        return {
+            "quantity": total_quantity,
+            "total_value": sum(item["quantity"] * (item["product_price"] or 0) for item in items),
+            "items": items,
+            "total_count": len(items),
+            "has_more": False,
+            "page": 0,
+            "limit": len(items)
+        }
+    
+    def _get_mentor_inventory(self, db: Session, user_id: int) -> Dict:
+        """Получение инвентаря для наставника (свои товары + товары подопечных продавцов)"""
+        # Получаем подопечных продавцов
+        sellers = db.query(User).filter(
+            User.mentor_id == user_id,
+            User.is_active == True
+        ).all()
+        
+        user_ids = [user_id] + [seller.id for seller in sellers]
+        
+        # Получаем товары для всех пользователей
+        inventory_items = db.query(UserInventory).options(
+            joinedload(UserInventory.product),
+            joinedload(UserInventory.user)
+        ).filter(
+            UserInventory.user_id.in_(user_ids),
+            UserInventory.quantity > 0
+        ).all()
+        
+        total_quantity = sum(item.quantity for item in inventory_items)
+        total_value = sum(item.quantity * (item.product.price if item.product else 0) for item in inventory_items)
+        
+        # Получаем резервы для всех товаров
+        items = []
+        for inventory in inventory_items:
+            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                InventoryReservation.user_id == inventory.user_id,
+                InventoryReservation.product_id == inventory.product_id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).scalar() or 0
             
-            all_items = []
-            total_quantity = 0
+            items.append({
+                "id": inventory.id,
+                "user_id": inventory.user_id,
+                "product_id": inventory.product_id,
+                "quantity": inventory.quantity,
+                "reserved_quantity": reserved,
+                "available_quantity": inventory.quantity - reserved,
+                "product_name": inventory.product.name if inventory.product else None,
+                "product_sku": inventory.product.sku if inventory.product else None,
+                "product_price": inventory.product.price if inventory.product else None,
+                "user_name": inventory.user.full_name if inventory.user else None,
+                "user_city": inventory.user.city if inventory.user else None,
+                "created_at": inventory.created_at,
+                "updated_at": inventory.updated_at
+            })
+        
+        return {
+            "quantity": total_quantity,
+            "total_value": total_value,
+            "items": items,
+            "total_count": len(items),
+            "has_more": False,
+            "page": 0,
+            "limit": len(items)
+        }
+    
+    def _get_senior_seller_inventory(self, db: Session, user_id: int) -> Dict:
+        """Получение инвентаря для старшего продавца (товары своего куста)"""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or not user.cluster_id:
+            return {"quantity": 0, "items": [], "total_count": 0, "has_more": False, "total_value": 0}
+        
+        # Получаем всех пользователей в кусте
+        users_in_cluster = db.query(User).filter(
+            User.cluster_id == user.cluster_id,
+            User.is_active == True
+        ).all()
+        
+        user_ids = [u.id for u in users_in_cluster]
+        
+        # Получаем товары для всех пользователей куста
+        inventory_items = db.query(UserInventory).options(
+            joinedload(UserInventory.product),
+            joinedload(UserInventory.user)
+        ).filter(
+            UserInventory.user_id.in_(user_ids),
+            UserInventory.quantity > 0
+        ).all()
+        
+        total_quantity = sum(item.quantity for item in inventory_items)
+        total_value = sum(item.quantity * (item.product.price if item.product else 0) for item in inventory_items)
+        
+        items = []
+        for inventory in inventory_items:
+            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                InventoryReservation.user_id == inventory.user_id,
+                InventoryReservation.product_id == inventory.product_id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).scalar() or 0
             
-            # Добавляем инвентарь самого администратора
-            admin_inventory = db.query(UserInventory).options(
-                joinedload(UserInventory.product)
-            ).filter(
-                UserInventory.user_id == user.id
-            ).all()
-            
-            for item in admin_inventory:
-                reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
-                    InventoryReservation.user_id == user.id,
-                    InventoryReservation.product_id == item.product_id,
-                    InventoryReservation.status == ReservationStatus.ACTIVE
-                ).scalar() or 0
-                
-                all_items.append({
-                    "id": item.id,
-                    "user_id": item.user_id,
-                    "product_id": item.product_id,
-                    "quantity": item.quantity,
-                    "reserved_quantity": reserved,
-                    "available_quantity": item.quantity - reserved,
-                    "product_name": item.product.name if item.product else None,
-                    "product_sku": item.product.sku if item.product else None,
-                    "product_price": item.product.price if item.product else None,
-                    "user_name": item.user.full_name if item.user else None,
-                    "user_city": item.user.city if item.user else None,
-                    "created_at": item.created_at,
-                    "updated_at": item.updated_at
-                })
-                total_quantity += item.quantity
-            
-            # Добавляем товары пользователей из кустов
-            if admin_clusters:
+            items.append({
+                "id": inventory.id,
+                "user_id": inventory.user_id,
+                "product_id": inventory.product_id,
+                "quantity": inventory.quantity,
+                "reserved_quantity": reserved,
+                "available_quantity": inventory.quantity - reserved,
+                "product_name": inventory.product.name if inventory.product else None,
+                "product_sku": inventory.product.sku if inventory.product else None,
+                "product_price": inventory.product.price if inventory.product else None,
+                "user_name": inventory.user.full_name if inventory.user else None,
+                "user_city": inventory.user.city if inventory.user else None,
+                "created_at": inventory.created_at,
+                "updated_at": inventory.updated_at
+            })
+        
+        return {
+            "quantity": total_quantity,
+            "total_value": total_value,
+            "items": items,
+            "total_count": len(items),
+            "has_more": False,
+            "page": 0,
+            "limit": len(items)
+        }
+    
+    def _get_admin_inventory(self, db: Session, user_id: int) -> Dict:
+        """Получение инвентаря для администратора (товары своих кустов + собственные товары)"""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return {"quantity": 0, "items": [], "total_count": 0, "has_more": False, "total_value": 0}
+        
+        user_ids = [user_id]  # Добавляем самого администратора
+        
+        # Получаем кусты администратора
+        admin_clusters = []
+        if user.admin_clusters:
+            if isinstance(user.admin_clusters, str):
                 try:
-                    cluster_ids = [int(cluster_id) for cluster_id in admin_clusters if cluster_id]
-                except ValueError:
-                    cluster_ids = []
-                
+                    admin_clusters = json.loads(user.admin_clusters)
+                except:
+                    admin_clusters = []
+            elif isinstance(user.admin_clusters, list):
+                admin_clusters = user.admin_clusters
+        
+        # Добавляем пользователей из кустов администратора
+        if admin_clusters:
+            try:
+                cluster_ids = [int(cluster_id) for cluster_id in admin_clusters if cluster_id]
                 if cluster_ids:
                     users_in_clusters = db.query(User).filter(
                         User.cluster_id.in_(cluster_ids),
                         User.is_active == True,
-                        User.id != user.id
+                        User.id != user_id
                     ).all()
-                    
-                    for cluster_user in users_in_clusters:
-                        user_inventory = db.query(UserInventory).options(
-                            joinedload(UserInventory.product)
-                        ).filter(
-                            UserInventory.user_id == cluster_user.id
-                        ).all()
-                        
-                        for item in user_inventory:
-                            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
-                                InventoryReservation.user_id == cluster_user.id,
-                                InventoryReservation.product_id == item.product_id,
-                                InventoryReservation.status == ReservationStatus.ACTIVE
-                            ).scalar() or 0
-                            
-                            all_items.append({
-                                "id": item.id,
-                                "user_id": item.user_id,
-                                "product_id": item.product_id,
-                                "quantity": item.quantity,
-                                "reserved_quantity": reserved,
-                                "available_quantity": item.quantity - reserved,
-                                "product_name": item.product.name if item.product else None,
-                                "product_sku": item.product.sku if item.product else None,
-                                "product_price": item.product.price if item.product else None,
-                                "user_name": item.user.full_name if item.user else None,
-                                "user_city": item.user.city if item.user else None,
-                                "created_at": item.created_at,
-                                "updated_at": item.updated_at
-                            })
-                            total_quantity += item.quantity
+                    user_ids.extend([u.id for u in users_in_clusters])
+            except ValueError:
+                pass
+        
+        # Получаем уникальные user_ids
+        user_ids = list(set(user_ids))
+        
+        # Получаем товары для всех пользователей
+        inventory_items = db.query(UserInventory).options(
+            joinedload(UserInventory.product),
+            joinedload(UserInventory.user)
+        ).filter(
+            UserInventory.user_id.in_(user_ids),
+            UserInventory.quantity > 0
+        ).all()
+        
+        total_quantity = sum(item.quantity for item in inventory_items)
+        total_value = sum(item.quantity * (item.product.price if item.product else 0) for item in inventory_items)
+        
+        items = []
+        for inventory in inventory_items:
+            reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
+                InventoryReservation.user_id == inventory.user_id,
+                InventoryReservation.product_id == inventory.product_id,
+                InventoryReservation.status == ReservationStatus.ACTIVE
+            ).scalar() or 0
             
+            items.append({
+                "id": inventory.id,
+                "user_id": inventory.user_id,
+                "product_id": inventory.product_id,
+                "quantity": inventory.quantity,
+                "reserved_quantity": reserved,
+                "available_quantity": inventory.quantity - reserved,
+                "product_name": inventory.product.name if inventory.product else None,
+                "product_sku": inventory.product.sku if inventory.product else None,
+                "product_price": inventory.product.price if inventory.product else None,
+                "user_name": inventory.user.full_name if inventory.user else None,
+                "user_city": inventory.user.city if inventory.user else None,
+                "created_at": inventory.created_at,
+                "updated_at": inventory.updated_at
+            })
+        
+        return {
+            "quantity": total_quantity,
+            "total_value": total_value,
+            "items": items,
+            "total_count": len(items),
+            "has_more": False,
+            "page": 0,
+            "limit": len(items)
+        }
+    
+    def _get_owner_inventory(
+        self, 
+        db: Session, 
+        page: int = 0, 
+        limit: int = 100, 
+        user_filter: Optional[int] = None,
+        category_filter: Optional[int] = None,
+        product_filter: Optional[int] = None,
+        city_filter: Optional[str] = None
+    ) -> Dict:
+        """Получение инвентаря для владельца с пагинацией и статистикой"""
+        # Базовый запрос с фильтрами
+        base_query = db.query(UserInventory).join(
+            Product, UserInventory.product_id == Product.id
+        ).join(
+            User, UserInventory.user_id == User.id
+        ).filter(
+            UserInventory.quantity > 0
+        )
+        
+        # Применяем фильтры к базовому запросу
+        if user_filter:
+            base_query = base_query.filter(UserInventory.user_id == user_filter)
+        if category_filter:
+            base_query = base_query.filter(Product.category_id == category_filter)
+        if product_filter:
+            base_query = base_query.filter(UserInventory.product_id == product_filter)
+        if city_filter:
+            base_query = base_query.filter(User.city == city_filter)
+        
+        # Считаем статистику по всем данным (без пагинации)
+        stats_result = base_query.with_entities(
+            func.sum(UserInventory.quantity).label('total_quantity'),
+            func.sum(UserInventory.quantity * Product.price).label('total_value')
+        ).first()
+        
+        total_quantity = stats_result[0] or 0
+        total_value = stats_result[1] or 0
+        
+        # Считаем общее количество записей для пагинации
+        total_count = base_query.count()
+        has_more = (page + 1) * limit < total_count
+        
+        # Получаем пагинированные данные
+        inventory_items = base_query.order_by(
+            UserInventory.id
+        ).offset(page * limit).limit(limit).all()
+        
+        if not inventory_items:
             return {
                 "quantity": total_quantity,
-                "items": all_items
+                "total_value": total_value,
+                "items": [],
+                "total_count": total_count,
+                "has_more": False,
+                "page": page,
+                "limit": limit
             }
         
-        elif user.role == UserRole.OWNER:
-            # Все товары всех пользователей
-            all_users = db.query(User).filter(User.is_active == True).all()
-            
-            all_items = []
-            total_quantity = 0
-            
-            for db_user in all_users:
-                user_inventory = db.query(UserInventory).options(
-                    joinedload(UserInventory.product)
-                ).filter(
-                    UserInventory.user_id == db_user.id
-                ).all()
-                
-                for item in user_inventory:
-                    # Получаем активные резервы для этого пользователя
-                    reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
-                        InventoryReservation.user_id == db_user.id,
-                        InventoryReservation.product_id == item.product_id,
-                        InventoryReservation.status == ReservationStatus.ACTIVE
-                    ).scalar() or 0
-                    
-                    all_items.append({
-                        "id": item.id,
-                        "user_id": item.user_id,
-                        "product_id": item.product_id,
-                        "quantity": item.quantity,
-                        "reserved_quantity": reserved,
-                        "available_quantity": item.quantity - reserved,
-                        "product_name": item.product.name if item.product else None,
-                        "product_sku": item.product.sku if item.product else None,
-                        "product_price": item.product.price if item.product else None,
-                        "user_name": item.user.full_name if item.user else None,
-                        "user_city": item.user.city if item.user else None,
-                        "created_at": item.created_at,
-                        "updated_at": item.updated_at
-                    })
-                    total_quantity += item.quantity
-            
-            return {
-                "quantity": total_quantity,
-                "items": all_items
-            }
+        # Получаем резервы для пагинированных items
+        product_ids = [item.product_id for item in inventory_items]
+        user_ids = [item.user_id for item in inventory_items]
         
-        return {"quantity": 0, "items": []}
+        reservations = db.query(
+            InventoryReservation.user_id,
+            InventoryReservation.product_id,
+            func.sum(InventoryReservation.quantity).label('total_reserved')
+        ).filter(
+            InventoryReservation.user_id.in_(user_ids),
+            InventoryReservation.product_id.in_(product_ids),
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).group_by(
+            InventoryReservation.user_id,
+            InventoryReservation.product_id
+        ).all()
+        
+        reserved_dict = {(r.user_id, r.product_id): r.total_reserved for r in reservations}
+        
+        items = []
+        for inventory in inventory_items:
+            reserved = reserved_dict.get((inventory.user_id, inventory.product_id), 0)
+            available = inventory.quantity - reserved
+            
+            items.append({
+                "id": inventory.id,
+                "user_id": inventory.user_id,
+                "product_id": inventory.product_id,
+                "quantity": inventory.quantity,
+                "reserved_quantity": reserved,
+                "available_quantity": available,
+                "product_name": inventory.product.name,
+                "product_sku": inventory.product.sku,
+                "product_price": inventory.product.price,
+                "user_name": inventory.user.full_name,
+                "user_city": inventory.user.city,
+                "created_at": inventory.created_at,
+                "updated_at": inventory.updated_at
+            })
+        
+        return {
+            "quantity": total_quantity,
+            "total_value": total_value,
+            "items": items,
+            "total_count": total_count,
+            "has_more": has_more,
+            "page": page,
+            "limit": limit
+        }
     
     # ==================== МЕТОДЫ ДЛЯ РАБОТЫ С РЕЗЕРВАМИ ====================
     
@@ -679,6 +763,78 @@ class CRUDInventory:
             db.commit()
         
         return count
+    
+    def finalize_report_sales(
+        self, 
+        db: Session, 
+        report_id: int, 
+        approved_by: int
+    ) -> int:
+        """
+        Финализирует продажи из отчета - создает записи в SoldProduct
+        Возвращает количество созданных записей
+        """
+        from app.models.report import Report, ReportProduct
+        from app.models.sold_product import SoldProduct, SaleType
+        from app.models.user import User
+        
+        report = db.query(Report).options(
+            joinedload(Report.seller),
+            joinedload(Report.products).joinedload(ReportProduct.product).joinedload(Product.category)
+        ).filter(Report.id == report_id).first()
+        
+        if not report:
+            return 0
+        
+        seller = report.seller
+        if not seller:
+            return 0
+        
+        seller_data = {
+            'seller_name': seller.full_name,
+            'seller_role': seller.role.value if seller.role else None,
+            'seller_city': seller.city,
+            'seller_cluster_id': seller.cluster_id,
+            'seller_rate': seller.rate or 0.0
+        }
+        
+        created_count = 0
+        
+        for product_report in report.products:
+            product = product_report.product
+            if not product:
+                continue
+            
+            original_price = product_report.sold_amount + seller_data['seller_rate']
+            
+            sold_product = SoldProduct(
+                report_id=report_id,
+                seller_id=seller.id,
+                product_id=product.id,
+                quantity=product_report.quantity,
+                unit_price=product_report.sold_amount,
+                total_amount=product_report.sold_amount * product_report.quantity,
+                seller_rate=seller_data['seller_rate'],
+                original_price=original_price,
+                seller_name=seller_data['seller_name'],
+                seller_role=seller_data['seller_role'],
+                seller_city=seller_data['seller_city'],
+                seller_cluster_id=seller_data['seller_cluster_id'],
+                product_name=product.name,
+                product_sku=product.sku,
+                product_category_id=product.category_id,
+                product_category_name=product.category.name if product.category else None,
+                sale_date=report.date,
+                approved_date=datetime.now(),
+                approved_by=approved_by,
+                sale_type=SaleType.REPORT.value
+            )
+            
+            db.add(sold_product)
+            created_count += 1
+        
+        db.commit()
+        return created_count
     
     # ==================== МЕТОДЫ ДЛЯ БРАКОВ ====================
     
