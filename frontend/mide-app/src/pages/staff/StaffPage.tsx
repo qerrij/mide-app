@@ -55,14 +55,9 @@ import {
   AttachMoney,
   Close,
   Error as ErrorIcon,
-  Assignment as AssignmentIcon,
-  Phone as PhoneIcon,
-  Email as EmailIcon,
   LocationOn as LocationIcon,
-  Lock as LockIcon,
   LockReset as LockResetIcon,
   Close as CloseIcon,
-  Info as InfoIcon,
   FilterList as FilterIcon,
   Clear as ClearIcon,
 } from '@mui/icons-material';
@@ -84,7 +79,9 @@ import { assignmentsService } from '../../api/assignmentsService';
 import { userService } from '../../api/userService';
 import { groupService } from '../../api/groupService';
 import { clusterService } from '../../api/clusterService';
+import { cityService, City } from '../../api/cityService';
 import AccountantAssignmentDialog from './AccountantAssignmentDialog';
+import CitiesManagement from '../../components/staff/CitiesManagement';
 
 // iOS стили с улучшенной мобильной адаптацией
 const iOSStyles = {
@@ -147,6 +144,7 @@ interface UserFilters {
   role: UserRole | '';
   groupId: number | '';
   clusterId: number | '';
+  cityId: number | '';
 }
 
 // Компонент компактной карточки пользователя
@@ -253,10 +251,9 @@ interface UserDetailsDialogProps {
   onUnassignClick: (user: User, type: string, data?: any) => void;
   onOpenAccountantAssignment: (user: User) => void;
   onChangePassword: (userId: number, newPassword: string) => Promise<void>;
-  // Добавить пропс для открытия диалога смены пароля
-  onOpenPasswordDialog?: (userId: number, userName: string) => void;
   groups: Group[];
   clusters: Cluster[];
+  cities: City[];
   users: User[];
   loading: boolean;
   getRoleColor: (role: UserRole) => string;
@@ -275,6 +272,7 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
   onChangePassword,
   groups,
   clusters,
+  cities,
   users,
   loading,
   getRoleColor,
@@ -559,7 +557,29 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               <AttachMoney sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
               Бухгалтер
             </Typography>
-          
+            
+            {user.cityName && (
+              <Typography variant="body2">
+                <strong>Город:</strong> {user.cityName}
+              </Typography>
+            )}
+            
+            {assignedUsers.length > 0 && (
+              <>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Привязанные пользователи:
+                </Typography>
+                <Box sx={{ maxHeight: 200, overflowY: 'auto' }}>
+                  {assignedUsers.map((assignedUser) => (
+                    <Box key={assignedUser.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                      <Typography variant="body2">
+                        • {assignedUser.fullName} ({getRoleName(assignedUser.role)})
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </>
+            )}
           </Stack>
         );
 
@@ -652,7 +672,7 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
           ) : (
             <>
               {/* Контактная информация */}
-              {(user.telegram || user.city) && (
+              {(user.telegram || user.cityName) && (
                 <Paper
                   elevation={0}
                   sx={{
@@ -664,16 +684,16 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
                   }}
                 >
                   {user.telegram && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: user.city ? 1 : 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: user.cityName ? 1 : 0 }}>
                       <Telegram sx={{ fontSize: 20, color: '#0088cc' }} />
                       <Typography variant="body2">{user.telegram}</Typography>
                     </Box>
                   )}
                   
-                  {user.city && (
+                  {user.cityName && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <LocationIcon sx={{ fontSize: 20, color: '#4caf50' }} />
-                      <Typography variant="body2">{user.city}</Typography>
+                      <Typography variant="body2">{user.cityName}</Typography>
                     </Box>
                   )}
                 </Paper>
@@ -702,176 +722,160 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
                 Действия
               </Typography>
 
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                  {/* Кнопки назначения */}
-                    <Box sx={{ 
-                      display: 'flex', 
-                      flexWrap: 'wrap', 
-                      gap: 1,
-                      '& .MuiButton-root': {
-                        flex: { xs: '1 1 calc(50% - 4px)', sm: '0 1 auto' },
-                        minWidth: { xs: 0, sm: 'auto' },
-                        whiteSpace: 'nowrap',
-                        fontSize: { xs: '0.7rem', sm: '0.875rem' },
-                        padding: { xs: '6px 8px', sm: '6px 12px' },
-                      }
-                    }}>
-                    {user.role === UserRole.SELLER && (
-                      <>
-                        {!user.mentorId && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => {
-                              onAssign(user, 'mentor');
-                            }}
-                            disabled={loading}
-                            sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
-                          >
-                            Назначить наставника
-                          </Button>
-                        )}
-                        {!user.groupId && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => {
-                              onAssign(user, 'group');
-                            }}
-                            disabled={loading}
-                            sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
-                          >
-                            В группу
-                          </Button>
-                        )}
-                      </>
-                    )}
-                    
-                    {user.role === UserRole.MENTOR && !user.clusterId && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => {
-                          onAssign(user, 'cluster');
-                        }}
-                        disabled={loading}
-                        sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
-                      >
-                        В куст
-                      </Button>
-                    )}
-                    
-                    {user.role === UserRole.SENIOR_SELLER && !user.clusterId && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => {
-                          onAssign(user, 'cluster');
-                        }}
-                        disabled={loading}
-                        sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
-                      >
-                        Назначить куст
-                      </Button>
-                    )}
-                    
-                    {user.role === UserRole.ADMIN && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => {
-                          onAssign(user, 'admin');
-                        }}
-                        disabled={loading}
-                        sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
-                      >
-                        Управление кустами
-                      </Button>
-                    )}
-                    
-                    {user.role === UserRole.ACCOUNTANT && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => {
-                          onOpenAccountantAssignment(user);
-                        }}
-                        sx={{ 
-                          flex: { xs: 1, sm: '0 1 auto' },
-                          color: '#ff9800', 
-                          borderColor: '#ff9800',
-                          '&:hover': {
-                            backgroundColor: alpha('#ff9800', 0.1),
-                          },
-                        }}
-                        disabled={loading}
-                      >
-                        Назначить пользователей
-                      </Button>
-                    )}
-                  </Box>
-
-                  {/* Кнопки управления */}
-                  <Divider sx={{ my: 1 }} />
-
-                    <Box sx={{ 
-                        display: 'flex', 
-                        flexWrap: 'wrap', 
-                        gap: 1,
-                        '& .MuiButton-root': {
-                          flex: { xs: '1 1 calc(33.333% - 4px)', sm: '0 1 auto' },
-                          minWidth: { xs: 0, sm: 'auto' },
-                          whiteSpace: 'nowrap',
-                          fontSize: { xs: '0.7rem', sm: '0.875rem' },
-                          padding: { xs: '6px 4px', sm: '6px 12px' },
-                        }
-                      }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {/* Кнопки назначения */}
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexWrap: 'wrap', 
+                  gap: 1,
+                  '& .MuiButton-root': {
+                    flex: { xs: '1 1 calc(50% - 4px)', sm: '0 1 auto' },
+                    minWidth: { xs: 0, sm: 'auto' },
+                    whiteSpace: 'nowrap',
+                    fontSize: { xs: '0.7rem', sm: '0.875rem' },
+                    padding: { xs: '6px 8px', sm: '6px 12px' },
+                  }
+                }}>
+                  {user.role === UserRole.SELLER && (
+                    <>
+                      {!user.mentorId && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => onAssign(user, 'mentor')}
+                          disabled={loading}
+                          sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                        >
+                          Назначить наставника
+                        </Button>
+                      )}
+                      {!user.groupId && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => onAssign(user, 'group')}
+                          disabled={loading}
+                          sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                        >
+                          В группу
+                        </Button>
+                      )}
+                    </>
+                  )}
+                  
+                  {user.role === UserRole.MENTOR && !user.clusterId && (
                     <Button
                       size="small"
-                      variant="contained"
-                      startIcon={<LockResetIcon />}
-                      onClick={() => setPasswordDialogOpen(true)}
-                      sx={{
-                        flex: { xs: 1, sm: '0 1 auto' },
-                        backgroundColor: '#ff9800',
-                        '&:hover': { backgroundColor: '#f57c00' },
-                      }}
-                    >
-                      Сменить пароль
-                    </Button>
-                    
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<Edit />}
-                      onClick={() => {
-                        onEdit(user);
-                      }}
+                      variant="outlined"
+                      onClick={() => onAssign(user, 'cluster')}
                       disabled={loading}
-                      sx={{
-                        flex: { xs: 1, sm: '0 1 auto' },
-                        backgroundColor: '#2a436d',
-                        '&:hover': { backgroundColor: '#1a365d' },
-                      }}
-                    >
-                      Редактировать
-                    </Button>
-                    
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="error"
-                      startIcon={<Delete />}
-                      onClick={() => {
-                        onDelete(user);
-                      }}
-                      disabled={user.role === UserRole.OWNER || user.id === currentUser?.id || loading}
                       sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
                     >
-                      Удалить
+                      В куст
                     </Button>
-                  </Box>
+                  )}
+                  
+                  {user.role === UserRole.SENIOR_SELLER && !user.clusterId && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => onAssign(user, 'cluster')}
+                      disabled={loading}
+                      sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                    >
+                      Назначить куст
+                    </Button>
+                  )}
+                  
+                  {user.role === UserRole.ADMIN && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => onAssign(user, 'admin')}
+                      disabled={loading}
+                      sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                    >
+                      Управление кустами
+                    </Button>
+                  )}
+                  
+                  {user.role === UserRole.ACCOUNTANT && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => onOpenAccountantAssignment(user)}
+                      sx={{ 
+                        flex: { xs: 1, sm: '0 1 auto' },
+                        color: '#ff9800', 
+                        borderColor: '#ff9800',
+                        '&:hover': {
+                          backgroundColor: alpha('#ff9800', 0.1),
+                        },
+                      }}
+                      disabled={loading}
+                    >
+                      Назначить пользователей
+                    </Button>
+                  )}
                 </Box>
+
+                {/* Кнопки управления */}
+                <Divider sx={{ my: 1 }} />
+
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexWrap: 'wrap', 
+                  gap: 1,
+                  '& .MuiButton-root': {
+                    flex: { xs: '1 1 calc(33.333% - 4px)', sm: '0 1 auto' },
+                    minWidth: { xs: 0, sm: 'auto' },
+                    whiteSpace: 'nowrap',
+                    fontSize: { xs: '0.7rem', sm: '0.875rem' },
+                    padding: { xs: '6px 4px', sm: '6px 12px' },
+                  }
+                }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<LockResetIcon />}
+                    onClick={() => setPasswordDialogOpen(true)}
+                    sx={{
+                      flex: { xs: 1, sm: '0 1 auto' },
+                      backgroundColor: '#ff9800',
+                      '&:hover': { backgroundColor: '#f57c00' },
+                    }}
+                  >
+                    Сменить пароль
+                  </Button>
+                  
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<Edit />}
+                    onClick={() => onEdit(user)}
+                    disabled={loading}
+                    sx={{
+                      flex: { xs: 1, sm: '0 1 auto' },
+                      backgroundColor: '#2a436d',
+                      '&:hover': { backgroundColor: '#1a365d' },
+                    }}
+                  >
+                    Редактировать
+                  </Button>
+                  
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="error"
+                    startIcon={<Delete />}
+                    onClick={() => onDelete(user)}
+                    disabled={user.role === UserRole.OWNER || user.id === currentUser?.id || loading}
+                    sx={{ flex: { xs: 1, sm: '0 1 auto' } }}
+                  >
+                    Удалить
+                  </Button>
+                </Box>
+              </Box>
             </>
           )}
         </DialogContent>
@@ -1047,7 +1051,8 @@ const TabChips: React.FC<TabChipsProps> = ({ value, onChange, tabs }) => {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
             <span>{isMobile && tab.label === 'Пользователи' ? 'Люди' : 
                      isMobile && tab.label === 'Группы' ? 'Груп.' : 
-                     isMobile && tab.label === 'Кусты' ? 'Кусты' : tab.label}</span>
+                     isMobile && tab.label === 'Кусты' ? 'Кусты' : 
+                     isMobile && tab.label === 'Города' ? 'Гор.' : tab.label}</span>
             {tab.count !== undefined && (
               <Chip
                 label={tab.count}
@@ -1136,7 +1141,6 @@ const AddGroupToClusterDialog: React.FC<AddGroupToClusterDialogProps> = ({
 };
 
 // Компонент карточки группы
-// Компонент карточки группы
 interface GroupCardProps {
   group: Group;
   users: User[];
@@ -1148,8 +1152,8 @@ interface GroupCardProps {
   onAddToCluster: (group: Group) => void;
   onRemoveFromCluster: (groupId: number, clusterId: number) => void;
   onUnassignClick: (user: User, type: string, data?: any) => void;
-  onAssignMentor: (group: Group) => void;  // Новая функция
-  onUnassignMentor: (mentorId: number) => void;  // Новая функция
+  onAssignMentor: (group: Group) => void;
+  onUnassignMentor: (mentorId: number) => void;
   getRoleColor: (role: UserRole) => string;
 }
 
@@ -1174,13 +1178,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const cluster = clusters.find(c => c.id === group.clusterId);
   const seniorSeller = users.find(u => u.id === group.seniorSellerId);
   const sellersInGroup = users.filter(u => u.groupId === group.id);
-  const groupsInSameCluster = cluster ? groups.filter(g => g.clusterId === cluster.id) : [];
-
-  // Доступные наставники (без группы)
-  const availableMentors = users.filter(u => 
-    u.role === UserRole.MENTOR && 
-    !u.groupId  // Наставник без группы
-  );
 
   return (
     <Card sx={iOSStyles.compactCard}>
@@ -1223,7 +1220,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
             </Typography>
             
             {mentor ? (
-              // Если есть наставник - показываем кнопку отвязки
               <IconButton
                 size="small"
                 onClick={() => onUnassignMentor(mentor.id)}
@@ -1233,7 +1229,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 <Close sx={{ fontSize: 16 }} />
               </IconButton>
             ) : (
-              // Если нет наставника - показываем кнопку назначения
               <Button
                 size="small"
                 variant="outlined"
@@ -1349,9 +1344,9 @@ interface ClusterCardProps {
   onAddGroup: (clusterId: number, groupId: number) => void;
   onRemoveGroup: (groupId: number, clusterId: number) => void;
   onUnassignClick: (user: User, type: string, data?: any) => void;
-  onAssignAdmin: (cluster: Cluster) => void;  // Новая функция
-  onAssignSenior: (cluster: Cluster) => void;  // Новая функция
-  onUnassignAdmin: (adminId: number, clusterId: number) => void;  // Новая функция
+  onAssignAdmin: (cluster: Cluster) => void;
+  onAssignSenior: (cluster: Cluster) => void;
+  onUnassignAdmin: (adminId: number, clusterId: number) => void;
   getRoleColor: (role: UserRole) => string;
 }
 
@@ -1375,15 +1370,6 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
   const admin = users.find(u => u.id === cluster.adminId);
   const groupsInCluster = groups.filter(group => group.clusterId === cluster.id);
   const sellersInCluster = users.filter(u => u.clusterId === cluster.id);
-
-  // Доступные администраторы
-  const availableAdmins = users.filter(u => u.role === UserRole.ADMIN);
-  
-  // Доступные старшие продавцы (без куста)
-  const availableSeniorSellers = users.filter(u => 
-    u.role === UserRole.SENIOR_SELLER && 
-    !u.clusterId
-  );
 
   return (
     <Card sx={iOSStyles.compactCard}>
@@ -1426,7 +1412,6 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
             </Typography>
             
             {seniorSeller ? (
-              // Если есть старший - показываем кнопку отвязки
               <IconButton
                 size="small"
                 onClick={() => onUnassignClick(seniorSeller, 'seniorFromCluster')}
@@ -1436,7 +1421,6 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
                 <Close sx={{ fontSize: 16 }} />
               </IconButton>
             ) : (
-              // Если нет старшего - показываем кнопку назначения
               <Button
                 size="small"
                 variant="outlined"
@@ -1478,7 +1462,6 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
             </Typography>
             
             {admin ? (
-              // Если есть админ - показываем кнопку отвязки
               <IconButton
                 size="small"
                 onClick={() => onUnassignAdmin(admin.id, cluster.id)}
@@ -1488,7 +1471,6 @@ const ClusterCard: React.FC<ClusterCardProps> = ({
                 <Close sx={{ fontSize: 16 }} />
               </IconButton>
             ) : (
-              // Если нет админа - показываем кнопку назначения
               <Button
                 size="small"
                 variant="outlined"
@@ -1600,11 +1582,13 @@ const StaffPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [clusters, setClusters] = useState<Cluster[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
 
   const [userFilters, setUserFilters] = useState<UserFilters>({
     role: '',
     groupId: '',
     clusterId: '',
+    cityId: '',
   });
   
   const [showFilters, setShowFilters] = useState(false);
@@ -1650,7 +1634,7 @@ const StaffPage: React.FC = () => {
     fullName: '',
     role: UserRole.SELLER,
     telegram: '',
-    city: '',
+    cityId: undefined,
     rate: 0,
   });
 
@@ -1683,12 +1667,10 @@ const StaffPage: React.FC = () => {
   const [selectedGroupForMentor, setSelectedGroupForMentor] = useState<Group | null>(null);
   const [selectedMentorForGroup, setSelectedMentorForGroup] = useState<number | null>(null);
 
-  // Состояния для управления администраторами в кустах
   const [openAssignAdminDialog, setOpenAssignAdminDialog] = useState(false);
   const [selectedClusterForAdmin, setSelectedClusterForAdmin] = useState<Cluster | null>(null);
   const [selectedAdminForCluster, setSelectedAdminForCluster] = useState<number | null>(null);
 
-  // Состояния для управления старшими продавцами в кустах
   const [openAssignSeniorDialog, setOpenAssignSeniorDialog] = useState(false);
   const [selectedClusterForSenior, setSelectedClusterForSenior] = useState<Cluster | null>(null);
   const [selectedSeniorForCluster, setSelectedSeniorForCluster] = useState<number | null>(null);
@@ -1699,6 +1681,7 @@ const StaffPage: React.FC = () => {
   // Загрузка данных
   useEffect(() => {
     loadAllData();
+    loadCities();
   }, []);
 
   const loadAllData = async () => {
@@ -1747,6 +1730,15 @@ const StaffPage: React.FC = () => {
     }
   };
 
+  const loadCities = async () => {
+    try {
+      const data = await cityService.getAllCities();
+      setCities(data);
+    } catch (error) {
+      console.error('Ошибка при загрузке городов:', error);
+    }
+  };
+
   const showSnackbar = (message: string, severity: 'success' | 'error' | 'info') => {
     setSnackbar({ open: true, message, severity });
   };
@@ -1786,9 +1778,8 @@ const StaffPage: React.FC = () => {
     }
   };
 
-  // ================ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ НАСТАВНИКАМИ В ГРУППАХ ================
+  // Функции для управления наставниками в группах
   const handleAssignMentorToGroup = (group: Group) => {
-    // Открываем диалог назначения наставника
     setSelectedGroupForMentor(group);
     setOpenAssignMentorDialog(true);
   };
@@ -1826,7 +1817,7 @@ const StaffPage: React.FC = () => {
     }
   };
 
-  // ================ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ АДМИНИСТРАТОРАМИ В КУСТАХ ================
+  // Функции для управления администраторами в кустах
   const handleAssignAdminToCluster = (cluster: Cluster) => {
     setSelectedClusterForAdmin(cluster);
     setOpenAssignAdminDialog(true);
@@ -1865,7 +1856,7 @@ const StaffPage: React.FC = () => {
     }
   };
 
-  // ================ ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ СТАРШИМИ ПРОДАВЦАМИ В КУСТАХ ================
+  // Функции для управления старшими продавцами в кустах
   const handleAssignSeniorToCluster = (cluster: Cluster) => {
     setSelectedClusterForSenior(cluster);
     setOpenAssignSeniorDialog(true);
@@ -1890,18 +1881,17 @@ const StaffPage: React.FC = () => {
     }
   };
 
-  // ================ УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ================
+  // Управление пользователями
   const handleCreateUser = async () => {
-    // Очищаем поля от лишних пробелов
     const trimmedUser = {
       ...newUser,
       username: newUser.username?.trim(),
       fullName: newUser.fullName?.trim(),
       telegram: newUser.telegram?.trim(),
-      city: newUser.city?.trim(),
-      password: newUser.password, // пароль не очищаем
+      password: newUser.password,
       role: newUser.role,
       rate: newUser.rate,
+      cityId: newUser.cityId,
     };
 
     if (!trimmedUser.username || !trimmedUser.fullName) {
@@ -1918,40 +1908,23 @@ const StaffPage: React.FC = () => {
       showSnackbar('Пользователь успешно создан', 'success');
     } catch (error: any) {
       console.error('Ошибка при создании пользователя:', error);
-      
       const getErrorMessage = (error: any): string => {
         if (error.response?.data) {
           const data = error.response.data;
           if (data.detail) {
             if (Array.isArray(data.detail)) {
-              return data.detail
-                .map((err: any) => {
-                  if (err.msg) {
-                    return err.msg.replace('Value error, ', '');
-                  }
-                  return JSON.stringify(err);
-                })
-                .join(', ');
+              return data.detail.map((err: any) => err.msg?.replace('Value error, ', '') || JSON.stringify(err)).join(', ');
             }
             if (typeof data.detail === 'string') {
               return data.detail;
             }
           }
-          if (data.message) {
-            return data.message;
-          }
-          if (typeof data === 'string') {
-            return data;
-          }
+          if (data.message) return data.message;
+          if (typeof data === 'string') return data;
         }
-        if (error.message) {
-          return error.message;
-        }
-        return 'Произошла ошибка при создании пользователя';
+        return error.message || 'Произошла ошибка при создании пользователя';
       };
-
-      const errorMessage = getErrorMessage(error);
-      showSnackbar(errorMessage, 'error');
+      showSnackbar(getErrorMessage(error), 'error');
     } finally {
       setLoading(false);
     }
@@ -1960,27 +1933,14 @@ const StaffPage: React.FC = () => {
   const handleUpdateUser = async () => {
     if (!openEditDialog) return;
 
-    // Очищаем поля от лишних пробелов
     const trimmedEditUser: UpdateUserDto = {};
     
-    if (editUser.username !== undefined) {
-      trimmedEditUser.username = editUser.username?.trim();
-    }
-    if (editUser.fullName !== undefined) {
-      trimmedEditUser.fullName = editUser.fullName?.trim();
-    }
-    if (editUser.telegram !== undefined) {
-      trimmedEditUser.telegram = editUser.telegram?.trim();
-    }
-    if (editUser.city !== undefined) {
-      trimmedEditUser.city = editUser.city?.trim();
-    }
-    if (editUser.role !== undefined) {
-      trimmedEditUser.role = editUser.role;
-    }
-    if (editUser.rate !== undefined) {
-      trimmedEditUser.rate = editUser.rate;
-    }
+    if (editUser.username !== undefined) trimmedEditUser.username = editUser.username?.trim();
+    if (editUser.fullName !== undefined) trimmedEditUser.fullName = editUser.fullName?.trim();
+    if (editUser.telegram !== undefined) trimmedEditUser.telegram = editUser.telegram?.trim();
+    if (editUser.cityId !== undefined) trimmedEditUser.cityId = editUser.cityId;
+    if (editUser.role !== undefined) trimmedEditUser.role = editUser.role;
+    if (editUser.rate !== undefined) trimmedEditUser.rate = editUser.rate;
 
     try {
       setLoading(true);
@@ -1991,9 +1951,7 @@ const StaffPage: React.FC = () => {
       showSnackbar('Пользователь успешно обновлен', 'success');
     } catch (error: any) {
       console.error('Ошибка при обновлении пользователя:', error);
-      const errorMessage = error.response?.data?.detail || 
-                        error.response?.data?.message || 
-                        'Ошибка при обновлении пользователя';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при обновлении пользователя';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2021,9 +1979,7 @@ const StaffPage: React.FC = () => {
       showSnackbar('Пользователь успешно удален', 'success');
     } catch (error: any) {
       console.error('Ошибка при удалении пользователя:', error);
-      const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при удалении пользователя';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при удалении пользователя';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2036,9 +1992,7 @@ const StaffPage: React.FC = () => {
       showSnackbar('Пароль успешно изменен', 'success');
     } catch (error: any) {
       console.error('Ошибка при смене пароля:', error);
-      const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при смене пароля';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при смене пароля';
       showSnackbar(errorMessage, 'error');
       throw error;
     }
@@ -2051,14 +2005,13 @@ const StaffPage: React.FC = () => {
       fullName: '',
       role: UserRole.SELLER,
       telegram: '',
-      city: '',
+      cityId: undefined,
       rate: 0,
     });
   };
 
-  // ================ УПРАВЛЕНИЕ ГРУППАМИ ================
+  // Управление группами
   const handleCreateGroup = async () => {
-    // Очищаем поля от лишних пробелов
     const trimmedGroup = {
       ...newGroup,
       name: newGroup.name?.trim(),
@@ -2081,9 +2034,7 @@ const StaffPage: React.FC = () => {
       showSnackbar('Группа успешно создана', 'success');
     } catch (error: any) {
       console.error('Ошибка при создании группы:', error);
-      const errorMessage = error.response?.data?.detail || 
-                        error.response?.data?.message || 
-                        'Ошибка при создании группы';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при создании группы';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2093,15 +2044,9 @@ const StaffPage: React.FC = () => {
   const handleUpdateGroup = async () => {
     if (!openEditGroupDialog) return;
 
-    // Очищаем поля от лишних пробелов
     const trimmedEditGroup: UpdateGroupDto = {};
-    
-    if (editGroup.name !== undefined) {
-      trimmedEditGroup.name = editGroup.name?.trim();
-    }
-    if (editGroup.description !== undefined) {
-      trimmedEditGroup.description = editGroup.description?.trim();
-    }
+    if (editGroup.name !== undefined) trimmedEditGroup.name = editGroup.name?.trim();
+    if (editGroup.description !== undefined) trimmedEditGroup.description = editGroup.description?.trim();
 
     try {
       setLoading(true);
@@ -2112,9 +2057,7 @@ const StaffPage: React.FC = () => {
       showSnackbar('Группа успешно обновлена', 'success');
     } catch (error: any) {
       console.error('Ошибка при обновлении группы:', error);
-      const errorMessage = error.response?.data?.detail || 
-                        error.response?.data?.message || 
-                        'Ошибка при обновлении группы';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при обновлении группы';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2130,18 +2073,15 @@ const StaffPage: React.FC = () => {
       showSnackbar('Группа успешно удалена', 'success');
     } catch (error: any) {
       console.error('Ошибка при удалении группы:', error);
-      const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при удалении группы';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при удалении группы';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // ================ УПРАВЛЕНИЕ КУСТАМИ ================
+  // Управление кустами
   const handleCreateCluster = async () => {
-    // Очищаем поля от лишних пробелов
     const trimmedCluster = {
       ...newCluster,
       name: newCluster.name?.trim(),
@@ -2164,9 +2104,7 @@ const StaffPage: React.FC = () => {
       showSnackbar('Куст успешно создан', 'success');
     } catch (error: any) {
       console.error('Ошибка при создании куста:', error);
-      const errorMessage = error.response?.data?.detail || 
-                        error.response?.data?.message || 
-                        'Ошибка при создании куста';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при создании куста';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2176,15 +2114,9 @@ const StaffPage: React.FC = () => {
   const handleUpdateCluster = async () => {
     if (!openEditClusterDialog) return;
 
-    // Очищаем поля от лишних пробелов
     const trimmedEditCluster: UpdateClusterDto = {};
-    
-    if (editCluster.name !== undefined) {
-      trimmedEditCluster.name = editCluster.name?.trim();
-    }
-    if (editCluster.description !== undefined) {
-      trimmedEditCluster.description = editCluster.description?.trim();
-    }
+    if (editCluster.name !== undefined) trimmedEditCluster.name = editCluster.name?.trim();
+    if (editCluster.description !== undefined) trimmedEditCluster.description = editCluster.description?.trim();
 
     try {
       setLoading(true);
@@ -2195,9 +2127,7 @@ const StaffPage: React.FC = () => {
       showSnackbar('Куст успешно обновлен', 'success');
     } catch (error: any) {
       console.error('Ошибка при обновлении куста:', error);
-      const errorMessage = error.response?.data?.detail || 
-                        error.response?.data?.message || 
-                        'Ошибка при обновлении куста';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при обновлении куста';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
@@ -2214,16 +2144,14 @@ const StaffPage: React.FC = () => {
       showSnackbar('Куст успешно удален', 'success');
     } catch (error: any) {
       console.error('Ошибка при удалении куста:', error);
-      const errorMessage = error.response?.data?.detail || 
-                         error.response?.data?.message || 
-                         'Ошибка при удалении куста';
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || 'Ошибка при удалении куста';
       showSnackbar(errorMessage, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // ================ ФУНКЦИИ ОТВЯЗКИ ================
+  // Функции отвязки
   const handleUnassignClick = (user: User, type: string, data?: any) => {
     setUnassignDialog({ open: true, user, type, data });
   };
@@ -2274,13 +2202,11 @@ const StaffPage: React.FC = () => {
     }
   };
 
-  // ================ ФУНКЦИИ НАЗНАЧЕНИЯ ================
+  // Функции назначения
   const openAssignmentDialog = (user: User, type: 'mentor' | 'group' | 'cluster' | 'admin') => {
     setOpenAssignDialog({ open: true, user, type });
     
-    if (type === 'mentor') {
-      setSelectedMentor(user.mentorId || 0);
-    }
+    if (type === 'mentor') setSelectedMentor(user.mentorId || 0);
     if (type === 'group') setSelectedGroup(user.groupId || 0);
     if (type === 'cluster') setSelectedCluster(user.clusterId || 0);
     if (type === 'admin') setSelectedClustersForAdmin(user.adminClusterIds || []);
@@ -2328,7 +2254,6 @@ const StaffPage: React.FC = () => {
             showSnackbar('Выберите группу', 'error');
             return;
           }
-          
           await assignmentsService.assignSellerToGroup(user.id, selectedGroup);
           showSnackbar('Продавец добавлен в группу', 'success');
           break;
@@ -2382,7 +2307,7 @@ const StaffPage: React.FC = () => {
     }
   };
 
-  // ================ ФУНКЦИИ ДЛЯ ДОБАВЛЕНИЯ ГРУПП В КУСТ ================
+  // Функции для добавления групп в куст
   const handleAddGroupToClusterClick = (group: Group) => {
     setOpenAddGroupToClusterDialog({ open: true, group });
   };
@@ -2419,45 +2344,29 @@ const StaffPage: React.FC = () => {
       role: '',
       groupId: '',
       clusterId: '',
+      cityId: '',
     });
   };
 
-  // Обновленная фильтрация пользователей
   const filteredUsers = users.filter(user => {
-    // Поиск по тексту
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       const matchesSearch = 
         user.username.toLowerCase().includes(query) ||
         user.fullName.toLowerCase().includes(query) ||
         user.telegram?.toLowerCase().includes(query) ||
-        user.city?.toLowerCase().includes(query);
+        user.cityName?.toLowerCase().includes(query);
       
       if (!matchesSearch) return false;
     }
 
-    // Фильтр по роли
-    if (userFilters.role && user.role !== userFilters.role) {
-      return false;
-    }
-
-    // Фильтр по группе
-    if (userFilters.groupId) {
-      if (user.groupId !== userFilters.groupId) return false;
-    }
-
-    // Фильтр по кусту
-    if (userFilters.clusterId) {
-      if (user.clusterId !== userFilters.clusterId) return false;
-    }
+    if (userFilters.role && user.role !== userFilters.role) return false;
+    if (userFilters.groupId && user.groupId !== userFilters.groupId) return false;
+    if (userFilters.clusterId && user.clusterId !== userFilters.clusterId) return false;
+    if (userFilters.cityId && user.cityId !== userFilters.cityId) return false;
 
     return true;
   });
-
-  // Фильтры для диалогов
-  const availableMentors = users.filter(u => u.role === UserRole.MENTOR);
-  const availableSeniorSellers = users.filter(u => u.role === UserRole.SENIOR_SELLER && !u.clusterId);
-  const groupsWithoutCluster = groups.filter(g => !g.clusterId);
 
   // Подсчеты для табов
   const stats = {
@@ -2466,17 +2375,18 @@ const StaffPage: React.FC = () => {
     clusters: clusters.length,
   };
 
-  // Цвета для табов
   const tabColors = {
     0: '#674fb6',
     1: '#56b8d1',
     2: '#3f1f4b',
+    3: '#4caf50',
   };
 
   const tabs = [
     { label: 'Пользователи', icon: <People />, value: 0, count: stats.users, color: tabColors[0] },
     { label: 'Группы', icon: <GroupsIcon />, value: 1, count: stats.groups, color: tabColors[1] },
     { label: 'Кусты', icon: <Business />, value: 2, count: stats.clusters, color: tabColors[2] },
+    { label: 'Города', icon: <LocationIcon />, value: 3, count: cities.length, color: tabColors[3] },
   ];
 
   if (loading && users.length === 0) {
@@ -2497,7 +2407,7 @@ const StaffPage: React.FC = () => {
             Управление персоналом
           </Typography>
           <Typography variant="body1" color="#4c5454" sx={{ fontSize: { xs: '1rem', sm: '1rem' } }}>
-            Управление пользователями, группами и кустами
+            Управление пользователями, группами, кустами и городами
           </Typography>
         </Grid>
         <Grid size={{ xs: 12, md: 4 }} sx={{ textAlign: { md: 'right' } }}>
@@ -2514,207 +2424,10 @@ const StaffPage: React.FC = () => {
         </Grid>
       </Grid>
 
-      {/* Поиск */}
-      <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: { xs: 2, sm: 3 } }}>
-        <TextField
-          fullWidth
-          size="small"
-          placeholder={isMobile ? "Поиск..." : "Поиск по имени, логину, телеграм или городу..."}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          InputProps={{
-            startAdornment: <Search sx={{ color: '#4c5454', mr: 1, fontSize: { xs: 24, sm: 24 } }} />,
-            sx: { fontSize: { xs: '1rem', sm: '0.9rem' } }
-          }}
-        />
-      </Paper>
-
       {/* Пины-табы */}
       <Paper sx={{ mb: { xs: 2, sm: 3 } }}>
         <TabChips value={activeTab} onChange={setActiveTab} tabs={tabs} />
 
-
-            {activeTab === 0 && (
-              <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: { xs: 2, sm: 3 } }}>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <TextField
-                    fullWidth
-                    size="small"
-                    placeholder={isMobile ? "Поиск..." : "Поиск по имени, логину, телеграм или городу..."}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    InputProps={{
-                      startAdornment: <Search sx={{ color: '#4c5454', mr: 1, fontSize: { xs: 24, sm: 24 } }} />,
-                      sx: { fontSize: { xs: '1rem', sm: '0.9rem' } }
-                    }}
-                  />
-                  <Tooltip title="Фильтры">
-                    <Badge
-                      color="primary"
-                      variant="dot"
-                      invisible={!userFilters.role && !userFilters.groupId && !userFilters.clusterId}
-                    >
-                      <IconButton
-                        onClick={() => setShowFilters(!showFilters)}
-                        sx={{
-                          bgcolor: showFilters ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
-                          '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.15) },
-                        }}
-                      >
-                        <FilterIcon />
-                      </IconButton>
-                    </Badge>
-                  </Tooltip>
-                </Box>
-
-                {/* Панель фильтров - показываем только если showFilters = true */}
-                {showFilters && (
-                  <Fade in={showFilters}>
-                    <Box
-                      sx={{
-                        mt: 2,
-                        pt: 2,
-                        borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
-                      }}
-                    >
-                      <Typography variant="subtitle2" sx={{ mb: 1.5, color: '#2a0f35', fontWeight: 600 }}>
-                        Фильтры
-                      </Typography>
-                      
-                      <Grid container spacing={2} alignItems="flex-end">
-                        {/* Фильтр по роли */}
-                        <Grid size={{ xs: 12, sm: 4 }}>
-                          <FormControl fullWidth size="small">
-                            <InputLabel>Роль</InputLabel>
-                            <Select
-                              value={userFilters.role}
-                              label="Роль"
-                              onChange={(e) => setUserFilters({ ...userFilters, role: e.target.value as UserRole | '' })}
-                              sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
-                            >
-                              <MenuItem value="">Все роли</MenuItem>
-                              {Object.values(UserRole).map((role) => (
-                                <MenuItem key={role} value={role}>
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    {getRoleIcon(role)}
-                                    {getRoleName(role)}
-                                  </Box>
-                                </MenuItem>
-                              ))}
-                            </Select>
-                          </FormControl>
-                        </Grid>
-
-                        {/* Фильтр по группе */}
-                        <Grid size={{ xs: 12, sm: 3 }}>
-                          <FormControl fullWidth size="small">
-                            <InputLabel>Группа</InputLabel>
-                            <Select
-                              value={userFilters.groupId}
-                              label="Группа"
-                              onChange={(e) => setUserFilters({ ...userFilters, groupId: e.target.value as number | '' })}
-                              sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
-                            >
-                              <MenuItem value="">Все группы</MenuItem>
-                              {groups.map((group) => (
-                                <MenuItem key={group.id} value={group.id}>
-                                  {group.name}
-                                </MenuItem>
-                              ))}
-                            </Select>
-                          </FormControl>
-                        </Grid>
-
-                        {/* Фильтр по кусту */}
-                        <Grid size={{ xs: 12, sm: 3 }}>
-                          <FormControl fullWidth size="small">
-                            <InputLabel>Куст</InputLabel>
-                            <Select
-                              value={userFilters.clusterId}
-                              label="Куст"
-                              onChange={(e) => setUserFilters({ ...userFilters, clusterId: e.target.value as number | '' })}
-                              sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
-                            >
-                              <MenuItem value="">Все кусты</MenuItem>
-                              {clusters.map((cluster) => (
-                                <MenuItem key={cluster.id} value={cluster.id}>
-                                  {cluster.name}
-                                </MenuItem>
-                              ))}
-                            </Select>
-                          </FormControl>
-                        </Grid>
-
-                        {/* Кнопка сброса фильтров */}
-                        <Grid size={{ xs: 12, sm: 2 }}>
-                          <Button
-                            fullWidth
-                            size="small"
-                            variant="outlined"
-                            onClick={resetFilters}
-                            startIcon={<ClearIcon />}
-                            disabled={!userFilters.role && !userFilters.groupId && !userFilters.clusterId}
-                            sx={{
-                              height: 40,
-                              fontSize: { xs: '1rem', sm: '0.8rem' },
-                              borderColor: alpha(theme.palette.error.main, 0.5),
-                              color: theme.palette.error.main,
-                              '&:hover': {
-                                borderColor: theme.palette.error.main,
-                                backgroundColor: alpha(theme.palette.error.main, 0.05),
-                              },
-                            }}
-                          >
-                            Сбросить
-                          </Button>
-                        </Grid>
-                      </Grid>
-
-                      {/* Информация о количестве отфильтрованных пользователей */}
-                      <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary">
-                          Найдено: {filteredUsers.length} из {users.length} пользователей
-                        </Typography>
-                        
-                        {/* Активные фильтры в виде чипов */}
-                        {(userFilters.role || userFilters.groupId || userFilters.clusterId) && (
-                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                            {userFilters.role && (
-                              <Chip
-                                size="small"
-                                label={`Роль: ${getRoleName(userFilters.role)}`}
-                                onDelete={() => setUserFilters({ ...userFilters, role: '' })}
-                                sx={{
-                                  backgroundColor: alpha(getRoleColor(userFilters.role), 0.1),
-                                  color: getRoleColor(userFilters.role),
-                                  '& .MuiChip-deleteIcon': {
-                                    color: getRoleColor(userFilters.role),
-                                  },
-                                }}
-                              />
-                            )}
-                            {userFilters.groupId && (
-                              <Chip
-                                size="small"
-                                label={`Группа: ${groups.find(g => g.id === userFilters.groupId)?.name || ''}`}
-                                onDelete={() => setUserFilters({ ...userFilters, groupId: '' })}
-                              />
-                            )}
-                            {userFilters.clusterId && (
-                              <Chip
-                                size="small"
-                                label={`Куст: ${clusters.find(c => c.id === userFilters.clusterId)?.name || ''}`}
-                                onDelete={() => setUserFilters({ ...userFilters, clusterId: '' })}
-                              />
-                            )}
-                          </Box>
-                        )}
-                      </Box>
-                    </Box>
-                  </Fade>
-                )}
-              </Paper>
-            )}
         {/* Вкладка пользователей */}
         {activeTab === 0 && (
           <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
@@ -2734,6 +2447,200 @@ const StaffPage: React.FC = () => {
                 Добавить пользователя
               </Button>
             </Box>
+
+            {/* Фильтры */}
+            <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: { xs: 2, sm: 3 } }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder={isMobile ? "Поиск..." : "Поиск по имени, логину, телеграм или городу..."}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  InputProps={{
+                    startAdornment: <Search sx={{ color: '#4c5454', mr: 1, fontSize: { xs: 24, sm: 24 } }} />,
+                    sx: { fontSize: { xs: '1rem', sm: '0.9rem' } }
+                  }}
+                />
+                <Tooltip title="Фильтры">
+                  <Badge
+                    color="primary"
+                    variant="dot"
+                    invisible={!userFilters.role && !userFilters.groupId && !userFilters.clusterId && !userFilters.cityId}
+                  >
+                    <IconButton
+                      onClick={() => setShowFilters(!showFilters)}
+                      sx={{
+                        bgcolor: showFilters ? alpha(theme.palette.primary.main, 0.1) : 'transparent',
+                        '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.15) },
+                      }}
+                    >
+                      <FilterIcon />
+                    </IconButton>
+                  </Badge>
+                </Tooltip>
+              </Box>
+
+              {showFilters && (
+                <Fade in={showFilters}>
+                  <Box sx={{ mt: 2, pt: 2, borderTop: `1px solid ${alpha(theme.palette.divider, 0.1)}` }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1.5, color: '#2a0f35', fontWeight: 600 }}>
+                      Фильтры
+                    </Typography>
+                    
+                    <Grid container spacing={2} alignItems="flex-end">
+                      <Grid size={{ xs: 12, sm: 3 }}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Роль</InputLabel>
+                          <Select
+                            value={userFilters.role}
+                            label="Роль"
+                            onChange={(e) => setUserFilters({ ...userFilters, role: e.target.value as UserRole | '' })}
+                            sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
+                          >
+                            <MenuItem value="">Все роли</MenuItem>
+                            {Object.values(UserRole).map((role) => (
+                              <MenuItem key={role} value={role}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  {getRoleIcon(role)}
+                                  {getRoleName(role)}
+                                </Box>
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+
+                      <Grid size={{ xs: 12, sm: 3 }}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Группа</InputLabel>
+                          <Select
+                            value={userFilters.groupId}
+                            label="Группа"
+                            onChange={(e) => setUserFilters({ ...userFilters, groupId: e.target.value as number | '' })}
+                            sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
+                          >
+                            <MenuItem value="">Все группы</MenuItem>
+                            {groups.map((group) => (
+                              <MenuItem key={group.id} value={group.id}>
+                                {group.name}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+
+                      <Grid size={{ xs: 12, sm: 3 }}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Куст</InputLabel>
+                          <Select
+                            value={userFilters.clusterId}
+                            label="Куст"
+                            onChange={(e) => setUserFilters({ ...userFilters, clusterId: e.target.value as number | '' })}
+                            sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
+                          >
+                            <MenuItem value="">Все кусты</MenuItem>
+                            {clusters.map((cluster) => (
+                              <MenuItem key={cluster.id} value={cluster.id}>
+                                {cluster.name}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+
+                      <Grid size={{ xs: 12, sm: 2 }}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Город</InputLabel>
+                          <Select
+                            value={userFilters.cityId}
+                            label="Город"
+                            onChange={(e) => setUserFilters({ ...userFilters, cityId: e.target.value as number | '' })}
+                            sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}
+                          >
+                            <MenuItem value="">Все города</MenuItem>
+                            {cities.filter(c => c.isActive).map((city) => (
+                              <MenuItem key={city.id} value={city.id}>
+                                {city.name}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+
+                      <Grid size={{ xs: 12, sm: 1 }}>
+                        <Button
+                          fullWidth
+                          size="small"
+                          variant="outlined"
+                          onClick={resetFilters}
+                          startIcon={<ClearIcon />}
+                          disabled={!userFilters.role && !userFilters.groupId && !userFilters.clusterId && !userFilters.cityId}
+                          sx={{
+                            height: 40,
+                            fontSize: { xs: '1rem', sm: '0.8rem' },
+                            borderColor: alpha(theme.palette.error.main, 0.5),
+                            color: theme.palette.error.main,
+                            '&:hover': {
+                              borderColor: theme.palette.error.main,
+                              backgroundColor: alpha(theme.palette.error.main, 0.05),
+                            },
+                          }}
+                        >
+                          Сбросить
+                        </Button>
+                      </Grid>
+                    </Grid>
+
+                    <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Найдено: {filteredUsers.length} из {users.length} пользователей
+                      </Typography>
+                      
+                      {(userFilters.role || userFilters.groupId || userFilters.clusterId || userFilters.cityId) && (
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {userFilters.role && (
+                            <Chip
+                              size="small"
+                              label={`Роль: ${getRoleName(userFilters.role)}`}
+                              onDelete={() => setUserFilters({ ...userFilters, role: '' })}
+                              sx={{
+                                backgroundColor: alpha(getRoleColor(userFilters.role), 0.1),
+                                color: getRoleColor(userFilters.role),
+                                '& .MuiChip-deleteIcon': {
+                                  color: getRoleColor(userFilters.role),
+                                },
+                              }}
+                            />
+                          )}
+                          {userFilters.groupId && (
+                            <Chip
+                              size="small"
+                              label={`Группа: ${groups.find(g => g.id === userFilters.groupId)?.name || ''}`}
+                              onDelete={() => setUserFilters({ ...userFilters, groupId: '' })}
+                            />
+                          )}
+                          {userFilters.clusterId && (
+                            <Chip
+                              size="small"
+                              label={`Куст: ${clusters.find(c => c.id === userFilters.clusterId)?.name || ''}`}
+                              onDelete={() => setUserFilters({ ...userFilters, clusterId: '' })}
+                            />
+                          )}
+                          {userFilters.cityId && (
+                            <Chip
+                              size="small"
+                              label={`Город: ${cities.find(c => c.id === userFilters.cityId)?.name || ''}`}
+                              onDelete={() => setUserFilters({ ...userFilters, cityId: '' })}
+                            />
+                          )}
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                </Fade>
+              )}
+            </Paper>
 
             <Grid container spacing={1.5}>
               {filteredUsers.map(user => (
@@ -2850,6 +2757,14 @@ const StaffPage: React.FC = () => {
             </Grid>
           </Box>
         )}
+
+        {/* Вкладка городов */}
+        {activeTab === 3 && (
+          <CitiesManagement onSuccess={() => {
+            loadCities();
+            loadAllData();
+          }} />
+        )}
       </Paper>
 
       {/* Модальное окно с деталями пользователя */}
@@ -2863,7 +2778,7 @@ const StaffPage: React.FC = () => {
             username: user.username,
             fullName: user.fullName,
             telegram: user.telegram,
-            city: user.city,
+            cityId: user.cityId,
             role: user.role,
             rate: user.rate,
           });
@@ -2875,6 +2790,7 @@ const StaffPage: React.FC = () => {
         onChangePassword={handleChangePassword}
         groups={groups}
         clusters={clusters}
+        cities={cities}
         users={users}
         loading={loading}
         getRoleColor={getRoleColor}
@@ -2890,7 +2806,7 @@ const StaffPage: React.FC = () => {
         loading={loading}
       />
 
-      {/* Остальные диалоги (создание, редактирование, удаление) */}
+      {/* Диалог создания пользователя */}
       <Dialog open={openCreateDialog} onClose={() => setOpenCreateDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Создать пользователя</DialogTitle>
         <DialogContent>
@@ -2939,7 +2855,6 @@ const StaffPage: React.FC = () => {
                   setNewUser({ 
                     ...newUser, 
                     role,
-                    // Очищаем ставку если выбрана роль без ставки
                     rate: (role === UserRole.OWNER || role === UserRole.ACCOUNTANT) ? 0 : newUser.rate
                   });
                 }}
@@ -2959,15 +2874,24 @@ const StaffPage: React.FC = () => {
               onChange={(e) => setNewUser({ ...newUser, telegram: e.target.value })}
               sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
             />
-            <TextField
-              label="Город"
-              fullWidth
-              value={newUser.city || ''}
-              onChange={(e) => setNewUser({ ...newUser, city: e.target.value })}
-              sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
-            />
+            <FormControl fullWidth>
+              <InputLabel>Город</InputLabel>
+              <Select
+                label="Город"
+                value={newUser.cityId || ''}
+                onChange={(e) => setNewUser({ ...newUser, cityId: Number(e.target.value) || undefined })}
+                sx={{ '& .MuiSelect-select': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
+              >
+                <MenuItem value="">-- Не выбран --</MenuItem>
+                {cities.filter(c => c.isActive).map((city) => (
+                  <MenuItem key={city.id} value={city.id} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>
+                    {city.name}
+                    {city.region ? ` (${city.region})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             
-            {/* Поле ставки - показываем только для ролей, которым нужна ставка */}
             {newUser.role !== UserRole.OWNER && newUser.role !== UserRole.ACCOUNTANT && (
               <TextField
                 label="Ставка за товар (₽)"
@@ -3019,7 +2943,6 @@ const StaffPage: React.FC = () => {
                   setEditUser({ 
                     ...editUser, 
                     role,
-                    // Очищаем ставку если выбрана роль без ставки
                     rate: (role === UserRole.OWNER || role === UserRole.ACCOUNTANT) ? 0 : editUser.rate
                   });
                 }}
@@ -3039,15 +2962,24 @@ const StaffPage: React.FC = () => {
               onChange={(e) => setEditUser({ ...editUser, telegram: e.target.value })}
               sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
             />
-            <TextField
-              label="Город"
-              fullWidth
-              value={editUser.city || ''}
-              onChange={(e) => setEditUser({ ...editUser, city: e.target.value })}
-              sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
-            />
+            <FormControl fullWidth>
+              <InputLabel>Город</InputLabel>
+              <Select
+                label="Город"
+                value={editUser.cityId || ''}
+                onChange={(e) => setEditUser({ ...editUser, cityId: Number(e.target.value) || undefined })}
+                sx={{ '& .MuiSelect-select': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
+              >
+                <MenuItem value="">-- Не выбран --</MenuItem>
+                {cities.filter(c => c.isActive).map((city) => (
+                  <MenuItem key={city.id} value={city.id} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>
+                    {city.name}
+                    {city.region ? ` (${city.region})` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             
-            {/* Поле ставки - показываем только для ролей, которым нужна ставка */}
             {editUser.role !== UserRole.OWNER && editUser.role !== UserRole.ACCOUNTANT && 
             openEditDialog?.role !== UserRole.OWNER && openEditDialog?.role !== UserRole.ACCOUNTANT && (
               <TextField
@@ -3114,7 +3046,7 @@ const StaffPage: React.FC = () => {
                 sx={{ '& .MuiSelect-select': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
               >
                 <MenuItem value={0} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>-- Выберите наставника --</MenuItem>
-                {availableMentors.map((mentor) => (
+                {users.filter(u => u.role === UserRole.MENTOR && !u.groupId).map((mentor) => (
                   <MenuItem key={mentor.id} value={mentor.id} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>
                     {mentor.fullName} ({mentor.username})
                   </MenuItem>
@@ -3197,7 +3129,7 @@ const StaffPage: React.FC = () => {
                 sx={{ '& .MuiSelect-select': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
               >
                 <MenuItem value={0} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>-- Выберите старшего продавца --</MenuItem>
-                {availableSeniorSellers.map((senior) => (
+                {users.filter(u => u.role === UserRole.SENIOR_SELLER && !u.clusterId).map((senior) => (
                   <MenuItem key={senior.id} value={senior.id} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>
                     {senior.fullName} ({senior.username})
                   </MenuItem>
@@ -3292,7 +3224,7 @@ const StaffPage: React.FC = () => {
                   sx={{ '& .MuiSelect-select': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
                 >
                   <MenuItem value={0} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>-- Не выбран --</MenuItem>
-                  {availableMentors.map((mentor) => (
+                  {users.filter(u => u.role === UserRole.MENTOR).map((mentor) => (
                     <MenuItem key={mentor.id} value={mentor.id} sx={{ fontSize: { xs: '1rem', sm: '0.9rem' } }}>
                       {mentor.fullName} ({mentor.username})
                       {mentor.groupId ? ' (есть группа)' : ' (без группы)'}
@@ -3504,6 +3436,7 @@ const StaffPage: React.FC = () => {
         accountantName={openAccountantAssignmentDialog.accountantName}
         onSuccess={handleAccountantAssignmentSuccess}
       />
+
       {/* Диалог назначения наставника группе */}
       <Dialog
         open={openAssignMentorDialog}
@@ -3659,6 +3592,7 @@ const StaffPage: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}

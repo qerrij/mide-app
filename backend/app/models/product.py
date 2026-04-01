@@ -1,7 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, Text, DateTime, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-import enum
 from app.database import Base
 
 
@@ -16,17 +15,17 @@ class Product(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
     
-    # Новые поля
-    default_rate = Column(Float, nullable=True, default=0.0)  # Ставка для товара (если None - используется ставка продавца)
-    city = Column(String, nullable=True)  # Город, для которого актуален товар (если None - для всех городов)
+    default_rate = Column(Float, nullable=True, default=0.0)
+    city_id = Column(Integer, ForeignKey("cities.id"), nullable=True)
     
     reports = relationship("ReportProduct", back_populates="product", cascade="all, delete-orphan")
     category = relationship("ProductCategory", backref="products")
+    city = relationship("City", backref="products")
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Уникальное ограничение: один SKU + один город
     __table_args__ = (
-        UniqueConstraint('sku', 'city', name='uq_product_sku_city'),
+        UniqueConstraint('sku', 'city_id', name='uq_product_sku_city_id'),
     )

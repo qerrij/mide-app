@@ -59,7 +59,8 @@ const transformUserFromApi = (user: any): User => {
     username: user.username,
     fullName: user.full_name,
     telegram: user.telegram,
-    city: user.city,
+    cityId: user.city_id,           // cityId вместо city
+    cityName: user.city_name,
     role: user.role,
     clusterId: user.cluster_id,
     groupId: user.group_id,

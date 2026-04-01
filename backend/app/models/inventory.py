@@ -37,9 +37,6 @@ class UserInventory(Base):
     __table_args__ = (
         {'extend_existing': True}
     )
-    
-    class Config:
-        unique_together = ('user_id', 'product_id')
 
 
 class InventoryReservation(Base):

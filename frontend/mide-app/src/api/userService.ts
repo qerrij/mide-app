@@ -3,7 +3,7 @@ import { User, CreateUserDto, UpdateUserDto, UserRole, Group, Cluster } from '..
 
 // Функция для трансформации snake_case в camelCase
 const transformUserFromApi = (user: any): User => {
-  // Исправленный парсинг admin_clusters
+  // Парсим admin_clusters
   let adminClusterIds: number[] = [];
   let accountantUserIds: number[] = [];
   
@@ -45,7 +45,8 @@ const transformUserFromApi = (user: any): User => {
     username: user.username,
     fullName: user.full_name,
     telegram: user.telegram,
-    city: user.city,
+    cityId: user.city_id,           // Только ID
+    cityName: user.city_name,       // Название для отображения
     role: user.role,
     clusterId: user.cluster_id,
     groupId: user.group_id,
@@ -81,8 +82,8 @@ const transformUserToApi = (user: CreateUserDto | UpdateUserDto): any => {
   if ('telegram' in user && user.telegram !== undefined) {
     transformed.telegram = user.telegram;
   }
-  if ('city' in user && user.city !== undefined) {
-    transformed.city = user.city;
+  if ('cityId' in user && user.cityId !== undefined) {
+    transformed.city_id = user.cityId;
   }
   if ('role' in user && user.role !== undefined) {
     transformed.role = user.role;
@@ -90,11 +91,35 @@ const transformUserToApi = (user: CreateUserDto | UpdateUserDto): any => {
   if ('rate' in user && user.rate !== undefined) {
     transformed.rate = user.rate;
   }
+  if ('clusterId' in user && user.clusterId !== undefined) {
+    transformed.cluster_id = user.clusterId;
+  }
+  if ('groupId' in user && user.groupId !== undefined) {
+    transformed.group_id = user.groupId;
+  }
+  if ('mentorId' in user && user.mentorId !== undefined) {
+    transformed.mentor_id = user.mentorId;
+  }
+  if ('seniorSellerId' in user && user.seniorSellerId !== undefined) {
+    transformed.senior_seller_id = user.seniorSellerId;
+  }
+  if ('adminId' in user && user.adminId !== undefined) {
+    transformed.admin_id = user.adminId;
+  }
+  if ('adminClusterIds' in user && user.adminClusterIds !== undefined) {
+    transformed.admin_clusters = user.adminClusterIds;
+  }
+  if ('accountantUserIds' in user && user.accountantUserIds !== undefined) {
+    transformed.accountant_user_ids = user.accountantUserIds;
+  }
+  if ('isActive' in user && user.isActive !== undefined) {
+    transformed.is_active = user.isActive;
+  }
   
   return transformed;
 };
 
-// Типы для ответов от новых эндпоинтов
+// Типы для ответов от эндпоинтов
 interface UserNameResponse {
   id: number;
   full_name: string;
@@ -105,16 +130,11 @@ interface UsersNamesResponse {
 }
 
 export const userService = {
-  // Получить всех пользователей
   getAllUsers: async (skip: number = 0, limit: number = 100): Promise<User[]> => {
     try {
       const response = await axiosInstance.get<any[]>('/api/users', {
         params: { skip, limit }
       });
-      
-      // Добавим отладочную информацию
-      console.log('Users response:', response.data);
-      
       return response.data.map(transformUserFromApi);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -122,44 +142,37 @@ export const userService = {
     }
   },
 
-  // Получить пользователя по ID
   getUserById: async (id: number): Promise<User> => {
     const response = await axiosInstance.get<any>(`/api/users/${id}`);
     return transformUserFromApi(response.data);
   },
 
-  // Создать пользователя
   createUser: async (userData: CreateUserDto): Promise<User> => {
     const transformedData = transformUserToApi(userData);
     const response = await axiosInstance.post<any>('/api/users', transformedData);
     return transformUserFromApi(response.data);
   },
 
-  // Обновить пользователя
   updateUser: async (id: number, userData: UpdateUserDto): Promise<User> => {
     const transformedData = transformUserToApi(userData);
     const response = await axiosInstance.put<any>(`/api/users/${id}`, transformedData);
     return transformUserFromApi(response.data);
   },
 
-  // Удалить пользователя
   deleteUser: async (id: number): Promise<void> => {
     await axiosInstance.delete(`/api/users/${id}`);
   },
 
-  // Получить доступных наставников (без группы)
   getAvailableMentors: async (): Promise<User[]> => {
     const response = await axiosInstance.get<any[]>('/api/users/available/mentors');
     return response.data.map(transformUserFromApi);
   },
 
-  // Получить доступных старших продавцов (без куста)
   getAvailableSeniorSellers: async (): Promise<User[]> => {
     const response = await axiosInstance.get<any[]>('/api/users/available/senior_sellers');
     return response.data.map(transformUserFromApi);
   },
 
-  // Получить продавцов без группы
   getSellersWithoutGroup: async (): Promise<User[]> => {
     const response = await axiosInstance.get<any[]>('/api/users', {
       params: { role: UserRole.SELLER }
@@ -168,10 +181,8 @@ export const userService = {
     return users.filter(user => !user.groupId);
   },
 
-  // Получить текущего пользователя
   getCurrentUser: async (): Promise<User> => {
     try {
-      // Используем эндпоинт /api/auth/me
       const response = await axiosInstance.get<any>('/api/auth/me');
       return transformUserFromApi(response.data.user);
     } catch (error) {
@@ -179,14 +190,12 @@ export const userService = {
     }
   },
   
-  // Получить ФИО пользователей по списку ID
   getUsersNames: async (userIds: number[]): Promise<{ [userId: number]: string }> => {
     try {
       if (userIds.length === 0) {
         return {};
       }
       
-      // Удаляем дубликаты и фильтруем валидные ID
       const uniqueIds: number[] = [];
       const seen = new Set<number>();
       for (const id of userIds) {
@@ -200,11 +209,7 @@ export const userService = {
         return {};
       }
       
-      // Преобразуем в строку через запятую
       const idsString = uniqueIds.join(',');
-      
-      console.log('Fetching user names for IDs:', idsString);
-      
       const response = await axiosInstance.get<UsersNamesResponse>(
         '/api/users/names',
         { 
@@ -213,11 +218,8 @@ export const userService = {
         }
       );
       
-      console.log('User names response:', response.data);
-      
       const result: { [userId: number]: string } = {};
       
-      // Обрабатываем ответ
       if (response.data && response.data.user_names) {
         for (const [key, value] of Object.entries(response.data.user_names)) {
           const userId = parseInt(key, 10);
@@ -227,7 +229,6 @@ export const userService = {
         }
       }
       
-      // Добавляем дефолтные значения для отсутствующих ID
       uniqueIds.forEach(userId => {
         if (!(userId in result)) {
           result[userId] = `Пользователь ${userId}`;
@@ -237,29 +238,19 @@ export const userService = {
       return result;
     } catch (error: any) {
       console.error('Error fetching user names:', error);
-      console.error('Error details:', error.response?.data);
-      
-      // Возвращаем дефолтные значения при ошибке
       const result: { [userId: number]: string } = {};
       userIds.forEach(userId => {
         result[userId] = `Пользователь ${userId}`;
       });
-      
       return result;
     }
   },
 
-  // Получить ФИО одного пользователя по ID
   getUserName: async (userId: number): Promise<string> => {
     try {
-      console.log(`Fetching user name for ID: ${userId}`);
-      
       const response = await axiosInstance.get<UserNameResponse>(
         `/api/users/${userId}/name`
       );
-      
-      console.log(`User name response for ${userId}:`, response.data);
-      
       return response.data.full_name;
     } catch (error: any) {
       console.error(`Error fetching user name for ID ${userId}:`, error);
@@ -267,9 +258,7 @@ export const userService = {
     }
   },
   
-  // Оптимизированная версия для получения одного имени (с кешированием)
   getCachedUserName: async (userId: number): Promise<string> => {
-    // Простая реализация кеширования в памяти
     const cacheKey = `user_name_${userId}`;
     const cached = sessionStorage.getItem(cacheKey);
     
@@ -279,22 +268,20 @@ export const userService = {
     
     try {
       const userName = await userService.getUserName(userId);
-      // Сохраняем в sessionStorage на время сессии
       sessionStorage.setItem(cacheKey, userName);
       return userName;
     } catch (error) {
       return `Пользователь ${userId}`;
     }
   },
-    getAllUsersBasic: async (): Promise<Array<{
+  
+  getAllUsersBasic: async (): Promise<Array<{
     id: number;
     fullName: string;
     role: UserRole;
   }>> => {
     try {
       const response = await axiosInstance.get<any[]>('/api/users/all-basic');
-      // console.log(response.data)
-      // Трансформируем из snake_case в camelCase
       return response.data.map(user => ({
         id: user.id,
         fullName: user.full_name,
@@ -305,6 +292,7 @@ export const userService = {
       throw error;
     }
   },
+  
   changeUserPassword: async (userId: number, newPassword: string): Promise<{ message: string }> => {
     try {
       const response = await axiosInstance.post<{ message: string }>(
@@ -317,63 +305,4 @@ export const userService = {
       throw error;
     }
   },
-};
-
-// Вспомогательные функции для работы со связями пользователей
-export const getUserRelations = (
-  user: User,
-  allUsers: User[],
-  groups: Group[],
-  clusters: Cluster[]
-) => {
-  const group = user.groupId ? groups.find(g => g.id === user.groupId) : null;
-  const cluster = user.clusterId ? clusters.find(c => c.id === user.clusterId) : null;
-  const mentor = user.mentorId ? allUsers.find(u => u.id === user.mentorId) : null;
-  const seniorSeller = user.seniorSellerId ? allUsers.find(u => u.id === user.seniorSellerId) : null;
-  
-  return {
-    group,
-    cluster,
-    mentor,
-    seniorSeller,
-    isInGroup: !!group,
-    isInCluster: !!cluster,
-    hasMentor: !!mentor,
-    hasSeniorSeller: !!seniorSeller,
-  };
-};
-
-export const getAvailableMentorsForAssignment = (allUsers: User[], groups: Group[]) => {
-  return allUsers.filter(u => 
-    u.role === UserRole.MENTOR && 
-    (!groups.some(g => g.mentorId === u.id)) // Наставник без группы
-  );
-};
-
-export const getAvailableSeniorSellersForAssignment = (allUsers: User[], clusters: Cluster[]) => {
-  return allUsers.filter(u => 
-    u.role === UserRole.SENIOR_SELLER && 
-    (!clusters.some(c => c.seniorSellerId === u.id)) // Старший продавец без куста
-  );
-};
-
-export const getSellersWithoutGroup = (allUsers: User[]) => {
-  return allUsers.filter(u => 
-    u.role === UserRole.SELLER && 
-    !u.groupId
-  );
-};
-
-export const getMentorsWithoutGroup = (allUsers: User[]) => {
-  return allUsers.filter(u => 
-    u.role === UserRole.MENTOR && 
-    !u.groupId
-  );
-};
-
-export const getSeniorSellersWithoutCluster = (allUsers: User[]) => {
-  return allUsers.filter(u => 
-    u.role === UserRole.SENIOR_SELLER && 
-    !u.clusterId
-  );
 };

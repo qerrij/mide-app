@@ -11,6 +11,7 @@ from app.crud.company import crud_company
 from app.crud.report import crud_report
 from app.crud.product import crud_product
 from app.crud.notification import crud_notification
+from app.models.city import City
 from app.models.product import Product
 from app.schemas.report import (
     ReportCreate, ReportUpdate, ReportResponse, 
@@ -756,8 +757,11 @@ def final_approve_report(
             accountant_city = None
             if report.accountant_reviewed_by:
                 accountant = db.query(User).filter(User.id == report.accountant_reviewed_by).first()
-                if accountant:
-                    accountant_city = accountant.city
+                if accountant and accountant.city_id:
+                    # Получаем город по city_id
+                    city = db.query(City).filter(City.id == accountant.city_id).first()
+                    if city:
+                        accountant_city = city.name
             
             # Добавляем деньги в общий банк
             description = f"Отчет №{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"

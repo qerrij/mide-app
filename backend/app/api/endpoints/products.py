@@ -1,10 +1,11 @@
+# endpoints/products.py
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.crud.product import crud_product
 from app.models.product import Product
-from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse, ProductCategory, ProductCategoryResponse
+from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse
 from app.api.dependencies import get_current_user, require_roles
 from app.models.user import UserRole
 
@@ -20,34 +21,16 @@ def create_product(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """
-    Создать новый товар
-    
-    """
+    """Создать новый товар"""
     try:
-        # Используем CRUD для создания
         product = crud_product.create(db=db, product_in=product_in)
         if not product:
             raise HTTPException(status_code=400, detail="Failed to create product")
         
-        # Возвращаем с category_name
-        return {
-            'id': product.id,
-            'name': product.name,
-            'category_id': product.category_id,
-            'price': product.price,
-            'sku': product.sku,
-            'description': product.description,
-            'is_active': product.is_active,
-            'default_rate': product.default_rate,  # Добавлено
-            'city': product.city,  # Добавлено
-            'created_at': product.created_at,
-            'updated_at': product.updated_at,
-            'category_name': product.category.name if product.category else None
-        }
+        # Pydantic сам сериализует все правильно
+        return product
         
     except ValueError as e:
-        # Обрабатываем ошибку дублирования SKU
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
@@ -62,33 +45,15 @@ def update_product(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """
-    Обновить товар
-    
-        """
+    """Обновить товар"""
     try:
         product = crud_product.update(db=db, product_id=product_id, product_in=product_in)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Возвращаем с category_name
-        return {
-            'id': product.id,
-            'name': product.name,
-            'category_id': product.category_id,
-            'price': product.price,
-            'sku': product.sku,
-            'description': product.description,
-            'is_active': product.is_active,
-            'default_rate': product.default_rate, 
-            'city': product.city, 
-            'created_at': product.created_at,
-            'updated_at': product.updated_at,
-            'category_name': product.category.name if product.category else None
-        }
+        return product
         
     except ValueError as e:
-        # Обрабатываем ошибку дублирования SKU
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -100,21 +65,19 @@ def delete_product(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """
-    Удалить товар (мягкое удаление)
-    
-    """
+    """Удалить товар (мягкое удаление)"""
     success = crud_product.delete(db=db, product_id=product_id)
     if not success:
         raise HTTPException(status_code=404, detail="Product not found")
     return None
+
 
 @router.get("", response_model=List[ProductResponse])
 def get_products(
     skip: int = 0,
     limit: int = 100,
     category_id: int = Query(None, description="ID категории для фильтрации"),
-    city: Optional[str] = Query(None, description="Город для фильтрации товаров"),
+    city_id: Optional[int] = Query(None, description="ID города для фильтрации товаров"),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -122,36 +85,19 @@ def get_products(
     Получить список товаров с фильтрацией по категории и городу
     """
     # Определяем город для фильтрации
-    filter_city = city
-    if not filter_city and current_user.city:
-        filter_city = current_user.city
+    filter_city_id = city_id
+    if not filter_city_id and current_user.city_id:
+        filter_city_id = current_user.city_id
     
     products = crud_product.get_all(
         db, 
         skip=skip, 
         limit=limit, 
         category_id=category_id,
-        city=filter_city
+        city_id=filter_city_id
     )
     
-    result = []
-    for product in products:
-        result.append({
-            'id': product.id,
-            'name': product.name,
-            'category_id': product.category_id,
-            'price': product.price,
-            'sku': product.sku,
-            'description': product.description,
-            'is_active': product.is_active,
-            'default_rate': product.default_rate,
-            'city': product.city,
-            'created_at': product.created_at,
-            'updated_at': product.updated_at,
-            'category_name': product.category.name if product.category else None
-        })
-    
-    return result
+    return products
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
@@ -160,27 +106,9 @@ def get_product(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    product = db.query(Product).options(
-        joinedload(Product.category)
-    ).filter(
-        Product.id == product_id,
-        Product.is_active == True
-    ).first()
+    product = crud_product.get(db, product_id)
     
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     
-    return {
-        'id': product.id,
-        'name': product.name,
-        'category_id': product.category_id,
-        'price': product.price,
-        'sku': product.sku,
-        'description': product.description,
-        'is_active': product.is_active,
-        'default_rate': product.default_rate,  # Добавить
-        'city': product.city,  # Добавить
-        'created_at': product.created_at,
-        'updated_at': product.updated_at,
-        'category_name': product.category.name if product.category else None
-    }
+    return product

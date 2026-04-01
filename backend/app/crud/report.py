@@ -17,7 +17,12 @@ class CRUDReport:
         """Получить отчет по ID"""
         return db.query(Report)\
             .options(
-                joinedload(Report.products).joinedload(ReportProduct.product),
+                joinedload(Report.products)
+                .joinedload(ReportProduct.product)
+                .joinedload(Product.category),
+                joinedload(Report.products)
+                .joinedload(ReportProduct.product)
+                .joinedload(Product.city),  # Загружаем city
                 joinedload(Report.seller),
                 joinedload(Report.accountant)
             )\
@@ -29,11 +34,16 @@ class CRUDReport:
         db: Session, 
         filters: ReportFilter,
         current_user: User
-    ) -> tuple[List[Report], int]:  # Изменяем возвращаемый тип на tuple
+    ) -> tuple[List[Report], int]:
         """Получить отчеты с фильтрацией и сортировкой по роли"""
         query = db.query(Report)\
             .options(
-                joinedload(Report.products).joinedload(ReportProduct.product),
+                joinedload(Report.products)
+                .joinedload(ReportProduct.product)
+                .joinedload(Product.category),
+                joinedload(Report.products)
+                .joinedload(ReportProduct.product)
+                .joinedload(Product.city),  # Загружаем city
                 joinedload(Report.seller),
                 joinedload(Report.accountant)
             )
@@ -284,11 +294,11 @@ class CRUDReport:
         
         # Сохраняем старые фотографии и добавляем новые (НЕ удаляем старые)
         existing_photos = db_report.transfer_photos or []
-        all_photos = existing_photos + photo_paths  # Объединяем старые и новые фото
+        all_photos = existing_photos + photo_paths
         
         # Обновляем отчет
         db_report.transfer_amount = report_in.transfer_amount
-        db_report.transfer_photos = all_photos  # Сохраняем все фото
+        db_report.transfer_photos = all_photos
         db_report.comment = report_in.comment
         db_report.accountant_amount = report_in.accountant_amount
         db_report.status = ReportStatus.AWAITING_ACCOUNTANT
@@ -363,6 +373,8 @@ class CRUDReport:
                 stats["rejected"] += 1
         
         return stats
+    
+    
 
 
 crud_report = CRUDReport()

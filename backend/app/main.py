@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.core.config import settings
-from app.api.endpoints import auth, users, products, reports, groups, clusters, assignments, categories, revisions, notifications, transfers, rejections, accountant_assignments, sold_products_stats
+from app.api.endpoints import auth, users, products, reports, groups, clusters, assignments, categories, revisions, notifications, transfers, rejections, accountant_assignments, sold_products_stats, cities
 from app.database import engine
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -41,6 +41,7 @@ app.include_router(assignments.router, prefix="/api")
 app.include_router(accountant_assignments.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(sold_products_stats.router, prefix="/api")
+app.include_router(cities.router, prefix="/api")
 app.include_router(rejections.router)
 
 app.include_router(transfers.router)

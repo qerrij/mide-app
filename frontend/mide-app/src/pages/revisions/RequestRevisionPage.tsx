@@ -91,8 +91,8 @@ useEffect(() => {
       // Собираем уникальные города
       const uniqueCities = Array.from(new Set(
         usersData
-          .filter(u => u.city && u.role !== UserRole.OWNER && u.role !== UserRole.ADMIN)
-          .map(u => u.city!)
+          .filter(u => u.cityName && u.role !== UserRole.OWNER && u.role !== UserRole.ADMIN)
+          .map(u => u.cityName!)
       ));
       setCities(uniqueCities);
       

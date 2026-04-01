@@ -2,19 +2,22 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.crud.company import crud_company
 from app.api.dependencies import get_current_user, require_roles
 from app.models.company import CompanyBalance
 from app.models.user import UserRole
+from app.models.user import User
 
 router = APIRouter(prefix="/company", tags=["company"])
 
 def get_user_city(current_user) -> Optional[str]:
     """Получить город пользователя из его данных"""
-    # Предполагаем, что у пользователя есть поле city
-    return getattr(current_user, 'city', None)
+    # Получаем город через связь city_ref
+    if current_user and current_user.city_ref:
+        return current_user.city_ref.name
+    return None
 
 @router.get("/balance")
 def get_company_balance(
@@ -79,7 +82,7 @@ def get_company_transactions(
     
     # Для бухгалтера - ограничиваем его городом
     if current_user.role == UserRole.ACCOUNTANT:
-        user_city = getattr(current_user, 'city', None)
+        user_city = get_user_city(current_user)
         if not user_city:
             raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
         city = user_city
@@ -152,7 +155,7 @@ def get_dashboard_data(
     
     # Для бухгалтера - ограничиваем его городом
     if current_user.role == UserRole.ACCOUNTANT:
-        user_city = getattr(current_user, 'city', None)
+        user_city = get_user_city(current_user)
         if not user_city:
             raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
         city = user_city
@@ -245,7 +248,7 @@ def get_dashboard_data(
         city=transactions_params.get('city'),
         date_from=transactions_params.get('date_from'),
         date_to=transactions_params.get('date_to'),
-        limit=transactions_limit  # Ограничиваем количество
+        limit=transactions_limit
     )
     
     transactions = []
@@ -277,7 +280,7 @@ def get_dashboard_data(
         "transactions": transactions,
         "history": history,
         "cities": cities,
-        "has_more": len(transactions) == transactions_limit  # Флаг, что есть еще данные
+        "has_more": len(transactions) == transactions_limit
     }
 
 @router.post("/add-income")
@@ -369,7 +372,7 @@ def get_company_stats(
     
     # Для бухгалтера - ограничиваем его городом
     if current_user.role == UserRole.ACCOUNTANT:
-        user_city = getattr(current_user, 'city', None)
+        user_city = get_user_city(current_user)
         if not user_city:
             raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
         city = user_city
@@ -416,14 +419,12 @@ def get_company_stats(
     
     # Запрос со всей статистикой
     query = db.query(
-        # Все доходы (сумма)
         func.sum(
             case(
                 (CompanyBalance.operation_type == 'INCOME', CompanyBalance.amount),
                 else_=0
             )
         ).label('total_income'),
-        # Доходы от отчетов (сумма)
         func.sum(
             case(
                 (and_(
@@ -433,21 +434,18 @@ def get_company_stats(
                 else_=0
             )
         ).label('report_income'),
-        # Расходы (сумма)
         func.sum(
             case(
                 (CompanyBalance.operation_type == 'EXPENSE', CompanyBalance.amount),
                 else_=0
             )
         ).label('total_expense'),
-        # Количество всех доходов
         func.sum(
             case(
                 (CompanyBalance.operation_type == 'INCOME', 1),
                 else_=0
             )
         ).label('income_count'),
-        # Количество доходов от отчетов
         func.sum(
             case(
                 (and_(
@@ -457,7 +455,6 @@ def get_company_stats(
                 else_=0
             )
         ).label('report_income_count'),
-        # Количество расходов
         func.sum(
             case(
                 (CompanyBalance.operation_type == 'EXPENSE', 1),
@@ -474,7 +471,6 @@ def get_company_stats(
     
     result = query.first()
     
-    # Извлекаем значения
     total_income = float(result[0] if result and result[0] is not None else 0)
     report_income = float(result[1] if result and result[1] is not None else 0)
     total_expense = float(result[2] if result and result[2] is not None else 0)
@@ -482,7 +478,6 @@ def get_company_stats(
     report_income_count = int(result[4] if result and result[4] is not None else 0)
     expense_count = int(result[5] if result and result[5] is not None else 0)
     
-    # Обычные доходы = все доходы - доходы от отчетов
     regular_income = total_income - report_income
     regular_income_count = income_count - report_income_count
     

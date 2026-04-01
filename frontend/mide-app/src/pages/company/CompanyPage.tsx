@@ -942,9 +942,9 @@ const CompanyPage: React.FC = () => {
 
   // Для бухгалтера принудительно устанавливаем его город
   useEffect(() => {
-    if (isAccountant && user && user.city) {
-      setSelectedCity(user.city);
-    } else if (isAccountant && user && !user.city) {
+    if (isAccountant && user && user.cityName) {
+      setSelectedCity(user.cityName);
+    } else if (isAccountant && user && !user.cityName) {
       console.error('У бухгалтера не назначен город');
     }
   }, [isAccountant, user]);
@@ -977,7 +977,7 @@ const CompanyPage: React.FC = () => {
       let params: any = {
         page: page,
         page_size: 50,
-        city: isAccountant && user?.city ? user.city : (selectedCity !== 'all' ? selectedCity : undefined),
+        city: isAccountant && user?.cityName ? user.cityName : (selectedCity !== 'all' ? selectedCity : undefined),
       };
 
       if (activeTab === 1) {
@@ -1067,8 +1067,8 @@ const CompanyPage: React.FC = () => {
     setLoadingBalance(true);
     try {
       let balanceData: { balance: number };
-      if (isAccountant && user?.city) {
-        balanceData = await companyService.getBalanceByCity(user.city);
+      if (isAccountant && user?.cityName) {
+        balanceData = await companyService.getBalanceByCity(user.cityName);
       } else if (selectedCity === 'all') {
         balanceData = await companyService.getBalance();
       } else {
@@ -1103,7 +1103,7 @@ const CompanyPage: React.FC = () => {
       
       const data = await companyService.getDashboardData({
         period,
-        city: isAccountant && user?.city ? user.city : (selectedCity !== 'all' ? selectedCity : undefined),
+        city: isAccountant && user?.cityName ? user.cityName : (selectedCity !== 'all' ? selectedCity : undefined),
         date,
         date_from,
         date_to,

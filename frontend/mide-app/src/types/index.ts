@@ -36,15 +36,16 @@ export interface User {
   username: string;
   fullName: string;
   telegram?: string;
-  city?: string;
+  cityId?: number;           // ID города
+  cityName?: string;         // Название города (только для отображения)
   role: UserRole;
-  rate?: number;  // Добавляем ставку пользователя
+  rate?: number;
   
   clusterId?: number;
   groupId?: number;
   mentorId?: number;
   seniorSellerId?: number;
-  adminId?: number;  // Добавляем adminId
+  adminId?: number;
   adminClusterIds?: number[];
   accountantUserIds?: number[];
   
@@ -52,7 +53,7 @@ export interface User {
   updatedAt?: Date;
   lastLogin?: Date;
   
-  // Дополнительные поля для отображения (с сервера)
+  // Дополнительные поля для отображения
   groupName?: string;
   clusterName?: string;
   mentorName?: string;
@@ -65,9 +66,9 @@ export interface CreateUserDto {
   password: string;
   fullName: string;
   telegram?: string;
-  city?: string;
+  cityId?: number;           // Только ID
   role: UserRole;
-  rate?: number;  // Добавляем ставку
+  rate?: number;
   clusterId?: number;
   groupId?: number;
   mentorId?: number;
@@ -81,9 +82,9 @@ export interface UpdateUserDto {
   password?: string;
   fullName?: string;
   telegram?: string;
-  city?: string;
+  cityId?: number;           // Только ID
   role?: UserRole;
-  rate?: number;  // Добавляем ставку
+  rate?: number;
   clusterId?: number;
   groupId?: number;
   mentorId?: number;
@@ -91,6 +92,7 @@ export interface UpdateUserDto {
   adminId?: number;
   adminClusterIds?: number[];
   accountantUserIds?: number[];
+  isActive?: boolean;
 }
 
 // ================ ТОВАРЫ ================

@@ -14,12 +14,11 @@ class UserRole(str, enum.Enum):
     ACCOUNTANT = "ACCOUNTANT"
 
 
-
 class UserBase(BaseModel):
     username: str
     full_name: str
     telegram: Optional[str] = None
-    city: Optional[str] = None
+    city_id: Optional[int] = None
     role: UserRole = UserRole.SELLER
     cluster_id: Optional[int] = None
     group_id: Optional[int] = None
@@ -43,7 +42,7 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     full_name: Optional[str] = None
     telegram: Optional[str] = None
-    city: Optional[str] = None
+    city_id: Optional[int] = None
     role: Optional[UserRole] = None
     password: Optional[str] = None
     cluster_id: Optional[int] = None
@@ -68,6 +67,10 @@ class UserResponse(UserBase):
     mentor_name: Optional[str] = None
     senior_seller_name: Optional[str] = None
     admin_name: Optional[str] = None
+    
+    # Информация о городе
+    city_name: Optional[str] = None
+    city_region: Optional[str] = None
     
     # Статистика для менторов и старших продавцов
     sellers_count: Optional[int] = 0
@@ -118,7 +121,8 @@ class UserResponse(UserBase):
         return v
     
     model_config = ConfigDict(from_attributes=True)
-    @field_validator('cluster_id', 'group_id', 'mentor_id', 'senior_seller_id')
+    
+    @field_validator('cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'city_id')
     @classmethod
     def validate_ids(cls, v):
         """Преобразуем 0 в None, чтобы избежать ForeignKeyViolation"""
@@ -149,12 +153,15 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
 
+
 class UserNameResponse(BaseModel):
     id: int
     full_name: str
 
+
 class UsersNamesResponse(BaseModel):
     user_names: Dict[str, str]
+
 
 class UserBasicResponse(BaseModel):
     id: int
@@ -162,6 +169,7 @@ class UserBasicResponse(BaseModel):
     role: UserRole
     
     model_config = ConfigDict(from_attributes=True)
+
 
 class UserPasswordChange(BaseModel):
     password: str

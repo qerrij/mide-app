@@ -6,6 +6,7 @@ from datetime import datetime
 from app.models.inventory import UserInventory, InventoryReservation, ReservationType, ReservationStatus
 from app.models.user import User, UserRole
 from app.models.product import Product
+from app.models.city import City
 
 
 class CRUDInventory:
@@ -69,7 +70,7 @@ class CRUDInventory:
             db.commit()
             db.refresh(inventory)
             return inventory
-        
+    
     def get_user_inventory_only(
         self, 
         db: Session, 
@@ -141,6 +142,22 @@ class CRUDInventory:
                         "created_at": res.created_at
                     })
             
+            # Получаем город товара
+            product_city = None
+            if inventory.product and inventory.product.city_id:
+                city = db.query(City).filter(City.id == inventory.product.city_id).first()
+                if city:
+                    product_city = city.name
+            
+            # Получаем город пользователя
+            user_city = None
+            user_city_id = None
+            if inventory.user and inventory.user.city_id:
+                city = db.query(City).filter(City.id == inventory.user.city_id).first()
+                if city:
+                    user_city = city.name
+                    user_city_id = city.id
+            
             items.append({
                 "id": inventory.id,
                 "user_id": inventory.user_id,
@@ -152,8 +169,10 @@ class CRUDInventory:
                 "product_name": inventory.product.name if inventory.product else None,
                 "product_sku": inventory.product.sku if inventory.product else None,
                 "product_price": inventory.product.price if inventory.product else None,
+                "product_city": product_city,
                 "user_name": inventory.user.full_name if inventory.user else None,
-                "user_city": inventory.user.city if inventory.user else None,
+                "user_city": user_city,
+                "user_city_id": user_city_id,
                 "created_at": inventory.created_at,
                 "updated_at": inventory.updated_at
             })
@@ -177,7 +196,7 @@ class CRUDInventory:
         user_filter: Optional[int] = None,
         category_filter: Optional[int] = None,
         product_filter: Optional[int] = None,
-        city_filter: Optional[str] = None
+        city_id: Optional[int] = None
     ) -> Dict:
         """Получить общее количество товаров у пользователя с учетом подчиненных"""
         user = db.query(User).filter(User.id == user_id).first()
@@ -205,14 +224,13 @@ class CRUDInventory:
                 user_filter=user_filter,
                 category_filter=category_filter,
                 product_filter=product_filter,
-                city_filter=city_filter
+                city_id=city_id
             )
         
         return {"quantity": 0, "items": [], "total_count": 0, "has_more": False}
     
     def _get_seller_inventory(self, db: Session, user_id: int) -> Dict:
         """Получение инвентаря для продавца (только свои товары)"""
-        # Получаем свои товары
         inventory_items = db.query(UserInventory).options(
             joinedload(UserInventory.product),
             joinedload(UserInventory.user)
@@ -222,8 +240,8 @@ class CRUDInventory:
         ).all()
         
         total_quantity = sum(item.quantity for item in inventory_items)
+        total_value = sum(item.quantity * (item.product.price if item.product else 0) for item in inventory_items)
         
-        # Получаем резервы для всех товаров
         items = []
         for inventory in inventory_items:
             reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
@@ -231,6 +249,22 @@ class CRUDInventory:
                 InventoryReservation.product_id == inventory.product_id,
                 InventoryReservation.status == ReservationStatus.ACTIVE
             ).scalar() or 0
+            
+            # Получаем город товара
+            product_city = None
+            if inventory.product and inventory.product.city_id:
+                city = db.query(City).filter(City.id == inventory.product.city_id).first()
+                if city:
+                    product_city = city.name
+            
+            # Получаем город пользователя
+            user_city = None
+            user_city_id = None
+            if inventory.user and inventory.user.city_id:
+                city = db.query(City).filter(City.id == inventory.user.city_id).first()
+                if city:
+                    user_city = city.name
+                    user_city_id = city.id
             
             items.append({
                 "id": inventory.id,
@@ -242,15 +276,17 @@ class CRUDInventory:
                 "product_name": inventory.product.name if inventory.product else None,
                 "product_sku": inventory.product.sku if inventory.product else None,
                 "product_price": inventory.product.price if inventory.product else None,
+                "product_city": product_city,
                 "user_name": inventory.user.full_name if inventory.user else None,
-                "user_city": inventory.user.city if inventory.user else None,
+                "user_city": user_city,
+                "user_city_id": user_city_id,
                 "created_at": inventory.created_at,
                 "updated_at": inventory.updated_at
             })
         
         return {
             "quantity": total_quantity,
-            "total_value": sum(item["quantity"] * (item["product_price"] or 0) for item in items),
+            "total_value": total_value,
             "items": items,
             "total_count": len(items),
             "has_more": False,
@@ -280,7 +316,6 @@ class CRUDInventory:
         total_quantity = sum(item.quantity for item in inventory_items)
         total_value = sum(item.quantity * (item.product.price if item.product else 0) for item in inventory_items)
         
-        # Получаем резервы для всех товаров
         items = []
         for inventory in inventory_items:
             reserved = db.query(func.sum(InventoryReservation.quantity)).filter(
@@ -288,6 +323,22 @@ class CRUDInventory:
                 InventoryReservation.product_id == inventory.product_id,
                 InventoryReservation.status == ReservationStatus.ACTIVE
             ).scalar() or 0
+            
+            # Получаем город товара
+            product_city = None
+            if inventory.product and inventory.product.city_id:
+                city = db.query(City).filter(City.id == inventory.product.city_id).first()
+                if city:
+                    product_city = city.name
+            
+            # Получаем город пользователя
+            user_city = None
+            user_city_id = None
+            if inventory.user and inventory.user.city_id:
+                city = db.query(City).filter(City.id == inventory.user.city_id).first()
+                if city:
+                    user_city = city.name
+                    user_city_id = city.id
             
             items.append({
                 "id": inventory.id,
@@ -299,8 +350,10 @@ class CRUDInventory:
                 "product_name": inventory.product.name if inventory.product else None,
                 "product_sku": inventory.product.sku if inventory.product else None,
                 "product_price": inventory.product.price if inventory.product else None,
+                "product_city": product_city,
                 "user_name": inventory.user.full_name if inventory.user else None,
-                "user_city": inventory.user.city if inventory.user else None,
+                "user_city": user_city,
+                "user_city_id": user_city_id,
                 "created_at": inventory.created_at,
                 "updated_at": inventory.updated_at
             })
@@ -349,6 +402,22 @@ class CRUDInventory:
                 InventoryReservation.status == ReservationStatus.ACTIVE
             ).scalar() or 0
             
+            # Получаем город товара
+            product_city = None
+            if inventory.product and inventory.product.city_id:
+                city = db.query(City).filter(City.id == inventory.product.city_id).first()
+                if city:
+                    product_city = city.name
+            
+            # Получаем город пользователя
+            user_city = None
+            user_city_id = None
+            if inventory.user and inventory.user.city_id:
+                city = db.query(City).filter(City.id == inventory.user.city_id).first()
+                if city:
+                    user_city = city.name
+                    user_city_id = city.id
+            
             items.append({
                 "id": inventory.id,
                 "user_id": inventory.user_id,
@@ -359,8 +428,10 @@ class CRUDInventory:
                 "product_name": inventory.product.name if inventory.product else None,
                 "product_sku": inventory.product.sku if inventory.product else None,
                 "product_price": inventory.product.price if inventory.product else None,
+                "product_city": product_city,
                 "user_name": inventory.user.full_name if inventory.user else None,
-                "user_city": inventory.user.city if inventory.user else None,
+                "user_city": user_city,
+                "user_city_id": user_city_id,
                 "created_at": inventory.created_at,
                 "updated_at": inventory.updated_at
             })
@@ -431,6 +502,22 @@ class CRUDInventory:
                 InventoryReservation.status == ReservationStatus.ACTIVE
             ).scalar() or 0
             
+            # Получаем город товара
+            product_city = None
+            if inventory.product and inventory.product.city_id:
+                city = db.query(City).filter(City.id == inventory.product.city_id).first()
+                if city:
+                    product_city = city.name
+            
+            # Получаем город пользователя
+            user_city = None
+            user_city_id = None
+            if inventory.user and inventory.user.city_id:
+                city = db.query(City).filter(City.id == inventory.user.city_id).first()
+                if city:
+                    user_city = city.name
+                    user_city_id = city.id
+            
             items.append({
                 "id": inventory.id,
                 "user_id": inventory.user_id,
@@ -441,8 +528,10 @@ class CRUDInventory:
                 "product_name": inventory.product.name if inventory.product else None,
                 "product_sku": inventory.product.sku if inventory.product else None,
                 "product_price": inventory.product.price if inventory.product else None,
+                "product_city": product_city,
                 "user_name": inventory.user.full_name if inventory.user else None,
-                "user_city": inventory.user.city if inventory.user else None,
+                "user_city": user_city,
+                "user_city_id": user_city_id,
                 "created_at": inventory.created_at,
                 "updated_at": inventory.updated_at
             })
@@ -465,7 +554,7 @@ class CRUDInventory:
         user_filter: Optional[int] = None,
         category_filter: Optional[int] = None,
         product_filter: Optional[int] = None,
-        city_filter: Optional[str] = None
+        city_id: Optional[int] = None
     ) -> Dict:
         """Получение инвентаря для владельца с пагинацией и статистикой"""
         # Базовый запрос с фильтрами
@@ -484,8 +573,8 @@ class CRUDInventory:
             base_query = base_query.filter(Product.category_id == category_filter)
         if product_filter:
             base_query = base_query.filter(UserInventory.product_id == product_filter)
-        if city_filter:
-            base_query = base_query.filter(User.city == city_filter)
+        if city_id:
+            base_query = base_query.filter(User.city_id == city_id)
         
         # Считаем статистику по всем данным (без пагинации)
         stats_result = base_query.with_entities(
@@ -540,6 +629,22 @@ class CRUDInventory:
             reserved = reserved_dict.get((inventory.user_id, inventory.product_id), 0)
             available = inventory.quantity - reserved
             
+            # Получаем город товара
+            product_city = None
+            if inventory.product and inventory.product.city_id:
+                city = db.query(City).filter(City.id == inventory.product.city_id).first()
+                if city:
+                    product_city = city.name
+            
+            # Получаем город пользователя
+            user_city = None
+            user_city_id = None
+            if inventory.user and inventory.user.city_id:
+                city = db.query(City).filter(City.id == inventory.user.city_id).first()
+                if city:
+                    user_city = city.name
+                    user_city_id = city.id
+            
             items.append({
                 "id": inventory.id,
                 "user_id": inventory.user_id,
@@ -550,8 +655,10 @@ class CRUDInventory:
                 "product_name": inventory.product.name,
                 "product_sku": inventory.product.sku,
                 "product_price": inventory.product.price,
+                "product_city": product_city,
                 "user_name": inventory.user.full_name,
-                "user_city": inventory.user.city,
+                "user_city": user_city,
+                "user_city_id": user_city_id,
                 "created_at": inventory.created_at,
                 "updated_at": inventory.updated_at
             })
@@ -874,7 +981,6 @@ class CRUDInventory:
         """
         from app.models.report import Report, ReportProduct
         from app.models.sold_product import SoldProduct, SaleType
-        from app.models.user import User
         
         report = db.query(Report).options(
             joinedload(Report.seller),
@@ -888,10 +994,17 @@ class CRUDInventory:
         if not seller:
             return 0
         
+        # Получаем город продавца
+        seller_city = None
+        if seller.city_id:
+            city = db.query(City).filter(City.id == seller.city_id).first()
+            if city:
+                seller_city = city.name
+        
         seller_data = {
             'seller_name': seller.full_name,
             'seller_role': seller.role.value if seller.role else None,
-            'seller_city': seller.city,
+            'seller_city': seller_city,
             'seller_cluster_id': seller.cluster_id,
             'seller_rate': seller.rate or 0.0
         }
@@ -1134,5 +1247,6 @@ class CRUDInventory:
             )
         
         return True
+
 
 crud_inventory = CRUDInventory()

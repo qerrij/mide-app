@@ -3,8 +3,10 @@ from typing import Optional, List
 from app.models.user import User, UserRole
 from app.models.group import Group
 from app.models.cluster import Cluster
+from app.models.city import City
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import get_password_hash, verify_password
+from app.crud.city import crud_city
 import json
 
 
@@ -71,6 +73,13 @@ class CRUDUser:
         if isinstance(user.admin_clusters, list):
             user.admin_clusters = [c for c in user.admin_clusters if c not in (0, None, "0")]
         
+        # Добавляем информацию о городе
+        if user.city_id:
+            city = db.query(City).filter(City.id == user.city_id).first()
+            if city:
+                user.city_name = city.name
+                user.city_region = city.region
+
         if user.group_id:
             group = db.query(Group).filter(Group.id == user.group_id).first()
             if group:
@@ -127,9 +136,13 @@ class CRUDUser:
         user_data = user_in.dict()
         
         # Преобразуем 0 в None для всех nullable foreign keys
-        for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id']:
+        for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id', 'city_id']:
             if field in user_data and user_data[field] == 0:
                 user_data[field] = None
+        
+        # Удаляем city, если есть (на случай если фронт еще отправляет)
+        if 'city' in user_data:
+            del user_data['city']
         
         # Обрабатываем admin_clusters
         admin_clusters = user_data.get('admin_clusters')
@@ -174,7 +187,7 @@ class CRUDUser:
             password_hash=get_password_hash(user_data['password']),
             full_name=user_data['full_name'],
             telegram=user_data.get('telegram'),
-            city=user_data.get('city'),
+            city_id=user_data.get('city_id'),
             role=user_data.get('role'),
             cluster_id=user_data.get('cluster_id'),
             group_id=user_data.get('group_id'),
@@ -205,9 +218,19 @@ class CRUDUser:
         update_data = user_in.dict(exclude_unset=True)
         
         # Преобразуем 0 в None для всех nullable foreign keys
-        for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id']:
+        for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id', 'city_id']:
             if field in update_data and update_data[field] == 0:
                 update_data[field] = None
+        
+        # Удаляем city, если есть
+        if 'city' in update_data:
+            del update_data['city']
+        
+        # Проверяем существование города, если передан city_id
+        if 'city_id' in update_data and update_data['city_id']:
+            city = crud_city.get(db, update_data['city_id'])
+            if not city:
+                raise ValueError(f"Город с ID {update_data['city_id']} не найден")
         
         # Обрабатываем admin_clusters
         if "admin_clusters" in update_data:
@@ -233,6 +256,8 @@ class CRUDUser:
                         update_data["admin_clusters"] = None
                 else:
                     update_data["admin_clusters"] = None
+            else:
+                update_data["admin_clusters"] = None
         else:
             # Если admin_clusters не передается, не меняем его
             if 'admin_clusters' in update_data:
@@ -406,5 +431,6 @@ class CRUDUser:
         except Exception as e:
             print(f"Error parsing admin_clusters: {e}")
             return []
+
 
 crud_user = CRUDUser()

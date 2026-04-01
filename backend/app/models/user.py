@@ -1,4 +1,3 @@
-# models/user.py
 import json
 from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean, ForeignKey, Float, Text
 from sqlalchemy.sql import func
@@ -24,7 +23,8 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
     telegram = Column(String, nullable=True)
-    city = Column(String, nullable=True)
+    # city = Column(String, nullable=True)  # УДАЛЕНО - больше не используется
+    city_id = Column(Integer, ForeignKey("cities.id"), nullable=True)
     role = Column(Enum(UserRole), nullable=False, default=UserRole.SELLER)
     rate = Column(Float, nullable=True, default=0.0)
     
@@ -88,6 +88,8 @@ class User(Base):
         cascade="all, delete-orphan"
     )
     
+    city_ref = relationship("City", back_populates="users")
+
     @property
     def admin_clusters(self):
         """Получить список ID кустов администратора"""

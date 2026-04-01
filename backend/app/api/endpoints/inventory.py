@@ -47,7 +47,7 @@ def get_company_total_inventory(
     user_id: Optional[int] = Query(None),
     category_id: Optional[int] = Query(None),
     product_id: Optional[int] = Query(None),
-    city: Optional[str] = Query(None),
+    city_id: Optional[int] = Query(None),  # Изменено с city на city_id
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -62,7 +62,7 @@ def get_company_total_inventory(
         user_filter=user_id,
         category_filter=category_id,
         product_filter=product_id,
-        city_filter=city
+        city_id=city_id  # Изменено
     )
     
     return result
@@ -74,9 +74,7 @@ def replenish_inventory(
     db: Session = Depends(get_db),
     current_user = Depends(require_role(UserRole.OWNER))
 ):
-    """
-    Пополнить инвентарь (только OWNER)
-    """
+    """Пополнить инвентарь (только OWNER)"""
     try:
         product_id = replenish_data.product_id
         quantity = replenish_data.quantity
@@ -98,23 +96,43 @@ def replenish_inventory(
                         detail=f"Для нового товара обязательно поле: {field}"
                     )
             
+            # Обрабатываем город
+            city_id = product_data.get('city_id')
+            if product_data.get('city') and not city_id:
+                from app.crud.city import crud_city
+                city = crud_city.get_or_create(db, product_data['city'], None)
+                city_id = city.id
+            
             # Создаем новый товар
+            from app.schemas.product import ProductCreate
             product_in = ProductCreate(
                 name=product_data['name'],
                 sku=product_data['sku'],
                 category_id=product_data['category_id'],
                 price=product_data['price'],
-                description=product_data.get('description')
+                description=product_data.get('description'),
+                default_rate=product_data.get('default_rate', 0.0),
+                city_id=city_id
             )
             
             product = crud_product.create(db, product_in=product_in)
             product_id = product.id
+            
+            # Получаем название города для ответа
+            city_name = None
+            if product.city_id:
+                from app.models.city import City
+                city = db.query(City).filter(City.id == product.city_id).first()
+                city_name = city.name if city else None
+            
             created_product = {
                 "id": product.id,
                 "name": product.name,
                 "sku": product.sku,
                 "price": product.price,
-                "category_id": product.category_id
+                "category_id": product.category_id,
+                "city_id": product.city_id,
+                "city_name": city_name
             }
         
         # Проверяем существование товара

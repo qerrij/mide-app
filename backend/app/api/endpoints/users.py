@@ -64,7 +64,6 @@ def get_users_names(
             User.is_active == True
         ).all()
         
-        
         # Возвращаем словарь {id: full_name}
         result = {}
         for user in users:
@@ -125,6 +124,7 @@ def get_user_name(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=error_msg
         )
+
 @router.get("/all-basic", response_model=List[UserBasicResponse])
 def get_all_users_basic(
     db: Session = Depends(get_db),
@@ -157,6 +157,7 @@ def read_users(
     mentor_id: Optional[int] = None,
     senior_seller_id: Optional[int] = None,
     admin_id: Optional[int] = None,
+    city_id: Optional[int] = None,  # Добавляем фильтр по городу
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -181,6 +182,8 @@ def read_users(
             query = query.filter(User.senior_seller_id == senior_seller_id)
         if admin_id:
             query = query.filter(User.admin_id == admin_id)
+        if city_id:
+            query = query.filter(User.city_id == city_id)
         
         users = query.offset(skip).limit(limit).all()
         
@@ -218,6 +221,8 @@ def read_users(
             query = query.filter(User.mentor_id == mentor_id)
         if senior_seller_id:
             query = query.filter(User.senior_seller_id == senior_seller_id)
+        if city_id:
+            query = query.filter(User.city_id == city_id)
         
         users = query.offset(skip).limit(limit).all()
         
@@ -241,6 +246,8 @@ def read_users(
         
         if role:
             query = query.filter(User.role == role)
+        if city_id:
+            query = query.filter(User.city_id == city_id)
         
         users = query.offset(skip).limit(limit).all()
         
@@ -261,6 +268,8 @@ def read_users(
         
         if role:
             query = query.filter(User.role == role)
+        if city_id:
+            query = query.filter(User.city_id == city_id)
         
         users = query.offset(skip).limit(limit).all()
         

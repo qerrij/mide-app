@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 import enum
@@ -18,8 +18,8 @@ class ProductBase(BaseModel):
     price: float
     sku: str
     description: Optional[str] = None
-    default_rate: Optional[float] = 0.0  # Добавляем ставку
-    city: Optional[str] = None  # Добавляем город
+    default_rate: Optional[float] = 0.0
+    city_id: Optional[int] = None
 
 
 class ProductCreate(ProductBase):
@@ -32,8 +32,8 @@ class ProductUpdate(BaseModel):
     price: Optional[float] = None
     sku: Optional[str] = None
     description: Optional[str] = None
-    default_rate: Optional[float] = None  # Добавляем ставку
-    city: Optional[str] = None  # Добавляем город
+    default_rate: Optional[float] = None
+    city_id: Optional[int] = None
     is_active: Optional[bool] = None
 
 
@@ -41,6 +41,7 @@ class ProductResponse(ProductBase):
     id: int
     is_active: bool
     category_name: Optional[str] = None
+    city_name: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
@@ -51,12 +52,28 @@ class ProductResponse(ProductBase):
         if v is not None:
             return v
         
-        if hasattr(info, 'data') and info.data:
-            if 'category' in info.data and info.data['category']:
-                if isinstance(info.data['category'], dict):
-                    return info.data['category'].get('name')
-                elif hasattr(info.data['category'], 'name'):
-                    return info.data['category'].name
+        data = info.data
+        if 'category' in data and data['category']:
+            if hasattr(data['category'], 'name'):
+                return data['category'].name
+            if isinstance(data['category'], dict):
+                return data['category'].get('name')
+        
+        return None
+    
+    @field_validator('city_name', mode='before')
+    @classmethod
+    def get_city_name(cls, v, info):
+        """Получить название города из relationship"""
+        if v is not None:
+            return v
+        
+        data = info.data
+        if 'city' in data and data['city']:
+            if hasattr(data['city'], 'name'):
+                return data['city'].name
+            if isinstance(data['city'], dict):
+                return data['city'].get('name')
         
         return None
     
@@ -73,11 +90,9 @@ class ProductResponse(ProductBase):
                     pass
         return v    
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
-# Схема для категорий (без изменений)
 class ProductCategoryBase(BaseModel):
     name: str
     description: Optional[str] = None

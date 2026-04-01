@@ -8,11 +8,13 @@ class InventoryItemBase(BaseModel):
     quantity: int
     reserved_quantity: int
     
+    
 class ReservationDetail(BaseModel):
     type: str  # Отчет, Перемещение, Брак, Ревизия
     id: int
     quantity: int
     created_at: datetime
+
 
 class InventoryItemResponse(BaseModel):
     id: int
@@ -25,8 +27,10 @@ class InventoryItemResponse(BaseModel):
     product_name: Optional[str] = None
     product_sku: Optional[str] = None
     product_price: Optional[float] = None
+    product_city: Optional[str] = None  # Город товара
     user_name: Optional[str] = None
     user_city: Optional[str] = None
+    user_city_id: Optional[int] = None  # ID города пользователя
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     
@@ -36,7 +40,12 @@ class InventoryItemResponse(BaseModel):
 
 class InventoryResponse(BaseModel):
     quantity: int
+    total_value: Optional[float] = None
     items: List[InventoryItemResponse]
+    total_count: int
+    has_more: bool
+    page: int
+    limit: int
 
 
 class ReplenishRequest(BaseModel):
@@ -56,6 +65,7 @@ class ReplenishResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
 
 class EditInventoryRequest(BaseModel):
     user_id: int

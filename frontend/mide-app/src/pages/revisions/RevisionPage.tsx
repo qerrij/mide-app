@@ -168,7 +168,7 @@ const RevisionsPage: React.FC = () => {
     } else if (revision.type === RevisionType.CLUSTER) {
       return user.clusterId === revision.targetClusterId;
     } else if (revision.type === RevisionType.CITY) {
-      return user.city === revision.targetCity;
+      return user.cityName === revision.targetCity;
     } else if (revision.type === RevisionType.GENERAL) {
       return true;
     }
