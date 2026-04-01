@@ -69,6 +69,104 @@ class CRUDInventory:
             db.commit()
             db.refresh(inventory)
             return inventory
+        
+    def get_user_inventory_only(
+        self, 
+        db: Session, 
+        user_id: int,
+        page: int = 0, 
+        limit: int = 100
+    ) -> Dict:
+        """
+        Получить инвентарь только конкретного пользователя (без подчиненных)
+        """
+        # Базовый запрос
+        base_query = db.query(UserInventory).options(
+            joinedload(UserInventory.product),
+            joinedload(UserInventory.user)
+        ).filter(
+            UserInventory.user_id == user_id,
+            UserInventory.quantity > 0
+        )
+        
+        # Считаем общее количество записей
+        total_count = base_query.count()
+        has_more = (page + 1) * limit < total_count
+        
+        # Получаем пагинированные данные
+        inventory_items = base_query.order_by(
+            UserInventory.id
+        ).offset(page * limit).limit(limit).all()
+        
+        total_quantity = sum(item.quantity for item in inventory_items)
+        total_value = sum(item.quantity * (item.product.price if item.product else 0) for item in inventory_items)
+        
+        # Получаем резервы для этих товаров
+        product_ids = [item.product_id for item in inventory_items]
+        
+        reservations = db.query(
+            InventoryReservation.user_id,
+            InventoryReservation.product_id,
+            func.sum(InventoryReservation.quantity).label('total_reserved')
+        ).filter(
+            InventoryReservation.user_id == user_id,
+            InventoryReservation.product_id.in_(product_ids),
+            InventoryReservation.status == ReservationStatus.ACTIVE
+        ).group_by(
+            InventoryReservation.user_id,
+            InventoryReservation.product_id
+        ).all()
+        
+        reserved_dict = {(r.user_id, r.product_id): r.total_reserved for r in reservations}
+        
+        items = []
+        for inventory in inventory_items:
+            reserved = reserved_dict.get((inventory.user_id, inventory.product_id), 0)
+            available = inventory.quantity - reserved
+            
+            # Получаем детали резервов
+            reserved_details = []
+            if reserved > 0:
+                product_reservations = db.query(InventoryReservation).filter(
+                    InventoryReservation.user_id == user_id,
+                    InventoryReservation.product_id == inventory.product_id,
+                    InventoryReservation.status == ReservationStatus.ACTIVE
+                ).all()
+                
+                for res in product_reservations:
+                    reserved_details.append({
+                        "type": res.reservation_type.value,
+                        "id": res.reservation_id,
+                        "quantity": res.quantity,
+                        "created_at": res.created_at
+                    })
+            
+            items.append({
+                "id": inventory.id,
+                "user_id": inventory.user_id,
+                "product_id": inventory.product_id,
+                "quantity": inventory.quantity,
+                "reserved_quantity": reserved,
+                "available_quantity": available,
+                "reserved_details": reserved_details,
+                "product_name": inventory.product.name if inventory.product else None,
+                "product_sku": inventory.product.sku if inventory.product else None,
+                "product_price": inventory.product.price if inventory.product else None,
+                "user_name": inventory.user.full_name if inventory.user else None,
+                "user_city": inventory.user.city if inventory.user else None,
+                "created_at": inventory.created_at,
+                "updated_at": inventory.updated_at
+            })
+        
+        return {
+            "quantity": total_quantity,
+            "total_value": total_value,
+            "items": items,
+            "total_count": total_count,
+            "has_more": has_more,
+            "page": page,
+            "limit": limit
+        }
     
     def get_total_inventory_for_user(
         self, 

@@ -24,7 +24,7 @@ def get_my_inventory(
     current_user = Depends(get_current_user)
 ):
     """Получить свой инвентарь"""
-    return crud_inventory.get_total_inventory_for_user(db, current_user.id)
+    return crud_inventory.get_user_inventory_only(db, current_user.id)
 
 
 @router.get("/user/{user_id}", response_model=InventoryResponse)
@@ -37,7 +37,7 @@ def get_user_inventory(
     if current_user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]:
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
-    return crud_inventory.get_total_inventory_for_user(db, user_id)
+    return crud_inventory.get_user_inventory_only(db, user_id)
 
 
 @router.get("/company-total", response_model=dict)
