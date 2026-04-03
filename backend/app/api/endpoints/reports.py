@@ -10,6 +10,7 @@ from app.crud.inventory import crud_inventory
 from app.crud.company import crud_company
 from app.crud.report import crud_report
 from app.crud.product import crud_product
+from app.crud.user_category_rate import crud_user_category_rate
 from app.crud.notification import crud_notification
 from app.models.city import City
 from app.models.product import Product
@@ -100,13 +101,28 @@ def _check_manager_access(db: Session, report: Report, user: User) -> bool:
 
 def _calculate_product_rate(db: Session, product: Product, seller: User) -> float:
     """
-    Рассчитать ставку для товара:
-    - Если у товара есть default_rate, используем его
-    - Иначе используем ставку продавца
+    Рассчитать ставку для товара в порядке приоритета:
+    1. Если у товара есть default_rate - используем его
+    2. Иначе если у продавца есть ставка для категории этого товара - используем её
+    3. Иначе ставка = 0
     """
+    # Приоритет 1: Ставка товара (если задана владельцем)
     if product.default_rate is not None and product.default_rate > 0:
         return product.default_rate
-    return seller.rate or 0.0
+    
+    # Приоритет 2: Ставка продавца для категории товара
+    category_id = product.category_id if product.category else None
+    if category_id:
+        category_rate = crud_user_category_rate.get_rate_for_product(
+            db, 
+            seller.id, 
+            category_id
+        )
+        if category_rate > 0:
+            return category_rate
+    
+    # Приоритет 3: Ставка 0
+    return 0.0
 
 
 # ==================== УВЕДОМЛЕНИЯ ====================

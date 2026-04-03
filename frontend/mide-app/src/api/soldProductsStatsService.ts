@@ -11,9 +11,8 @@ import {
   SoldProductsDashboardResponse,
 } from '../types';
 
-// Простой кэш для запросов
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 минут
+const CACHE_TTL = 5 * 60 * 1000;
 
 function getCached(key: string) {
   const cached = cache.get(key);
@@ -32,11 +31,11 @@ function clearCache() {
 }
 
 export const soldProductsStatsService = {
-  // Получить общую статистику
   async getOverview(params: {
     period: string;
     custom_start?: string;
     custom_end?: string;
+    city_id?: number;  // ДОБАВИТЬ
   }): Promise<SoldProductsOverviewResponse> {
     const cacheKey = `overview:${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
@@ -47,23 +46,52 @@ export const soldProductsStatsService = {
     return response.data;
   },
 
-  // Получить топ продавцов
-  async getTopSellers(params: {
+  async getTrend(params: {
     period: string;
-    limit?: number;
     custom_start?: string;
     custom_end?: string;
-  }): Promise<TopSellersSoldProductsResponse> {
-    const cacheKey = `top-sellers:${JSON.stringify(params)}`;
+    city_id?: number;  // ДОБАВИТЬ
+  }): Promise<SoldProductsTrendResponse> {
+    const cacheKey = `trend:${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('api/sold-products-stats/sellers/top', { params });
+    const response = await api.get('api/sold-products-stats/trend', { params });
     setCached(cacheKey, response.data);
     return response.data;
   },
 
-  // Получить детальную статистику продавца
+  async getTopProducts(params: {
+    period: string;
+    custom_start?: string;
+    custom_end?: string;
+    city_id?: number;  // ДОБАВИТЬ
+    limit?: number;
+  }): Promise<TopSoldProductsResponse> {
+    const cacheKey = `top-products:${JSON.stringify(params)}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const response = await api.get('api/sold-products-stats/products/top', { params });
+    setCached(cacheKey, response.data);
+    return response.data;
+  },
+
+  async getCategoriesStats(params: {
+    period: string;
+    custom_start?: string;
+    custom_end?: string;
+    city_id?: number;  // ДОБАВИТЬ
+  }): Promise<CategoriesSoldProductsResponse> {
+    const cacheKey = `categories:${JSON.stringify(params)}`;
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+
+    const response = await api.get('api/sold-products-stats/categories', { params });
+    setCached(cacheKey, response.data);
+    return response.data;
+  },
+
   async getSellerDetail(
     sellerId: number,
     params: {
@@ -81,110 +109,47 @@ export const soldProductsStatsService = {
     return response.data;
   },
 
-  // Получить топ товаров
-  async getTopProducts(params: {
+  async getCities(): Promise<{ cities: { id: number; name: string }[] }> {
+    const cacheKey = 'cities-list';
+    const cached = getCached(cacheKey);
+    if (cached) return cached;
+    
+    const response = await api.get('api/sold-products-stats/cities');
+    setCached(cacheKey, response.data);
+    return response.data;
+  },
+
+  async getSellers(params: {
     period: string;
+    custom_start?: string;
+    custom_end?: string;
+    city_id?: number;
     limit?: number;
-    custom_start?: string;
-    custom_end?: string;
-  }): Promise<TopSoldProductsResponse> {
-    const cacheKey = `top-products:${JSON.stringify(params)}`;
+    offset?: number;
+  }): Promise<any> {
+    const cacheKey = `sellers:${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
     if (cached) return cached;
-
-    const response = await api.get('api/sold-products-stats/products/top', { params });
+    
+    const response = await api.get('api/sold-products-stats/sellers', { params });
     setCached(cacheKey, response.data);
     return response.data;
   },
 
-  // Получить статистику по категориям
-  async getCategoriesStats(params: {
+  async getMyStats(params: {
     period: string;
     custom_start?: string;
     custom_end?: string;
-  }): Promise<CategoriesSoldProductsResponse> {
-    const cacheKey = `categories:${JSON.stringify(params)}`;
+  }): Promise<any> {
+    const cacheKey = `my-stats:${JSON.stringify(params)}`;
     const cached = getCached(cacheKey);
     if (cached) return cached;
-
-    const response = await api.get('api/sold-products-stats/categories', { params });
+    
+    const response = await api.get('api/sold-products-stats/my-stats', { params });
     setCached(cacheKey, response.data);
     return response.data;
   },
 
-  // Получить статистику по городам
-  async getCitiesStats(params: {
-    period: string;
-    custom_start?: string;
-    custom_end?: string;
-  }): Promise<CitiesSoldProductsResponse> {
-    const cacheKey = `cities:${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    const response = await api.get('api/sold-products-stats/cities', { params });
-    setCached(cacheKey, response.data);
-    return response.data;
-  },
-
-  // Получить ежедневную динамику
-  async getTrend(params: {
-    period: string;
-    custom_start?: string;
-    custom_end?: string;
-  }): Promise<SoldProductsTrendResponse> {
-    const cacheKey = `trend:${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    const response = await api.get('api/sold-products-stats/trend', { params });
-    setCached(cacheKey, response.data);
-    return response.data;
-  },
-
-  // Получить сравнение периодов
-  async getComparison(params: {
-    current_period: string;
-    previous_period: string;
-  }): Promise<SoldProductsComparisonResponse> {
-    const cacheKey = `comparison:${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    const response = await api.get('api/sold-products-stats/comparison', { params });
-    setCached(cacheKey, response.data);
-    return response.data;
-  },
-
-  // Получить полный дашборд
-  async getDashboard(params: {
-    period: string;
-    custom_start?: string;
-    custom_end?: string;
-  }): Promise<SoldProductsDashboardResponse> {
-    const cacheKey = `dashboard:${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    const response = await api.get('api/sold-products-stats/dashboard', { params });
-    setCached(cacheKey, response.data);
-    return response.data;
-  },
-
-  // Получить все данные для админа (только OWNER)
-  async getAllStatsAdmin(params: {
-    period: string;
-  }): Promise<SoldProductsDashboardResponse> {
-    const cacheKey = `admin-all:${JSON.stringify(params)}`;
-    const cached = getCached(cacheKey);
-    if (cached) return cached;
-
-    const response = await api.get('api/sold-products-stats/admin/all', { params });
-    setCached(cacheKey, response.data);
-    return response.data;
-  },
-
-  // Очистить кэш
   clearCache() {
     clearCache();
   }

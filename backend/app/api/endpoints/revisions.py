@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.crud.revision import crud_revision
 from app.models.revision import Revision, RevisionFilling
+from app.schemas.debt import DebtAdjustmentType, ManualDebtAdjustmentRequest
 from app.schemas.revision import (
     RevisionResponse, RevisionRequest, RevisionUpdate, 
     RevisionVerify,
@@ -975,40 +976,81 @@ def revert_revision_changes(
     
 # Удалите все модели DebtItem, UserDebtsResponse и т.д.
 
-# Простые эндпоинты без лишних моделей
+# ==================== ЭНДПОИНТЫ ДОЛГОВ ====================
+
 @router.get("/debts/my")
-def get_my_debts(
+def get_my_debt(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Получить долги текущего пользователя"""
+    """Получить долг текущего пользователя"""
     from app.crud.debt import crud_debt
     
-    debts = crud_debt.get_user_debts(db, current_user.id)
-    return debts
+    debt = crud_debt.get_user_debt_with_transactions(db, current_user.id)
+    
+    if not debt:
+        return {
+            'user_id': current_user.id,
+            'user_name': current_user.full_name,
+            'total_amount': 0,
+            'transactions': []
+        }
+    
+    for transaction in debt.transactions:
+        if transaction.performed_by_id:
+            performer = db.query(User).filter(User.id == transaction.performed_by_id).first()
+            transaction.performed_by_name = performer.full_name if performer else None
+    
+    return {
+        'user_id': debt.user_id,
+        'user_name': current_user.full_name,
+        'total_amount': debt.total_amount,
+        'transactions': debt.transactions
+    }
 
 
 @router.get("/debts/user/{user_id}")
-def get_user_debts(
+def get_user_debt_by_id(
     user_id: int,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Получить долги пользователя (только для руководителей)"""
+    """Получить долг пользователя по ID (только для руководителей)"""
     from app.crud.debt import crud_debt
     
-    # Проверяем права
     if current_user.id != user_id:
         if current_user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]:
             raise HTTPException(status_code=403, detail="Недостаточно прав")
     
-    debts = crud_debt.get_user_debts(db, user_id)
-    return debts
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    debt = crud_debt.get_user_debt_with_transactions(db, user_id)
+    
+    if not debt:
+        return {
+            'user_id': user_id,
+            'user_name': target_user.full_name,
+            'total_amount': 0,
+            'transactions': []
+        }
+    
+    for transaction in debt.transactions:
+        if transaction.performed_by_id:
+            performer = db.query(User).filter(User.id == transaction.performed_by_id).first()
+            transaction.performed_by_name = performer.full_name if performer else None
+    
+    return {
+        'user_id': debt.user_id,
+        'user_name': target_user.full_name,
+        'total_amount': debt.total_amount,
+        'transactions': debt.transactions
+    }
 
 
 @router.get("/debts/all")
 def get_all_debts(
-    role: Optional[str] = None,
     cluster_id: Optional[int] = None,
     group_id: Optional[int] = None,
     db: Session = Depends(get_db),
@@ -1017,38 +1059,65 @@ def get_all_debts(
     """Получить все долги (только для руководителей)"""
     from app.crud.debt import crud_debt
     
-    admin_clusters = None
+    if current_user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
     
-    # Если пользователь не OWNER, фильтруем по его подчиненным
-    if current_user.role == UserRole.ADMIN:
-        admin_clusters = getattr(current_user, 'admin_clusters', [])
-        if not admin_clusters:
-            return []
-    elif current_user.role == UserRole.SENIOR_SELLER:
+    if current_user.role == UserRole.SENIOR_SELLER:
         cluster_id = current_user.cluster_id
     elif current_user.role == UserRole.MENTOR:
         group_id = current_user.group_id
-    elif current_user.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR]:
-        raise HTTPException(status_code=403, detail="Недостаточно прав")
     
-    debts = crud_debt.get_all_debts(
-        db, 
-        role=role, 
-        cluster_id=cluster_id, 
-        group_id=group_id
-    )
-    
-    # Если админ, дополнительно фильтруем по его кустам
-    if admin_clusters:
-        debts = [d for d in debts if d.get('cluster_id') in admin_clusters]
-    
+    debts = crud_debt.get_all_debts(db, cluster_id=cluster_id, group_id=group_id)
     return debts
+
+
+@router.post("/debts/{user_id}/adjust")
+def manual_debt_adjustment(
+    user_id: int,
+    adjustment_data: ManualDebtAdjustmentRequest,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_roles([UserRole.OWNER]))
+):
+    """Ручная корректировка долга пользователя (только OWNER)"""
+    from app.crud.debt import crud_debt
+    
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    try:
+        old_debt = crud_debt.get_user_debt(db, user_id)
+        old_amount = old_debt.total_amount if old_debt else 0
+        
+        debt = crud_debt.manual_adjust_debt(
+            db,
+            user_id=user_id,
+            adjustment_type=adjustment_data.adjustment_type.value,
+            amount=adjustment_data.amount,
+            description=adjustment_data.description,
+            performed_by_id=current_user.id
+        )
+        
+        return {
+            'success': True,
+            'user_id': user_id,
+            'user_name': target_user.full_name,
+            'old_amount': old_amount,
+            'new_amount': debt.total_amount,
+            'change': adjustment_data.amount if adjustment_data.adjustment_type == DebtAdjustmentType.INCREASE else -adjustment_data.amount,
+            'adjustment_type': adjustment_data.adjustment_type,
+            'description': adjustment_data.description,
+            'performed_by': current_user.full_name,
+            'performed_at': datetime.now().isoformat()
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/debts/transactions")
 def get_debt_transactions(
     user_id: Optional[int] = None,
-    product_id: Optional[int] = None,
     limit: int = 100,
     skip: int = 0,
     db: Session = Depends(get_db),
@@ -1057,7 +1126,6 @@ def get_debt_transactions(
     """Получить историю транзакций долгов"""
     from app.crud.debt import crud_debt
     
-    # Проверка прав
     if user_id and user_id != current_user.id:
         if current_user.role not in [UserRole.OWNER, UserRole.ADMIN]:
             raise HTTPException(status_code=403, detail="Недостаточно прав")
@@ -1065,42 +1133,8 @@ def get_debt_transactions(
     transactions = crud_debt.get_debt_transactions(
         db,
         user_id=user_id,
-        product_id=product_id,
         limit=limit,
         skip=skip
     )
     
     return transactions
-
-
-@router.get("/debts/stats")
-def get_debt_statistics(
-    cluster_id: Optional[int] = None,
-    group_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_roles([UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER]))
-):
-    """Получить статистику по долгам"""
-    from app.crud.debt import crud_debt
-    
-    # Если пользователь не OWNER, ограничиваем доступ
-    if current_user.role == UserRole.ADMIN:
-        admin_clusters = getattr(current_user, 'admin_clusters', [])
-        if admin_clusters:
-            cluster_id = None
-        else:
-            return {
-                'total_debt_items': 0,
-                'total_quantity': 0,
-                'total_cost': 0,
-                'users_with_debt': 0,
-                'top_debtors': [],
-                'top_products': []
-            }
-    elif current_user.role == UserRole.SENIOR_SELLER:
-        cluster_id = current_user.cluster_id
-    elif current_user.role == UserRole.MENTOR:
-        group_id = current_user.group_id
-    
-    stats = crud_debt.get_debt_statistics(db, cluster_id=cluster_id, group_id=group_id)
-    return stats

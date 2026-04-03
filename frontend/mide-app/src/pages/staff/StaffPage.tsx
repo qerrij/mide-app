@@ -73,15 +73,18 @@ import {
   CreateGroupDto, 
   CreateClusterDto,
   UpdateGroupDto,
-  UpdateClusterDto
+  UpdateClusterDto,
+  UserCategoryRateCreate,
 } from '../../types';
 import { assignmentsService } from '../../api/assignmentsService';
 import { userService } from '../../api/userService';
 import { groupService } from '../../api/groupService';
 import { clusterService } from '../../api/clusterService';
 import { cityService, City } from '../../api/cityService';
+import { productService } from '../../api/productService';
 import AccountantAssignmentDialog from './AccountantAssignmentDialog';
 import CitiesManagement from '../../components/staff/CitiesManagement';
+import { UserCategoryRatesEditor } from '../../components/staff/UserCategoryRatesEditor';
 
 // iOS стили с улучшенной мобильной адаптацией
 const iOSStyles = {
@@ -398,10 +401,20 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               </Typography>
             )}
             
-            {user.rate && user.rate > 0 && (
-              <Typography variant="body2">
-                <strong>Ставка:</strong> {user.rate}₽
-              </Typography>
+            {/* Ставки по категориям для ADMIN */}
+            {user.categoryRates && user.categoryRates.length > 0 && (
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Ставки по категориям:
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {user.categoryRates.map(rate => (
+                    <Typography key={rate.category_id} variant="body2" sx={{ fontSize: '0.85rem' }}>
+                      • {rate.category_name || `Категория ${rate.category_id}`}: {rate.rate}₽
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
             )}
           </Stack>
         );
@@ -442,10 +455,20 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               </Typography>
             )}
             
-            {user.rate && user.rate > 0 && (
-              <Typography variant="body2">
-                <strong>Ставка:</strong> {user.rate}₽
-              </Typography>
+            {/* Ставки по категориям для SENIOR_SELLER */}
+            {user.categoryRates && user.categoryRates.length > 0 && (
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Ставки по категориям:
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {user.categoryRates.map(rate => (
+                    <Typography key={rate.category_id} variant="body2" sx={{ fontSize: '0.85rem' }}>
+                      • {rate.category_name || `Категория ${rate.category_id}`}: {rate.rate}₽
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
             )}
           </Stack>
         );
@@ -488,10 +511,20 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               <strong>Продавцов:</strong> {sellersCount}
             </Typography>
             
-            {user.rate && user.rate > 0 && (
-              <Typography variant="body2">
-                <strong>Ставка:</strong> {user.rate}₽
-              </Typography>
+            {/* Ставки по категориям для MENTOR */}
+            {user.categoryRates && user.categoryRates.length > 0 && (
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Ставки по категориям:
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {user.categoryRates.map(rate => (
+                    <Typography key={rate.category_id} variant="body2" sx={{ fontSize: '0.85rem' }}>
+                      • {rate.category_name || `Категория ${rate.category_id}`}: {rate.rate}₽
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
             )}
           </Stack>
         );
@@ -542,10 +575,20 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               </Typography>
             )}
             
-            {user.rate && user.rate > 0 && (
-              <Typography variant="body2">
-                <strong>Ставка:</strong> {user.rate}₽
-              </Typography>
+            {/* Ставки по категориям для SELLER */}
+            {user.categoryRates && user.categoryRates.length > 0 && (
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                  Ставки по категориям:
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {user.categoryRates.map(rate => (
+                    <Typography key={rate.category_id} variant="body2" sx={{ fontSize: '0.85rem' }}>
+                      • {rate.category_name || `Категория ${rate.category_id}`}: {rate.rate}₽
+                    </Typography>
+                  ))}
+                </Box>
+              </Box>
             )}
           </Stack>
         );
@@ -1637,8 +1680,10 @@ const StaffPage: React.FC = () => {
     cityId: undefined,
     rate: 0,
   });
+  const [newUserCategoryRates, setNewUserCategoryRates] = useState<UserCategoryRateCreate[]>([]);
 
   const [editUser, setEditUser] = useState<UpdateUserDto>({});
+  const [editUserCategoryRates, setEditUserCategoryRates] = useState<UserCategoryRateCreate[]>([]);
   const [showPassword, setShowPassword] = useState(false);
 
   const [newGroup, setNewGroup] = useState<CreateGroupDto>({
@@ -1883,15 +1928,16 @@ const StaffPage: React.FC = () => {
 
   // Управление пользователями
   const handleCreateUser = async () => {
-    const trimmedUser = {
+    const trimmedUser: CreateUserDto = {
       ...newUser,
       username: newUser.username?.trim(),
       fullName: newUser.fullName?.trim(),
       telegram: newUser.telegram?.trim(),
       password: newUser.password,
       role: newUser.role,
-      rate: newUser.rate,
+      rate: 0,
       cityId: newUser.cityId,
+      categoryRates: newUserCategoryRates,
     };
 
     if (!trimmedUser.username || !trimmedUser.fullName) {
@@ -1940,7 +1986,8 @@ const StaffPage: React.FC = () => {
     if (editUser.telegram !== undefined) trimmedEditUser.telegram = editUser.telegram?.trim();
     if (editUser.cityId !== undefined) trimmedEditUser.cityId = editUser.cityId;
     if (editUser.role !== undefined) trimmedEditUser.role = editUser.role;
-    if (editUser.rate !== undefined) trimmedEditUser.rate = editUser.rate;
+    if (editUser.rate !== undefined) trimmedEditUser.rate = 0;
+    trimmedEditUser.categoryRates = editUserCategoryRates;
 
     try {
       setLoading(true);
@@ -1948,6 +1995,7 @@ const StaffPage: React.FC = () => {
       await loadUsers();
       setOpenEditDialog(null);
       setEditUser({});
+      setEditUserCategoryRates([]);
       showSnackbar('Пользователь успешно обновлен', 'success');
     } catch (error: any) {
       console.error('Ошибка при обновлении пользователя:', error);
@@ -2008,6 +2056,7 @@ const StaffPage: React.FC = () => {
       cityId: undefined,
       rate: 0,
     });
+    setNewUserCategoryRates([]);
   };
 
   // Управление группами
@@ -2578,7 +2627,7 @@ const StaffPage: React.FC = () => {
                           disabled={!userFilters.role && !userFilters.groupId && !userFilters.clusterId && !userFilters.cityId}
                           sx={{
                             height: 40,
-                            fontSize: { xs: '1rem', sm: '0.8rem' },
+                            fontSize: { xs: '0.8rem', sm: '0.6rem' },
                             borderColor: alpha(theme.palette.error.main, 0.5),
                             color: theme.palette.error.main,
                             '&:hover': {
@@ -2587,7 +2636,6 @@ const StaffPage: React.FC = () => {
                             },
                           }}
                         >
-                          Сбросить
                         </Button>
                       </Grid>
                     </Grid>
@@ -2780,8 +2828,12 @@ const StaffPage: React.FC = () => {
             telegram: user.telegram,
             cityId: user.cityId,
             role: user.role,
-            rate: user.rate,
+            rate: 0,
           });
+          setEditUserCategoryRates(user.categoryRates?.map(cr => ({
+            category_id: cr.category_id,
+            rate: cr.rate,
+          })) || []);
         }}
         onDelete={(user) => setOpenDeleteDialog(user)}
         onAssign={openAssignmentDialog}
@@ -2893,13 +2945,9 @@ const StaffPage: React.FC = () => {
             </FormControl>
             
             {newUser.role !== UserRole.OWNER && newUser.role !== UserRole.ACCOUNTANT && (
-              <TextField
-                label="Ставка за товар (₽)"
-                type="number"
-                fullWidth
-                value={newUser.rate || ''}
-                onChange={(e) => setNewUser({ ...newUser, rate: Number(e.target.value) })}
-                sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
+              <UserCategoryRatesEditor
+                initialRates={newUserCategoryRates}
+                onChange={setNewUserCategoryRates}
               />
             )}
           </Box>
@@ -2982,13 +3030,9 @@ const StaffPage: React.FC = () => {
             
             {editUser.role !== UserRole.OWNER && editUser.role !== UserRole.ACCOUNTANT && 
             openEditDialog?.role !== UserRole.OWNER && openEditDialog?.role !== UserRole.ACCOUNTANT && (
-              <TextField
-                label="Ставка за товар (₽)"
-                type="number"
-                fullWidth
-                value={editUser.rate || ''}
-                onChange={(e) => setEditUser({ ...editUser, rate: Number(e.target.value) })}
-                sx={{ '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } } }}
+              <UserCategoryRatesEditor
+                initialRates={editUserCategoryRates}
+                onChange={setEditUserCategoryRates}
               />
             )}
           </Box>

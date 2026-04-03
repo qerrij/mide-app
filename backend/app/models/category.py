@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -13,6 +14,7 @@ class ProductCategory(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    user_rates = relationship("UserCategoryRate", back_populates="category")
     
     def __repr__(self):
         return f"<ProductCategory {self.name}>"

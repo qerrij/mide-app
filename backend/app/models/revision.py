@@ -37,6 +37,7 @@ class Revision(Base):
     target_group_id = Column(Integer, ForeignKey("groups.id"), nullable=True)
     target_cluster_id = Column(Integer, ForeignKey("clusters.id"), nullable=True)
     target_city = Column(String, nullable=True)  # Для ревизии по городу
+    # target_city_id = Column(Integer, ForeignKey("cities.id"), nullable=True)
     
     # Тип ревизии и статус
     type = Column(Enum(RevisionType), nullable=False)
@@ -64,6 +65,7 @@ class Revision(Base):
     target_group = relationship("Group", foreign_keys=[target_group_id])
     target_cluster = relationship("Cluster", foreign_keys=[target_cluster_id])
     verified_by = relationship("User", foreign_keys=[verified_by_id])
+    # target_city_ref = relationship("City", foreign_keys=[target_city_id])
     
     
     # Детали ревизии (связь один-ко-многим)

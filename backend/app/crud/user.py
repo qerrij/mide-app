@@ -1,13 +1,15 @@
+import json
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from app.models.user import User, UserRole
 from app.models.group import Group
 from app.models.cluster import Cluster
 from app.models.city import City
+from app.models.user_category_rate import UserCategoryRate
 from app.schemas.user import UserCreate, UserUpdate
 from app.core.security import get_password_hash, verify_password
 from app.crud.city import crud_city
-import json
+from app.crud.user_category_rate import crud_user_category_rate
 
 
 class CRUDUser:
@@ -38,7 +40,6 @@ class CRUDUser:
     
     def _enrich_user_data(self, db: Session, user: User):
         """Добавляем дополнительную информацию к пользователю"""
-        # Обрабатываем admin_clusters - преобразуем JSON строку в список
         if user.admin_clusters:
             if isinstance(user.admin_clusters, str):
                 try:
@@ -48,7 +49,6 @@ class CRUDUser:
                     else:
                         user.admin_clusters = []
                 except json.JSONDecodeError:
-                    # Если некорректный JSON, проверяем частные случаи
                     v_str = user.admin_clusters.strip()
                     if v_str == "{}":
                         user.admin_clusters = []
@@ -64,16 +64,13 @@ class CRUDUser:
                     else:
                         user.admin_clusters = []
             elif not isinstance(user.admin_clusters, list):
-                # Если это не строка и не список - делаем пустым списком
                 user.admin_clusters = []
         else:
             user.admin_clusters = []
         
-        # Фильтруем нулевые значения
         if isinstance(user.admin_clusters, list):
             user.admin_clusters = [c for c in user.admin_clusters if c not in (0, None, "0")]
         
-        # Добавляем информацию о городе
         if user.city_id:
             city = db.query(City).filter(City.id == user.city_id).first()
             if city:
@@ -113,48 +110,46 @@ class CRUDUser:
             user.sellers_count = sellers_count
         
         elif user.role == UserRole.SENIOR_SELLER:
-            # Группы в кусте
             groups_count = db.query(Group).filter(
                 Group.senior_seller_id == user.id,
                 Group.is_active == True
             ).count()
             user.groups_count = groups_count
             
-            # Продавцы в кусте
             sellers_count = db.query(User).filter(
                 User.senior_seller_id == user.id,
                 User.is_active == True
             ).count()
             user.sellers_count = sellers_count
+        
+        # Добавляем ставки по категориям
+        category_rates = crud_user_category_rate.get_by_user(db, user.id)
+        user.category_rates = category_rates
     
     def create(self, db: Session, user_in: UserCreate, created_by: Optional[int] = None) -> Optional[User]:
         existing_user = self.get_by_username(db, user_in.username)
         if existing_user:
             raise ValueError("User with this username already exists")
         
-        # Преобразуем 0 в None для полей с внешними ключами
-        user_data = user_in.dict()
+        user_data = user_in.dict(exclude={'category_rates'})
         
-        # Преобразуем 0 в None для всех nullable foreign keys
+        user_data['rate'] = 0.0
+        
         for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id', 'city_id']:
             if field in user_data and user_data[field] == 0:
                 user_data[field] = None
         
-        # Удаляем city, если есть (на случай если фронт еще отправляет)
         if 'city' in user_data:
             del user_data['city']
         
-        # Обрабатываем admin_clusters
         admin_clusters = user_data.get('admin_clusters')
         admin_clusters_str = None
         
         if admin_clusters and isinstance(admin_clusters, list):
-            # Фильтруем нули
             admin_clusters = [c for c in admin_clusters if c not in (0, None, "0")]
             if admin_clusters:
                 admin_clusters_str = json.dumps(admin_clusters)
         
-        # Только для продавца проверяем, если указан наставник
         if user_data.get('role') == UserRole.SELLER and user_data.get('mentor_id'):
             mentor = db.query(User).filter(
                 User.id == user_data['mentor_id'],
@@ -164,7 +159,6 @@ class CRUDUser:
             if not mentor:
                 raise ValueError(f"Mentor with ID {user_data['mentor_id']} not found or not a MENTOR")
         
-        # Для наставника: если указан куст, проверяем его существование
         if user_data.get('role') == UserRole.MENTOR and user_data.get('cluster_id'):
             cluster = db.query(Cluster).filter(
                 Cluster.id == user_data['cluster_id'],
@@ -173,7 +167,6 @@ class CRUDUser:
             if not cluster:
                 raise ValueError(f"Cluster with ID {user_data['cluster_id']} not found")
         
-        # Для старшего продавца: если указан куст, проверяем его существование
         if user_data.get('role') == UserRole.SENIOR_SELLER and user_data.get('cluster_id'):
             cluster = db.query(Cluster).filter(
                 Cluster.id == user_data['cluster_id'],
@@ -182,30 +175,55 @@ class CRUDUser:
             if not cluster:
                 raise ValueError(f"Cluster with ID {user_data['cluster_id']} not found")
         
-        db_user = User(
-            username=user_data['username'],
-            password_hash=get_password_hash(user_data['password']),
-            full_name=user_data['full_name'],
-            telegram=user_data.get('telegram'),
-            city_id=user_data.get('city_id'),
-            role=user_data.get('role'),
-            cluster_id=user_data.get('cluster_id'),
-            group_id=user_data.get('group_id'),
-            mentor_id=user_data.get('mentor_id'),
-            senior_seller_id=user_data.get('senior_seller_id'),
-            admin_clusters=admin_clusters_str,
-            is_active=True,
-            rate=user_data.get('rate', 0.0),
-        )
+        # Проверяем валидность категорий для ставок
+        if user_in.category_rates:
+            from app.models.product import ProductCategory
+            category_ids = [rate.category_id for rate in user_in.category_rates]
+            existing_categories = db.query(ProductCategory).filter(
+                ProductCategory.id.in_(category_ids)
+            ).all()
+            existing_category_ids = {c.id for c in existing_categories}
+            
+            for rate in user_in.category_rates:
+                if rate.category_id not in existing_category_ids:
+                    raise ValueError(f"Category with ID {rate.category_id} not found")
         
         try:
+            db_user = User(
+                username=user_data['username'],
+                password_hash=get_password_hash(user_data['password']),
+                full_name=user_data['full_name'],
+                telegram=user_data.get('telegram'),
+                city_id=user_data.get('city_id'),
+                role=user_data.get('role'),
+                cluster_id=user_data.get('cluster_id'),
+                group_id=user_data.get('group_id'),
+                mentor_id=user_data.get('mentor_id'),
+                senior_seller_id=user_data.get('senior_seller_id'),
+                admin_clusters=admin_clusters_str,
+                is_active=True,
+                rate=0.0
+            )
+            
             db.add(db_user)
+            db.flush()
+            
+            if user_in.category_rates:
+                for rate_data in user_in.category_rates:
+                    user_rate = UserCategoryRate(
+                        user_id=db_user.id,
+                        category_id=rate_data.category_id,
+                        rate=rate_data.rate
+                    )
+                    db.add(user_rate)
+            
             db.commit()
             db.refresh(db_user)
             
             self._enrich_user_data(db, db_user)
             
             return db_user
+            
         except Exception as e:
             db.rollback()
             raise ValueError(f"Failed to create user: {str(e)}")
@@ -215,28 +233,26 @@ class CRUDUser:
         if not db_user:
             return None
         
-        update_data = user_in.dict(exclude_unset=True)
+        update_data = user_in.dict(exclude_unset=True, exclude={'category_rates'})
         
-        # Преобразуем 0 в None для всех nullable foreign keys
+        if 'rate' in update_data:
+            update_data['rate'] = 0.0
+        
         for field in ['cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'admin_id', 'city_id']:
             if field in update_data and update_data[field] == 0:
                 update_data[field] = None
         
-        # Удаляем city, если есть
         if 'city' in update_data:
             del update_data['city']
         
-        # Проверяем существование города, если передан city_id
         if 'city_id' in update_data and update_data['city_id']:
             city = crud_city.get(db, update_data['city_id'])
             if not city:
                 raise ValueError(f"Город с ID {update_data['city_id']} не найден")
         
-        # Обрабатываем admin_clusters
         if "admin_clusters" in update_data:
             admin_clusters = update_data["admin_clusters"]
             if admin_clusters is not None:
-                # Фильтруем нули из admin_clusters
                 if isinstance(admin_clusters, list):
                     admin_clusters = [c for c in admin_clusters if c not in (0, None, "0")]
                     if admin_clusters:
@@ -244,7 +260,6 @@ class CRUDUser:
                     else:
                         update_data["admin_clusters"] = None
                 elif isinstance(admin_clusters, str):
-                    # Если это строка, проверяем валидный JSON
                     try:
                         parsed = json.loads(admin_clusters)
                         if isinstance(parsed, list):
@@ -259,7 +274,6 @@ class CRUDUser:
             else:
                 update_data["admin_clusters"] = None
         else:
-            # Если admin_clusters не передается, не меняем его
             if 'admin_clusters' in update_data:
                 del update_data['admin_clusters']
         
@@ -285,13 +299,20 @@ class CRUDUser:
         if "password" in update_data:
             update_data["password_hash"] = get_password_hash(update_data.pop("password"))
         
-        for field, value in update_data.items():
-            if field != "password": 
-                setattr(db_user, field, value)
-        
         try:
+            for field, value in update_data.items():
+                if field != "password":
+                    setattr(db_user, field, value)
+            
             db.commit()
             db.refresh(db_user)
+            
+            if user_in.category_rates is not None:
+                crud_user_category_rate.bulk_create_or_update(
+                    db, 
+                    user_id, 
+                    user_in.category_rates
+                )
             
             self._enrich_user_data(db, db_user)
             
@@ -314,7 +335,6 @@ class CRUDUser:
             if sellers_count > 0:
                 raise ValueError("Cannot delete mentor with active sellers. Reassign sellers first.")
             
-            # Проверяем, нет ли групп у этого наставника
             groups_count = db.query(Group).filter(
                 Group.mentor_id == user_id,
                 Group.is_active == True
@@ -324,7 +344,6 @@ class CRUDUser:
                 raise ValueError("Cannot delete mentor with active groups. Reassign groups first.")
         
         elif db_user.role == UserRole.SENIOR_SELLER:
-            # Проверяем, нет ли кустов у этого старшего продавца
             clusters_count = db.query(Cluster).filter(
                 Cluster.senior_seller_id == user_id,
                 Cluster.is_active == True
@@ -344,13 +363,11 @@ class CRUDUser:
         if not verify_password(password, user.password_hash):
             return None
         
-        # Обогащаем данные пользователя
         self._enrich_user_data(db, user)
         return user
     
     def update_last_login(self, db: Session, user_id: int) -> Optional[User]:
         from datetime import datetime
-        # Получаем пользователя БЕЗ вызова _enrich_user_data сначала
         db_user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
         if not db_user:
             return None
@@ -359,18 +376,15 @@ class CRUDUser:
         db.commit()
         db.refresh(db_user)
         
-        # Только теперь обогащаем данные
         self._enrich_user_data(db, db_user)
         return db_user
     
     def change_password(self, db: Session, user_id: int, new_password: str) -> Optional[User]:
-        """Изменить пароль пользователя"""
         try:
             user = self.get(db, user_id=user_id)
             if not user:
                 return None
             
-            # Хешируем новый пароль
             from app.core.security import get_password_hash
             user.password_hash = get_password_hash(new_password)
             
@@ -384,7 +398,6 @@ class CRUDUser:
             raise ValueError(f"Ошибка при смене пароля: {str(e)}")
         
     def get_admin_clusters(self, user: User) -> List[int]:
-        """Надежное получение списка кустов администратора"""
         if not user or user.role != UserRole.ADMIN:
             return []
         
@@ -392,25 +405,19 @@ class CRUDUser:
             return []
         
         try:
-            # Если это уже список
             if isinstance(user._admin_clusters, list):
                 return [c for c in user._admin_clusters if isinstance(c, int) and c > 0]
             
-            # Если это строка
             if isinstance(user._admin_clusters, str):
-                # Пустая строка
                 if not user._admin_clusters.strip():
                     return []
                 
-                # Пробуем распарсить JSON
                 try:
                     parsed = json.loads(user._admin_clusters)
                     if isinstance(parsed, list):
                         return [c for c in parsed if isinstance(c, int) and c > 0]
                     return []
                 except json.JSONDecodeError:
-                    # Если не JSON, проверяем другие форматы
-                    # Может быть строка вида "[1,2,3]"
                     cleaned = user._admin_clusters.strip().strip('[]').strip()
                     if cleaned:
                         parts = cleaned.split(',')
@@ -425,7 +432,6 @@ class CRUDUser:
                         return result
                     return []
             
-            # Если что-то другое
             return []
             
         except Exception as e:

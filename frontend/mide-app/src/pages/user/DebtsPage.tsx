@@ -6,10 +6,7 @@ import {
   Grid,
   Card,
   CardContent,
-  Chip,
   IconButton,
-  Collapse,
-  Divider,
   Stack,
   Alert,
   CircularProgress,
@@ -22,15 +19,14 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Chip,
 } from '@mui/material';
 import {
   TrendingDown as TrendingDownIcon,
   TrendingUp as TrendingUpIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   History as HistoryIcon,
-  Inventory as InventoryIcon,
-  AttachMoney as MoneyIcon,
+  Add as AddIcon,
+  Remove as RemoveIcon,
   Search as SearchIcon,
   Close as CloseIcon,
   ArrowBack as ArrowBackIcon,
@@ -38,44 +34,82 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { debtService } from '../../api/debtService';
-import { UserDebtsResponse, DebtItem, DebtHistoryItem, UserRole } from '../../types';
-
-interface UserDebtSummary {
-  user_id: number;
-  user_name: string;
-  user_role?: string;
-  total_quantity: number;
-  total_cost: number;
-}
+import { productService } from '../../api/productService';
+import { 
+  UserDebtResponse, 
+  DebtTransactionResponse, 
+  DebtTransactionType,
+  DebtAdjustmentType,
+  DebtSummary,
+  UserRole,
+  Product,
+  RevisionDebtDetails
+} from '../../types';
 
 const DebtsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [myDebts, setMyDebts] = useState<UserDebtsResponse | null>(null);
-  const [allDebts, setAllDebts] = useState<UserDebtSummary[]>([]);
-  const [selectedUser, setSelectedUser] = useState<UserDebtSummary | null>(null);
-  const [selectedUserDebts, setSelectedUserDebts] = useState<UserDebtsResponse | null>(null);
-  const [loadingUserDebts, setLoadingUserDebts] = useState(false);
-  const [expandedProduct, setExpandedProduct] = useState<number | null>(null);
+  const [myDebt, setMyDebt] = useState<UserDebtResponse | null>(null);
+  const [allDebts, setAllDebts] = useState<DebtSummary[]>([]);
+  const [selectedUser, setSelectedUser] = useState<DebtSummary | null>(null);
+  const [selectedUserDebt, setSelectedUserDebt] = useState<UserDebtResponse | null>(null);
+  const [loadingUserDebt, setLoadingUserDebt] = useState(false);
   const [transactionsDialog, setTransactionsDialog] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<DebtItem | null>(null);
+  const [selectedTransactions, setSelectedTransactions] = useState<DebtTransactionResponse[]>([]);
+  const [selectedUserName, setSelectedUserName] = useState('');
+  const [adjustDialog, setAdjustDialog] = useState(false);
+  const [adjustmentType, setAdjustmentType] = useState<DebtAdjustmentType>(DebtAdjustmentType.INCREASE);
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustDescription, setAdjustDescription] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [productCache, setProductCache] = useState<Map<number, Product>>(new Map());
 
+  const isOwner = user?.role === UserRole.OWNER;
   const isManager = user?.role && [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR].includes(user.role);
+  
+  const showMyDebt = !isOwner;
 
-  // Загрузка моих долгов
-  const loadMyDebts = async () => {
+  // Загрузка товара по ID и получение названия
+  const getProductName = async (productId: number): Promise<string> => {
+    if (productCache.has(productId)) {
+      return productCache.get(productId)!.name;
+    }
     try {
-      const data = await debtService.getMyDebts();
-      setMyDebts(data);
-    } catch (err: any) {
-      setError(err.message || 'Ошибка при загрузке долгов');
+      const product = await productService.getProductById(productId);
+      setProductCache(prev => new Map(prev).set(productId, product));
+      return product.name;
+    } catch (error) {
+      console.error(`Error loading product ${productId}:`, error);
+      return `Товар #${productId}`;
     }
   };
 
-  // Загрузка всех долгов (для руководителей)
+  // Обогащение транзакций названиями товаров
+  const enrichTransactionsWithProductNames = async (transactions: DebtTransactionResponse[]): Promise<DebtTransactionResponse[]> => {
+    const enriched = [...transactions];
+    for (const transaction of enriched) {
+      if (transaction.revision_details && transaction.revision_details.product_id) {
+        const productName = await getProductName(transaction.revision_details.product_id);
+        transaction.revision_details.product_name = productName;
+      }
+    }
+    return enriched;
+  };
+
+  const loadMyDebt = async () => {
+    if (!showMyDebt) return;
+    try {
+      const data = await debtService.getMyDebt();
+      const enrichedTransactions = await enrichTransactionsWithProductNames(data.transactions);
+      setMyDebt({ ...data, transactions: enrichedTransactions });
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при загрузке долга');
+    }
+  };
+
   const loadAllDebts = async () => {
     try {
       const data = await debtService.getAllDebts();
@@ -85,23 +119,63 @@ const DebtsPage: React.FC = () => {
     }
   };
 
-  // Загрузка детальных долгов пользователя
-  const loadUserDebts = async (userId: number) => {
+  const loadUserDebt = async (userId: number) => {
     try {
-      setLoadingUserDebts(true);
-      const data = await debtService.getUserDebts(userId);
-      setSelectedUserDebts(data);
+      setLoadingUserDebt(true);
+      const data = await debtService.getUserDebt(userId);
+      const enrichedTransactions = await enrichTransactionsWithProductNames(data.transactions);
+      setSelectedUserDebt({ ...data, transactions: enrichedTransactions });
     } catch (err: any) {
-      setError(err.message || 'Ошибка при загрузке долгов пользователя');
+      setError(err.message || 'Ошибка при загрузке долга пользователя');
     } finally {
-      setLoadingUserDebts(false);
+      setLoadingUserDebt(false);
     }
+  };
+
+  const handleManualAdjust = async () => {
+    if (!selectedUser) return;
+    if (!adjustAmount || parseFloat(adjustAmount) <= 0) {
+      setError('Введите корректную сумму');
+      return;
+    }
+    if (!adjustDescription.trim()) {
+      setError('Введите описание причины корректировки');
+      return;
+    }
+
+    setAdjusting(true);
+    try {
+      await debtService.manualAdjustDebt(selectedUser.user_id, {
+        adjustment_type: adjustmentType,
+        amount: parseFloat(adjustAmount),
+        description: adjustDescription,
+      });
+      
+      await loadUserDebt(selectedUser.user_id);
+      await loadAllDebts();
+      
+      setAdjustDialog(false);
+      setAdjustAmount('');
+      setAdjustDescription('');
+      setAdjustmentType(DebtAdjustmentType.INCREASE);
+      
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Ошибка при корректировке долга');
+    } finally {
+      setAdjusting(false);
+    }
+  };
+
+  const handleViewTransactions = (transactions: DebtTransactionResponse[], userName: string) => {
+    setSelectedTransactions(transactions);
+    setSelectedUserName(userName);
+    setTransactionsDialog(true);
   };
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await loadMyDebts();
+      await loadMyDebt();
       if (isManager) {
         await loadAllDebts();
       }
@@ -110,19 +184,13 @@ const DebtsPage: React.FC = () => {
     loadData();
   }, []);
 
-  // При выборе пользователя загружаем его долги
   useEffect(() => {
     if (selectedUser) {
-      loadUserDebts(selectedUser.user_id);
+      loadUserDebt(selectedUser.user_id);
     } else {
-      setSelectedUserDebts(null);
+      setSelectedUserDebt(null);
     }
   }, [selectedUser]);
-
-  const handleViewTransactions = (product: DebtItem) => {
-    setSelectedProduct(product);
-    setTransactionsDialog(true);
-  };
 
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);
@@ -139,16 +207,42 @@ const DebtsPage: React.FC = () => {
     return new Intl.NumberFormat('ru-RU').format(num);
   };
 
-  // Фильтрация пользователей для руководителя (исключаем самого себя)
+  const getTransactionIcon = (type: DebtTransactionType) => {
+    if (type === DebtTransactionType.REVISION || type === DebtTransactionType.MANUAL_INCREASE) {
+      return <TrendingDownIcon sx={{ fontSize: 18, color: '#f44336' }} />;
+    }
+    return <TrendingUpIcon sx={{ fontSize: 18, color: '#4caf50' }} />;
+  };
+
+  const getTransactionTypeText = (type: DebtTransactionType): string => {
+    if (type === DebtTransactionType.REVISION) return 'Ревизия';
+    if (type === DebtTransactionType.MANUAL_INCREASE) return 'Ручное увеличение';
+    return 'Ручное уменьшение';
+  };
+
+  const getTransactionDescription = (transaction: DebtTransactionResponse): string => {
+    if (transaction.transaction_type === DebtTransactionType.REVISION) {
+      if (transaction.revision_details) {
+        const details = transaction.revision_details;
+        const productName = details.product_name || `Товар #${details.product_id}`;
+        return `${details.quantity} шт. товара "${productName}" на сумму ${formatNumber(details.total)} ₽`;
+      }
+      return `Увеличение долга на ${formatNumber(transaction.amount_change)} ₽`;
+    }
+    if (transaction.transaction_type === DebtTransactionType.MANUAL_INCREASE) {
+      return transaction.manual_description || 'Без описания';
+    }
+    return transaction.manual_description || 'Без описания';
+  };
+
   const filteredUsers = allDebts.filter(u => 
     u.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) && 
     u.user_id !== user?.id
   );
 
-  // Текущие отображаемые долги
-  const currentDebts = selectedUserDebts || myDebts;
-  const hasDebts = currentDebts && currentDebts.total_quantity > 0;
-  const isLoadingDebts = selectedUser ? loadingUserDebts : false;
+  const currentDebt = selectedUserDebt || (showMyDebt ? myDebt : null);
+  const hasDebt = currentDebt && currentDebt.total_amount > 0;
+  const isLoadingDebt = selectedUser ? loadingUserDebt : false;
 
   if (loading) {
     return (
@@ -166,34 +260,27 @@ const DebtsPage: React.FC = () => {
     <Box sx={{ minHeight: '100vh', py: 3, backgroundColor: '#f5f3f6' }}>
       <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 3, md: 4 } }}>
         
-        {/* Шапка */}
         <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
-            {selectedUser && (
-              <IconButton 
-                onClick={() => setSelectedUser(null)}
-                sx={{ 
-                  bgcolor: '#f5f3f6',
-                  '&:hover': { bgcolor: '#e9e6f0' }
-                }}
-              >
-                <ArrowBackIcon sx={{ color: '#674fb6' }} />
-              </IconButton>
-            )}
-            <Typography variant="h5" component="h1" color="#2a0f35" fontWeight={600}>
-              {selectedUser 
-                ? `Долги: ${selectedUser.user_name}`
-                : 'Мои долги'
-              }
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {selectedUser && (
+                <IconButton 
+                  onClick={() => setSelectedUser(null)}
+                  sx={{ 
+                    bgcolor: '#f5f3f6',
+                    '&:hover': { bgcolor: '#e9e6f0' }
+                  }}
+                >
+                  <ArrowBackIcon sx={{ color: '#674fb6' }} />
+                </IconButton>
+              )}
+              <Typography variant="h5" component="h1" color="#2a0f35" fontWeight={600}>
+                {selectedUser 
+                  ? `Долг: ${selectedUser.user_name}`
+                  : showMyDebt ? 'Мой долг' : 'Долги сотрудников'}
+              </Typography>
+            </Box>
           </Box>
-          {currentDebts && (
-            <Typography variant="body2" color="#4c5454">
-              {hasDebts 
-                ? `Всего в долге ${currentDebts.total_quantity} шт. на сумму ${formatNumber(currentDebts.total_cost)} ₽`
-                : 'Нет активных долгов'}
-            </Typography>
-          )}
         </Box>
 
         {error && (
@@ -206,48 +293,83 @@ const DebtsPage: React.FC = () => {
           </Alert>
         )}
 
-        {/* Статистика */}
-        {hasDebts && (
-          <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid size={{ xs: 6 }}>
-              <Paper
-                sx={{
-                  p: 2,
-                  borderRadius: 3,
-                  backgroundColor: '#ffffff',
-                  boxShadow: '0 2px 8px rgba(106, 61, 122, 0.08)',
-                  textAlign: 'center',
-                }}
-              >
-                <InventoryIcon sx={{ fontSize: 28, color: '#674fb6', mb: 0.5 }} />
-                <Typography variant="h4" fontWeight={700} color="#2a0f35">
-                  {formatNumber(currentDebts.total_quantity)}
+        {/* Блок с суммой долга и кнопками (только для выбранного пользователя и OWNER) */}
+        {selectedUser && isOwner && (
+          <Paper
+            sx={{
+              p: 3,
+              mb: 3,
+              borderRadius: 3,
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+            }}
+          >
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+              <Box>
+                <Typography variant="body2" color="#4c5454" gutterBottom>
+                  Текущий долг
                 </Typography>
-                <Typography variant="caption" color="#4c5454">
-                  единиц в долге
+                <Typography variant="h3" fontWeight={700} color={currentDebt && currentDebt.total_amount > 0 ? '#f44336' : '#4caf50'}>
+                  {formatNumber(currentDebt?.total_amount || 0)} ₽
                 </Typography>
-              </Paper>
-            </Grid>
-            <Grid size={{ xs: 6 }}>
-              <Paper
-                sx={{
-                  p: 2,
-                  borderRadius: 3,
-                  backgroundColor: '#ffffff',
-                  boxShadow: '0 2px 8px rgba(106, 61, 122, 0.08)',
-                  textAlign: 'center',
-                }}
-              >
-                <MoneyIcon sx={{ fontSize: 28, color: '#674fb6', mb: 0.5 }} />
-                <Typography variant="h4" fontWeight={700} color="#2a0f35">
-                  {formatNumber(currentDebts.total_cost)} ₽
-                </Typography>
-                <Typography variant="caption" color="#4c5454">
-                  общая сумма
-                </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    setAdjustmentType(DebtAdjustmentType.INCREASE);
+                    setAdjustDialog(true);
+                  }}
+                  sx={{
+                    bgcolor: '#f44336',
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    '&:hover': { bgcolor: '#d32f2f' }
+                  }}
+                >
+                  Увеличить долг
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<RemoveIcon />}
+                  onClick={() => {
+                    setAdjustmentType(DebtAdjustmentType.DECREASE);
+                    setAdjustDialog(true);
+                  }}
+                  sx={{
+                    bgcolor: '#4caf50',
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    '&:hover': { bgcolor: '#388e3c' }
+                  }}
+                >
+                  Уменьшить долг
+                </Button>
+              </Box>
+            </Box>
+          </Paper>
+        )}
+
+        {/* Для не-OWNER показываем просто сумму долга */}
+        {selectedUser && !isOwner && currentDebt && currentDebt.total_amount > 0 && (
+          <Paper
+            sx={{
+              p: 3,
+              mb: 3,
+              borderRadius: 3,
+              backgroundColor: '#ffffff',
+              boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
+              textAlign: 'center',
+            }}
+          >
+            <Typography variant="body2" color="#4c5454" gutterBottom>
+              Текущий долг
+            </Typography>
+            <Typography variant="h3" fontWeight={700} color="#f44336">
+              {formatNumber(currentDebt.total_amount)} ₽
+            </Typography>
+          </Paper>
         )}
 
         {/* Для руководителей - список подчиненных */}
@@ -263,7 +385,7 @@ const DebtsPage: React.FC = () => {
           >
             <Box sx={{ mb: 2 }}>
               <Typography variant="subtitle1" fontWeight={600} color="#2a0f35">
-                Подчиненные с долгами
+                Сотрудники с долгами
               </Typography>
               <Typography variant="caption" color="#4c5454">
                 {filteredUsers.length} человек
@@ -291,7 +413,7 @@ const DebtsPage: React.FC = () => {
             />
 
             <Stack spacing={1}>
-              {filteredUsers.map((debtor: UserDebtSummary) => (
+              {filteredUsers.map((debtor) => (
                 <Card
                   key={debtor.user_id}
                   onClick={() => setSelectedUser(debtor)}
@@ -316,16 +438,16 @@ const DebtsPage: React.FC = () => {
                             {debtor.user_name}
                           </Typography>
                           <Typography variant="caption" color="#4c5454">
-                            {debtor.total_quantity} шт. • {formatNumber(debtor.total_cost)} ₽
+                            Долг: {formatNumber(debtor.total_amount)} ₽
                           </Typography>
                         </Box>
                       </Box>
                       <Chip
-                        label={`${debtor.total_quantity} шт.`}
+                        label={`${formatNumber(debtor.total_amount)} ₽`}
                         size="small"
                         sx={{
-                          backgroundColor: '#f4433615',
-                          color: '#f44336',
+                          backgroundColor: debtor.total_amount > 0 ? '#f4433615' : '#4caf5015',
+                          color: debtor.total_amount > 0 ? '#f44336' : '#4caf50',
                           fontWeight: 500,
                           borderRadius: 2,
                         }}
@@ -336,19 +458,19 @@ const DebtsPage: React.FC = () => {
               ))}
               {filteredUsers.length === 0 && (
                 <Typography variant="body2" color="#4c5454" textAlign="center" py={3}>
-                  {searchTerm ? 'Ничего не найдено' : 'Нет подчиненных с долгами'}
+                  {searchTerm ? 'Ничего не найдено' : 'Нет сотрудников с долгами'}
                 </Typography>
               )}
             </Stack>
           </Paper>
         )}
 
-        {/* Список долгов (карточки товаров) */}
-        {isLoadingDebts ? (
+        {/* История транзакций - сетка карточек */}
+        {isLoadingDebt ? (
           <Box display="flex" justifyContent="center" py={4}>
             <CircularProgress sx={{ color: '#674fb6' }} />
           </Box>
-        ) : !hasDebts ? (
+        ) : !currentDebt || currentDebt.transactions.length === 0 ? (
           <Paper
             sx={{
               p: 6,
@@ -358,271 +480,225 @@ const DebtsPage: React.FC = () => {
               boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
             }}
           >
-            <TrendingUpIcon sx={{ fontSize: 64, color: '#4caf50', mb: 2 }} />
             <Typography variant="h6" color="#2a0f35" fontWeight={500} gutterBottom>
-              Нет долгов
+              Нет истории операций
             </Typography>
             <Typography variant="body2" color="#4c5454">
-              Все остатки соответствуют инвентарю
+              {hasDebt 
+                ? 'Долг был создан, но история операций отсутствует'
+                : 'Нет долгов и истории операций'}
             </Typography>
           </Paper>
         ) : (
-          <Stack spacing={1.5}>
-            {currentDebts.items?.map((item: DebtItem) => {
-              const isExpanded = expandedProduct === item.product_id;
-
-              return (
-                <Card
-                  key={item.product_id}
-                  sx={{
-                    borderRadius: 3,
-                    backgroundColor: '#ffffff',
-                    boxShadow: '0 4px 12px rgba(106, 61, 122, 0.1)',
-                    transition: 'all 0.2s ease',
-                    '&:hover': {
-                      boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
-                    },
-                    border: '1px solid rgba(244, 67, 54, 0.2)',
-                  }}
-                >
-                  <CardContent sx={{ p: 2.5 }}>
-                    {/* Заголовок товара */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="subtitle1" fontWeight={600} color="#2a0f35">
-                          {item.product_name}
-                        </Typography>
-                        <Typography variant="caption" color="#4c5454">
-                          {item.product_sku}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        label={`${item.quantity} шт.`}
-                        size="small"
-                        sx={{
-                          backgroundColor: '#f4433615',
-                          color: '#f44336',
-                          fontWeight: 600,
-                          borderRadius: 2,
-                        }}
-                      />
-                    </Box>
-
-                    <Divider sx={{ my: 1.5, opacity: 0.1 }} />
-
-                    {/* Информация о долге */}
-                    <Grid container spacing={2}>
-                      <Grid size={{ xs: 4 }}>
-                        <Typography variant="caption" color="#4c5454" display="block">
-                          Количество
-                        </Typography>
-                        <Typography variant="h6" fontWeight={700} color="#f44336">
-                          {item.quantity} шт.
-                        </Typography>
-                      </Grid>
-                      <Grid size={{ xs: 4 }}>
-                        <Typography variant="caption" color="#4c5454" display="block">
-                          Сумма
-                        </Typography>
-                        <Typography variant="h6" fontWeight={700} color="#f44336">
-                          {formatNumber(item.total_cost)} ₽
-                        </Typography>
-                      </Grid>
-                      <Grid size={{ xs: 4 }}>
-                        <Typography variant="caption" color="#4c5454" display="block">
-                          Цена за шт.
-                        </Typography>
-                        <Typography variant="body2" fontWeight={500}>
-                          {formatNumber(item.product_price)} ₽
-                        </Typography>
-                      </Grid>
-                    </Grid>
-
-                    {/* Кнопки действий */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
-                      {item.history && item.history.length > 0 && (
-                        <Button
-                          variant="text"
-                          size="small"
-                          startIcon={<HistoryIcon />}
-                          onClick={() => handleViewTransactions(item)}
-                          sx={{
-                            borderRadius: 2,
-                            color: '#674fb6',
-                            textTransform: 'none',
-                            '&:hover': {
-                              backgroundColor: 'rgba(103, 79, 182, 0.04)',
-                            },
-                          }}
+          <>
+            <Typography variant="subtitle1" fontWeight={600} color="#2a0f35" sx={{ mb: 2 }}>
+              История операций
+            </Typography>
+            
+            <Grid container spacing={2}>
+              {currentDebt.transactions.map((transaction) => (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }} key={transaction.id}>
+                  <Card
+                    sx={{
+                      borderRadius: 3,
+                      backgroundColor: '#ffffff',
+                      boxShadow: '0 2px 8px rgba(106, 61, 122, 0.08)',
+                      height: '100%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      transition: 'all 0.2s',
+                      '&:hover': { boxShadow: '0 4px 16px rgba(106, 61, 122, 0.12)' }
+                    }}
+                  >
+                    <CardContent sx={{ p: 2.5, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {getTransactionIcon(transaction.transaction_type)}
+                          <Typography variant="subtitle2" fontWeight={600} color="#2a0f35">
+                            {getTransactionTypeText(transaction.transaction_type)}
+                          </Typography>
+                        </Box>
+                        <Typography 
+                          variant="body2" 
+                          fontWeight={700}
+                          sx={{ color: transaction.amount_change > 0 ? '#f44336' : '#4caf50' }}
                         >
-                          История ({item.history.length})
-                        </Button>
-                      )}
-                      <Button
-                        variant="text"
-                        size="small"
-                        onClick={() => setExpandedProduct(isExpanded ? null : item.product_id)}
-                        sx={{
-                          borderRadius: 2,
-                          color: '#4c5454',
-                          textTransform: 'none',
-                        }}
-                      >
-                        {isExpanded ? 'Скрыть' : 'Подробнее'}
-                        {isExpanded ? <ExpandLessIcon sx={{ ml: 0.5 }} /> : <ExpandMoreIcon sx={{ ml: 0.5 }} />}
-                      </Button>
-                    </Box>
-
-                    {/* Детальная история */}
-                    <Collapse in={isExpanded}>
-                      <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid rgba(0,0,0,0.05)' }}>
-                        <Typography variant="subtitle2" color="#2a0f35" fontWeight={600} gutterBottom>
-                          История изменений
+                          {transaction.amount_change > 0 ? '+' : ''}{formatNumber(transaction.amount_change)} ₽
                         </Typography>
-                        <Stack spacing={1.5}>
-                          {item.history?.slice().reverse().map((historyItem: DebtHistoryItem, idx: number) => (
-                            <Paper
-                              key={idx}
-                              sx={{
-                                p: 1.5,
-                                backgroundColor: '#f5f3f6',
-                                borderRadius: 2,
-                              }}
-                            >
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                  {historyItem.change > 0 ? (
-                                    <TrendingDownIcon sx={{ fontSize: 16, color: '#f44336' }} />
-                                  ) : (
-                                    <TrendingUpIcon sx={{ fontSize: 16, color: '#4caf50' }} />
-                                  )}
-                                  <Typography variant="caption" fontWeight={600} color={historyItem.change > 0 ? '#f44336' : '#4caf50'}>
-                                    {historyItem.change > 0 ? `+${historyItem.change}` : `${historyItem.change}`} шт.
-                                  </Typography>
-                                  <Typography variant="caption" color="#4c5454">
-                                    → {historyItem.new_quantity} шт.
-                                  </Typography>
-                                </Box>
-                                <Typography variant="caption" color="#4c5454">
-                                  {formatDate(historyItem.timestamp)}
-                                </Typography>
-                              </Box>
-                              <Typography variant="caption" color="#4c5454" display="block">
-                                {historyItem.description}
-                              </Typography>
-                              <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
-                                <Typography variant="caption" color="#4c5454">
-                                  Сумма: {historyItem.cost_change > 0 ? '+' : ''}{formatNumber(historyItem.cost_change)} ₽
-                                </Typography>
-                                <Typography variant="caption" color="#4c5454">
-                                  Итого: {formatNumber(historyItem.new_total_cost)} ₽
-                                </Typography>
-                              </Box>
-                            </Paper>
-                          ))}
-                        </Stack>
                       </Box>
-                    </Collapse>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </Stack>
+                      
+                      {/* Описание - может быть разной длины */}
+                      <Typography variant="body2" color="#4c5454" sx={{ mb: 1.5, flex: '1 0 auto' }}>
+                        {getTransactionDescription(transaction)}
+                      </Typography>
+                      
+                      {/* Блок с итогом и датой - всегда внизу */}
+                      <Box sx={{ mt: 'auto' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                          <Typography variant="caption" color="#4c5454">
+                            Итого: {formatNumber(transaction.new_total_amount)} ₽
+                          </Typography>
+                          <Typography variant="caption" color="#8E8E93">
+                            {formatDate(transaction.created_at)}
+                          </Typography>
+                        </Box>
+                        
+                        {transaction.performed_by_name && (
+                          <Typography variant="caption" color="#8E8E93" display="block" sx={{ mt: 1 }}>
+                            Выполнил: {transaction.performed_by_name}
+                          </Typography>
+                        )}
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          </>
         )}
       </Container>
 
-      {/* Диалог с историей транзакций по товару */}
+      {/* Диалог ручной корректировки долга */}
+      <Dialog
+        open={adjustDialog}
+        onClose={() => setAdjustDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" fontWeight={600}>
+            {adjustmentType === DebtAdjustmentType.INCREASE ? 'Увеличение долга' : 'Уменьшение долга'}
+          </Typography>
+          <IconButton onClick={() => setAdjustDialog(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="#4c5454">
+              Пользователь: <strong>{selectedUser?.user_name}</strong>
+              <br />
+              Текущий долг: <strong>{formatNumber(selectedUserDebt?.total_amount || 0)} ₽</strong>
+            </Typography>
+            
+            <TextField
+              label="Сумма (₽)"
+              type="number"
+              value={adjustAmount}
+              onChange={(e) => setAdjustAmount(e.target.value)}
+              fullWidth
+              InputProps={{ inputProps: { min: 0, step: 0.01 } }}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
+            
+            <TextField
+              label="Причина корректировки"
+              value={adjustDescription}
+              onChange={(e) => setAdjustDescription(e.target.value)}
+              fullWidth
+              multiline
+              rows={2}
+              placeholder="Например: штраф, бонус, возврат товара, списание и т.д."
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+            />
+          </Stack>
+        </DialogContent>
+        
+        <DialogActions sx={{ p: 2, pt: 0 }}>
+          <Button onClick={() => setAdjustDialog(false)} sx={{ borderRadius: 2, textTransform: 'none' }}>
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleManualAdjust}
+            disabled={adjusting || !adjustAmount || parseFloat(adjustAmount) <= 0 || !adjustDescription.trim()}
+            sx={{
+              bgcolor: adjustmentType === DebtAdjustmentType.INCREASE ? '#f44336' : '#4caf50',
+              borderRadius: 2,
+              textTransform: 'none',
+              '&:hover': {
+                bgcolor: adjustmentType === DebtAdjustmentType.INCREASE ? '#d32f2f' : '#388e3c'
+              }
+            }}
+          >
+            {adjusting ? <CircularProgress size={24} sx={{ color: 'white' }} /> : 'Подтвердить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Диалог со всеми транзакциями */}
       <Dialog
         open={transactionsDialog}
         onClose={() => setTransactionsDialog(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
-        PaperProps={{
-          sx: { borderRadius: 3 }
-        }}
+        PaperProps={{ sx: { borderRadius: 3 } }}
       >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box>
             <Typography variant="h6" fontWeight={600}>
-              История долга
+              История операций
             </Typography>
-            {selectedProduct && (
-              <Typography variant="body2" color="#4c5454">
-                {selectedProduct.product_name}
-              </Typography>
-            )}
+            <Typography variant="body2" color="#4c5454">
+              {selectedUserName}
+            </Typography>
           </Box>
           <IconButton onClick={() => setTransactionsDialog(false)}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
+        
         <DialogContent>
-          {selectedProduct && (
-            <Stack spacing={2}>
-              <Box sx={{ display: 'flex', gap: 2, p: 2, backgroundColor: '#f5f3f6', borderRadius: 2 }}>
-                <Box>
-                  <Typography variant="caption" color="#4c5454">Текущий долг</Typography>
-                  <Typography variant="h5" fontWeight={700} color="#f44336">
-                    {selectedProduct.quantity} шт.
-                  </Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="#4c5454">Сумма</Typography>
-                  <Typography variant="h5" fontWeight={700} color="#f44336">
-                    {formatNumber(selectedProduct.total_cost)} ₽
-                  </Typography>
-                </Box>
-              </Box>
-
-              <Typography variant="subtitle2" fontWeight={600}>
-                Все изменения
-              </Typography>
-              
-              <Stack spacing={1.5}>
-                {selectedProduct.history?.slice().reverse().map((historyItem: DebtHistoryItem, idx: number) => (
-                  <Paper
-                    key={idx}
-                    sx={{
-                      p: 2,
-                      backgroundColor: '#f5f3f6',
-                      borderRadius: 2,
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {historyItem.change > 0 ? (
-                          <TrendingDownIcon sx={{ fontSize: 18, color: '#f44336' }} />
-                        ) : (
-                          <TrendingUpIcon sx={{ fontSize: 18, color: '#4caf50' }} />
-                        )}
-                        <Typography variant="body2" fontWeight={600} color={historyItem.change > 0 ? '#f44336' : '#4caf50'}>
-                          {historyItem.change > 0 ? `+${historyItem.change}` : `${historyItem.change}`} шт.
-                        </Typography>
-                        <Typography variant="body2" color="#4c5454">
-                          → {historyItem.new_quantity} шт.
-                        </Typography>
-                      </Box>
-                      <Typography variant="caption" color="#4c5454">
-                        {formatDate(historyItem.timestamp)}
-                      </Typography>
-                    </Box>
-                    <Typography variant="body2" color="#2a0f35" gutterBottom>
-                      {historyItem.description}
+          <Stack spacing={2}>
+            {selectedTransactions.map((transaction) => (
+              <Paper
+                key={transaction.id}
+                sx={{
+                  p: 2.5,
+                  backgroundColor: '#f5f3f6',
+                  borderRadius: 2,
+                }}
+              >
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {getTransactionIcon(transaction.transaction_type)}
+                    <Typography variant="subtitle2" fontWeight={600} color="#2a0f35">
+                      {getTransactionTypeText(transaction.transaction_type)}
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
-                      <Typography variant="caption" color="#4c5454">
-                        Изменение: {historyItem.cost_change > 0 ? '+' : ''}{formatNumber(historyItem.cost_change)} ₽
-                      </Typography>
-                      <Typography variant="caption" color="#4c5454">
-                        Итого: {formatNumber(historyItem.new_total_cost)} ₽
-                      </Typography>
-                    </Box>
-                  </Paper>
-                ))}
-              </Stack>
-            </Stack>
-          )}
+                    <Typography 
+                      variant="body2" 
+                      fontWeight={700}
+                      sx={{ color: transaction.amount_change > 0 ? '#f44336' : '#4caf50' }}
+                    >
+                      {transaction.amount_change > 0 ? '+' : ''}{formatNumber(transaction.amount_change)} ₽
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" color="#4c5454">
+                    {formatDate(transaction.created_at)}
+                  </Typography>
+                </Box>
+                
+                <Typography variant="body2" color="#2a0f35" sx={{ mb: 1 }}>
+                  {getTransactionDescription(transaction)}
+                </Typography>
+                
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                  <Typography variant="caption" color="#4c5454">
+                    Итого: {formatNumber(transaction.new_total_amount)} ₽
+                  </Typography>
+                  {transaction.performed_by_name && (
+                    <Typography variant="caption" color="#8E8E93">
+                      Выполнил: {transaction.performed_by_name}
+                    </Typography>
+                  )}
+                </Box>
+              </Paper>
+            ))}
+          </Stack>
         </DialogContent>
+        
         <DialogActions>
           <Button onClick={() => setTransactionsDialog(false)} sx={{ borderRadius: 2, textTransform: 'none' }}>
             Закрыть

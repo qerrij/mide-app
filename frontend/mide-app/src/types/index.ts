@@ -28,18 +28,31 @@ export enum ReportStatus {
   REJECTED = 'REJECTED'
 }
 
-// Добавляем статусы для бухгалтера
 
 // ================ ПОЛЬЗОВАТЕЛИ ================
+export interface UserCategoryRate {
+  id: number;
+  category_id: number;
+  category_name?: string;
+  rate: number;
+}
+
+export interface UserCategoryRateCreate {
+  category_id: number;
+  rate: number;
+}
+
+// Обновляем интерфейс User
 export interface User {
   id: number;
   username: string;
   fullName: string;
   telegram?: string;
-  cityId?: number;           // ID города
-  cityName?: string;         // Название города (только для отображения)
+  cityId?: number;
+  cityName?: string;
   role: UserRole;
-  rate?: number;
+  rate?: number;  // Общая ставка (всегда 0)
+  categoryRates?: UserCategoryRate[];  // Добавляем ставки по категориям
   
   clusterId?: number;
   groupId?: number;
@@ -53,7 +66,6 @@ export interface User {
   updatedAt?: Date;
   lastLogin?: Date;
   
-  // Дополнительные поля для отображения
   groupName?: string;
   clusterName?: string;
   mentorName?: string;
@@ -61,28 +73,31 @@ export interface User {
   adminName?: string;
 }
 
+// Обновляем CreateUserDto
 export interface CreateUserDto {
   username: string;
   password: string;
   fullName: string;
   telegram?: string;
-  cityId?: number;           // Только ID
+  cityId?: number;
   role: UserRole;
-  rate?: number;
+  rate?: number;  // Всегда 0
   clusterId?: number;
   groupId?: number;
   mentorId?: number;
   seniorSellerId?: number;
   adminId?: number;
   adminClusterIds?: number[];
+  categoryRates?: UserCategoryRateCreate[];  // Добавляем
 }
 
+// Обновляем UpdateUserDto
 export interface UpdateUserDto {
   username?: string;
   password?: string;
   fullName?: string;
   telegram?: string;
-  cityId?: number;           // Только ID
+  cityId?: number;
   role?: UserRole;
   rate?: number;
   clusterId?: number;
@@ -93,6 +108,7 @@ export interface UpdateUserDto {
   adminClusterIds?: number[];
   accountantUserIds?: number[];
   isActive?: boolean;
+  categoryRates?: UserCategoryRateCreate[];  // Добавляем
 }
 
 // ================ ТОВАРЫ ================
@@ -1294,72 +1310,76 @@ export interface CompanyBalanceHistory {
   description: string;
 }
 
-// ================ ДОЛГИ ================
-export interface DebtHistoryItem {
-  timestamp: string;
-  revision_id?: number;
-  change: number;
-  new_quantity: number;
-  cost_change: number;
-  new_total_cost: number;
-  product_price: number;
-  description: string;
+// ================ ДОЛГИ (НОВАЯ МОДЕЛЬ) ================
+
+export enum DebtTransactionType {
+  REVISION = "REVISION",
+  MANUAL_INCREASE = "MANUAL_INCREASE",
+  MANUAL_DECREASE = "MANUAL_DECREASE"
 }
 
-export interface DebtItem {
+export enum DebtAdjustmentType {
+  INCREASE = "INCREASE",
+  DECREASE = "DECREASE"
+}
+
+export interface RevisionDebtDetails {
   product_id: number;
-  product_name: string;
-  product_sku: string;
-  product_price: number;
   quantity: number;
-  total_cost: number;
-  history: DebtHistoryItem[];
-  created_at: string;
-  updated_at: string;
+  product_name?: string;
+  product_price: number;
+  applied_rate: number;
+  price_per_unit: number;
+  total: number;
 }
 
-export interface UserDebtsResponse {
-  user_id: number;
-  total_quantity: number;
-  total_cost: number;
-  items: DebtItem[];
-}
-
-export interface DebtTransaction {
+export interface DebtTransactionResponse {
   id: number;
+  transaction_type: DebtTransactionType;
+  amount_change: number;
+  new_total_amount: number;
+  created_at: string;
+  revision_id?: number;
+  revision_details?: RevisionDebtDetails;
+  manual_amount?: number;
+  manual_description?: string;
+  performed_by_name?: string;
+}
+
+export interface UserDebtResponse {
   user_id: number;
   user_name: string;
-  product_id: number;
-  product_name: string;
-  product_sku: string;
-  revision_id?: number;
-  quantity_change: number;
-  new_quantity: number;
-  product_price: number;
-  cost_change: number;
-  new_total_cost: number;
-  description: string;
-  created_at: string;
+  user_role?: string;
+  total_amount: number;
+  transactions: DebtTransactionResponse[];
+  created_at?: string;
+  updated_at?: string;
 }
 
-export interface DebtStatistics {
-  total_debt_items: number;
-  total_quantity: number;
-  total_cost: number;
-  users_with_debt: number;
-  top_debtors: Array<{
-    user_id: number;
-    user_name: string;
-    total_quantity: number;
-    total_cost: number;
-  }>;
-  top_products: Array<{
-    product_id: number;
-    product_name: string;
-    product_sku: string;
-    total_quantity: number;
-    total_cost: number;
-  }>;
+export interface ManualDebtAdjustmentRequest {
+  adjustment_type: DebtAdjustmentType;
+  amount: number;
+  description: string;
+}
+
+export interface ManualDebtAdjustmentResponse {
+  success: boolean;
+  user_id: number;
+  user_name: string;
+  old_amount: number;
+  new_amount: number;
+  change: number;
+  adjustment_type: DebtAdjustmentType;
+  description: string;
+  performed_by: string;
+  performed_at: string;
+}
+
+export interface DebtSummary {
+  user_id: number;
+  user_name: string;
+  total_amount: number;
+  updated_at?: string;
 }
 
 // Типы операций для отображения

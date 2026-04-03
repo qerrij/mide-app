@@ -184,7 +184,7 @@ class CRUDRevision:
         revisions_for_my_city = db.query(Revision.id)\
             .filter(
                 Revision.type == RevisionType.CITY,
-                Revision.target_city == user.city
+                Revision.target_city == user.city_ref.name 
             )\
             .subquery()
         
@@ -441,7 +441,8 @@ class CRUDRevision:
                 return [u for u in users if u]
         
         elif revision.type == RevisionType.CITY:
-            query = query.filter(User.city == revision.target_city)
+            # query = query.filter(User.city == revision.target_city)
+            query = query.filter(User.city_ref.has(name=revision.target_city))
         elif revision.type == RevisionType.GENERAL:
             # Все пользователи, кроме владельцев
             pass
@@ -899,13 +900,30 @@ class CRUDRevision:
                         )
                         
                         # *** НОВОЕ: Обновляем долг пользователя ***
-                        crud_debt.update_debt_from_discrepancy(
-                            db,
-                            user_id=filling.user_id,
-                            product_id=item.product_id,
-                            discrepancy=discrepancy,  # передаем как есть
-                            revision_id=revision.id
-                        )
+                        if discrepancy < 0:  # Только минусы увеличивают долг
+                            product = db.query(Product).filter(Product.id == item.product_id).first()
+                            seller = db.query(User).filter(User.id == filling.user_id).first()
+                            
+                            if product and seller:
+                                # Функция для расчета ставки - нужно импортировать
+                                from app.api.endpoints.reports import _calculate_product_rate
+                                rate = _calculate_product_rate(db, product, seller)
+                                price_per_unit = product.price
+                                amount_per_unit = max(0, price_per_unit - rate)
+                                total_amount = amount_per_unit * abs(discrepancy)
+                                
+                                crud_debt.update_debt_from_revision_discrepancy(
+                                    db,
+                                    user_id=filling.user_id,
+                                    product_id=item.product_id,
+                                    discrepancy=discrepancy,
+                                    revision_id=revision.id,
+                                    revision_discrepancy_id=disc.id,
+                                    product_price=price_per_unit,
+                                    applied_rate=rate,
+                                    quantity=abs(discrepancy),
+                                    total_amount=total_amount
+                                )
                         
                     except Exception as e:
                         print(f"Error updating inventory: {e}")
@@ -1128,9 +1146,6 @@ class CRUDRevision:
         if user.role in [UserRole.OWNER, UserRole.ACCOUNTANT]:
             return False
         
-        # МЕНТОР не может запрашивать, но МОЖЕТ заполнять!
-        # (предыдущая логика была неправильной)
-        
         # Проверяем статус ревизии
         if revision.status != RevisionStatus.REQUESTED:
             return False
@@ -1170,7 +1185,10 @@ class CRUDRevision:
                     return True
         
         elif revision.type == RevisionType.CITY:
-            return user.city == revision.target_city
+            # ИСПРАВЛЕНО: используем city_ref.name вместо city
+            if user.city_ref and revision.target_city:
+                return user.city_ref.name == revision.target_city
+            return False
         
         elif revision.type == RevisionType.GENERAL:
             # Общие ревизии могут заполнять все, кроме OWNER и ACCOUNTANT

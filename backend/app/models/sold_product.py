@@ -44,6 +44,7 @@ class SoldProduct(Base):
     seller_name = Column(String, nullable=True)
     seller_role = Column(String, nullable=True)
     seller_city = Column(String, nullable=True)
+    seller_city_id = Column(Integer, nullable=True)
     seller_cluster_id = Column(Integer, nullable=True)
     
     # Информация о товаре на момент продажи (для историчности)

@@ -42,7 +42,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { productService } from '../../api/productService';
 import { reportService } from '../../api/reportService';
-import { Product, ProductCategory, InventoryItem, Report } from '../../types';
+import { userService } from '../../api/userService';
+import { userCategoryRateService } from '../../api/userCategoryRateService'
+import { Product, ProductCategory, InventoryItem, Report, UserCategoryRate } from '../../types';
 import { PhotoViewer } from '../../components/PhotoViewer';
 
 interface SelectedProduct {
@@ -52,6 +54,9 @@ interface SelectedProduct {
   availableQuantity: number;
   productName: string;
   productPrice: number;
+  productDefaultRate?: number;
+  effectiveRate: number;
+  categoryId: number;
 }
 
 const FixReportPage: React.FC = () => {
@@ -67,6 +72,7 @@ const FixReportPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [userInventory, setUserInventory] = useState<InventoryItem[]>([]);
+  const [userCategoryRates, setUserCategoryRates] = useState<Map<number, number>>(new Map());
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | 'all'>('all');
   const [selectedProductId, setSelectedProductId] = useState<number | ''>('');
   const [quantity, setQuantity] = useState<string>('');
@@ -91,17 +97,13 @@ const FixReportPage: React.FC = () => {
     currentIndex: 0,
   });
 
-  // Ставка текущего пользователя
-  const sellerRate = user?.rate || 0;
-
   // Загрузка данных
   useEffect(() => {
     loadData();
-    // Скроллим к верху страницы при загрузке
+    loadUserRates();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [id]);
 
-  // Скролл к верху страницы при смене шага
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [step]);
@@ -135,7 +137,7 @@ const FixReportPage: React.FC = () => {
       setCategories(categoriesData);
       setUserInventory(inventoryData.items || []);
       
-      // Загружаем существующие товары из отчета
+      // Загружаем существующие товары из отчета с расчетом эффективной ставки
       const existingProducts: SelectedProduct[] = reportData.products.map(p => {
         const inventoryItem = inventoryData.items?.find(i => i.productId === p.productId);
         const availableQuantity = inventoryItem 
@@ -145,13 +147,24 @@ const FixReportPage: React.FC = () => {
         const product = productsData.find(prod => prod.id === p.productId);
         const catalogPrice = product?.price || 0;
         
+        // Расчет эффективной ставки для существующего товара
+        let effectiveRate = 0;
+        if (product) {
+          if (product.defaultRate && product.defaultRate > 0) {
+            effectiveRate = product.defaultRate;
+          }
+        }
+        
         return {
           productId: p.productId,
           quantity: p.quantity,
-          soldAmount: catalogPrice,
+          soldAmount: p.soldAmount,
           availableQuantity,
           productName: product?.name || `Товар ${p.productId}`,
           productPrice: catalogPrice,
+          productDefaultRate: product?.defaultRate,
+          effectiveRate,
+          categoryId: product?.categoryId || 0,
         };
       });
       
@@ -164,6 +177,40 @@ const FixReportPage: React.FC = () => {
     } finally {
       setLoadingData(false);
     }
+  };
+
+  const loadUserRates = async () => {
+    if (!user) return;
+    
+    try {
+      const rates = await userCategoryRateService.getUserCategoryRates?.(user.id);
+      if (rates && Array.isArray(rates)) {
+        const ratesMap = new Map<number, number>();
+        rates.forEach((rate: UserCategoryRate) => {
+          ratesMap.set(rate.category_id, rate.rate);
+        });
+        setUserCategoryRates(ratesMap);
+      }
+    } catch (err) {
+      console.error('Error loading user rates:', err);
+    }
+  };
+
+  // Расчет эффективной ставки для товара
+  const calculateEffectiveRate = (product: Product): number => {
+    // 1. Приоритет: ставка товара (если задана владельцем)
+    if (product.defaultRate && product.defaultRate > 0) {
+      return product.defaultRate;
+    }
+    
+    // 2. Приоритет: ставка продавца для категории товара
+    const categoryRate = userCategoryRates.get(product.categoryId);
+    if (categoryRate && categoryRate > 0) {
+      return categoryRate;
+    }
+    
+    // 3. Приоритет: ставка 0
+    return 0;
   };
 
   // Получить доступное количество товара
@@ -208,6 +255,7 @@ const FixReportPage: React.FC = () => {
       return;
     }
 
+    const effectiveRate = calculateEffectiveRate(product);
     const existingItem = selectedProducts.find(p => p.productId === product.id);
     
     if (existingItem) {
@@ -219,7 +267,7 @@ const FixReportPage: React.FC = () => {
       setSelectedProducts(prev =>
         prev.map(p =>
           p.productId === product.id
-            ? { ...p, quantity: p.quantity + newQuantity }
+            ? { ...p, quantity: p.quantity + newQuantity, effectiveRate }
             : p
         )
       );
@@ -231,6 +279,9 @@ const FixReportPage: React.FC = () => {
         availableQuantity,
         productName: product.name,
         productPrice: product.price,
+        productDefaultRate: product.defaultRate,
+        effectiveRate,
+        categoryId: product.categoryId,
       }]);
     }
 
@@ -394,9 +445,9 @@ const FixReportPage: React.FC = () => {
     ? availableProducts
     : availableProducts.filter(p => p.categoryId === selectedCategoryId);
 
-  // Общая сумма за товары (с учетом ставки продавца)
+  // Общая сумма за товары (с учетом эффективной ставки)
   const totalProductAmount = selectedProducts.reduce((sum, p) => {
-    const amountPerUnit = p.soldAmount - sellerRate;
+    const amountPerUnit = p.soldAmount - p.effectiveRate;
     return sum + (p.quantity * Math.max(0, amountPerUnit));
   }, 0);
 
@@ -660,8 +711,8 @@ const FixReportPage: React.FC = () => {
 
                       <Stack spacing={2}>
                         {selectedProducts.map((item) => {
-                          const amountAfterCommission = item.soldAmount - sellerRate;
-                          const totalAfterCommission = amountAfterCommission * item.quantity;
+                          const amountAfterRate = item.soldAmount - item.effectiveRate;
+                          const totalAfterRate = amountAfterRate * item.quantity;
                           
                           return (
                             <Card
@@ -681,6 +732,11 @@ const FixReportPage: React.FC = () => {
                                   <Typography variant="caption" color="#4c5454">
                                     Цена: {item.productPrice}₽ • Доступно: {item.availableQuantity} шт.
                                   </Typography>
+                                  {item.effectiveRate > 0 && (
+                                    <Typography variant="caption" color="#ca0ec0" display="block">
+                                      Ставка: {item.effectiveRate}₽/шт
+                                    </Typography>
+                                  )}
                                 </Grid>
 
                                 <Grid size={{ xs: 6, sm: 3 }}>
@@ -727,11 +783,11 @@ const FixReportPage: React.FC = () => {
                                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                                     <Box sx={{ textAlign: 'right', mr: 1 }}>
                                       <Typography variant="body2" fontWeight={600} color="#674fb6">
-                                        {totalAfterCommission.toFixed(2)}₽
+                                        {totalAfterRate.toFixed(2)}₽
                                       </Typography>
-                                      {sellerRate > 0 && (
+                                      {item.effectiveRate > 0 && (
                                         <Typography variant="caption" color="#4c5454" display="block">
-                                          {amountAfterCommission.toFixed(2)}₽/шт
+                                          {amountAfterRate.toFixed(2)}₽/шт
                                         </Typography>
                                       )}
                                     </Box>
@@ -806,9 +862,7 @@ const FixReportPage: React.FC = () => {
                             report.transferPhotos.map(p => reportService.getPhotoUrl(p)),
                             index
                           )}
-                        >
-                          {/* Нет кнопки удаления - нельзя удалить старые фото */}
-                        </Box>
+                        />
                       </Grid>
                     ))}
                   </Grid>
@@ -1005,11 +1059,9 @@ const FixReportPage: React.FC = () => {
                       <Typography variant="h6" color="#674fb6" fontWeight={600}>
                         {totalProductAmount.toFixed(2)}₽
                       </Typography>
-                      {sellerRate > 0 && (
-                        <Typography variant="caption" color="#4c5454">
-                          после комиссии
-                        </Typography>
-                      )}
+                      <Typography variant="caption" color="#4c5454">
+                        после вычета ставок
+                      </Typography>
                     </Grid>
                     
                     <Grid size={{ xs: 6, sm: 3 }}>

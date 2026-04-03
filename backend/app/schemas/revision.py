@@ -222,6 +222,7 @@ class RevisionBase(BaseModel):
     target_group_id: Optional[int] = None
     target_cluster_id: Optional[int] = None
     target_city: Optional[str] = None
+    target_city_id: Optional[int] = None
     comment: Optional[str] = None
 
 
@@ -246,6 +247,7 @@ class RevisionResponse(RevisionBase):
     verified_at: Optional[datetime] = None
     verification_comment: Optional[str] = None
     
+    target_city_name: Optional[str] = None
     target_user_name: Optional[str] = None
     target_group_name: Optional[str] = None
     target_cluster_name: Optional[str] = None
@@ -282,6 +284,9 @@ class RevisionResponse(RevisionBase):
         
         if hasattr(data, 'fillings') and data.fillings:
             data.total_users = len(data.fillings)
+
+        if hasattr(data, 'target_city_ref') and data.target_city_ref:
+            data.target_city_name = data.target_city_ref.name
         
         return data
     
@@ -316,6 +321,7 @@ class RevisionRequest(BaseModel):
     target_group_id: Optional[int] = None
     target_cluster_id: Optional[int] = None
     target_city: Optional[str] = None
+    target_city_id: Optional[int] = None
     comment: Optional[str] = None
 
 

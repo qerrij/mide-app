@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr, validator, field_validator, ConfigDict
 from typing import Dict, Optional, List, Any
 from datetime import datetime
+from pydantic import BaseModel, EmailStr, validator, field_validator, ConfigDict
 import enum
 import json
+from .user_category_rate import UserCategoryRateCreate, UserCategoryRateResponse
 
 
 class UserRole(str, enum.Enum):
@@ -30,12 +31,19 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    category_rates: Optional[List[UserCategoryRateCreate]] = None
     
     @validator('password')
     def password_strength(cls, v):
         if len(v) < 6:
             raise ValueError('Password must be at least 6 characters')
         return v
+    
+    @validator('rate')
+    def rate_must_be_zero(cls, v):
+        if v and v != 0:
+            raise ValueError('Общая ставка должна быть 0. Используйте ставки по категориям')
+        return 0
 
 
 class UserUpdate(BaseModel):
@@ -52,6 +60,7 @@ class UserUpdate(BaseModel):
     admin_clusters: Optional[List[int]] = None
     is_active: Optional[bool] = None
     rate: Optional[float] = None
+    category_rates: Optional[List[UserCategoryRateCreate]] = None
 
 
 class UserResponse(UserBase):
@@ -61,22 +70,21 @@ class UserResponse(UserBase):
     updated_at: Optional[datetime]
     last_login: Optional[datetime]
     
-    # Информация о группе и кусте
     group_name: Optional[str] = None
     cluster_name: Optional[str] = None
     mentor_name: Optional[str] = None
     senior_seller_name: Optional[str] = None
     admin_name: Optional[str] = None
     
-    # Информация о городе
     city_name: Optional[str] = None
     city_region: Optional[str] = None
     
-    # Статистика для менторов и старших продавцов
     sellers_count: Optional[int] = 0
     groups_count: Optional[int] = 0
     
     accountant_user_ids: Optional[List[int]] = None
+    
+    category_rates: List[UserCategoryRateResponse] = []
     
     @field_validator('accountant_user_ids', mode='before')
     @classmethod
@@ -120,15 +128,14 @@ class UserResponse(UserBase):
                 return v
         return v
     
-    model_config = ConfigDict(from_attributes=True)
-    
     @field_validator('cluster_id', 'group_id', 'mentor_id', 'senior_seller_id', 'city_id')
     @classmethod
     def validate_ids(cls, v):
-        """Преобразуем 0 в None, чтобы избежать ForeignKeyViolation"""
         if v == 0:
             return None
         return v
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):

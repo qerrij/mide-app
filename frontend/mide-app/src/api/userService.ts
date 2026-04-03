@@ -1,5 +1,5 @@
 import axiosInstance from './axios';
-import { User, CreateUserDto, UpdateUserDto, UserRole, Group, Cluster } from '../types';
+import { User, CreateUserDto, UpdateUserDto, UserRole, Group, Cluster, UserCategoryRate, UserCategoryRateCreate } from '../types';
 
 // Функция для трансформации snake_case в camelCase
 const transformUserFromApi = (user: any): User => {
@@ -40,13 +40,24 @@ const transformUserFromApi = (user: any): User => {
     adminClusterIds = [];
   }
 
+  // Парсим category_rates
+  let categoryRates: UserCategoryRate[] = [];
+  if (user.category_rates && Array.isArray(user.category_rates)) {
+    categoryRates = user.category_rates.map((rate: any) => ({
+      id: rate.id,
+      category_id: rate.category_id,
+      category_name: rate.category_name,
+      rate: rate.rate,
+    }));
+  }
+
   return {
     id: user.id,
     username: user.username,
     fullName: user.full_name,
     telegram: user.telegram,
-    cityId: user.city_id,           // Только ID
-    cityName: user.city_name,       // Название для отображения
+    cityId: user.city_id,
+    cityName: user.city_name,
     role: user.role,
     clusterId: user.cluster_id,
     groupId: user.group_id,
@@ -54,6 +65,7 @@ const transformUserFromApi = (user: any): User => {
     seniorSellerId: user.senior_seller_id,
     adminClusterIds,
     rate: user.rate || 0,
+    categoryRates,
     createdAt: new Date(user.created_at),
     updatedAt: user.updated_at ? new Date(user.updated_at) : undefined,
     lastLogin: user.last_login ? new Date(user.last_login) : undefined,
@@ -114,6 +126,9 @@ const transformUserToApi = (user: CreateUserDto | UpdateUserDto): any => {
   }
   if ('isActive' in user && user.isActive !== undefined) {
     transformed.is_active = user.isActive;
+  }
+  if ('categoryRates' in user && user.categoryRates !== undefined) {
+    transformed.category_rates = user.categoryRates;
   }
   
   return transformed;

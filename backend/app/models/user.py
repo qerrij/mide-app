@@ -53,6 +53,12 @@ class User(Base):
         foreign_keys=[cluster_id],
         back_populates="users_in_cluster"
     )
+
+    category_rates = relationship(
+        "UserCategoryRate", 
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
     
     group = relationship(
         "Group", 

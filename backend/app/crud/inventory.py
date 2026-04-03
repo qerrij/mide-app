@@ -981,7 +981,8 @@ class CRUDInventory:
         """
         from app.models.report import Report, ReportProduct
         from app.models.sold_product import SoldProduct, SaleType
-        
+        from app.models.city import City  # ДОБАВИТЬ импорт City
+
         report = db.query(Report).options(
             joinedload(Report.seller),
             joinedload(Report.products).joinedload(ReportProduct.product).joinedload(Product.category)
@@ -994,17 +995,20 @@ class CRUDInventory:
         if not seller:
             return 0
         
-        # Получаем город продавца
+        # Получаем город продавца и его ID
         seller_city = None
+        seller_city_id = None  # ДОБАВИТЬ переменную для city_id
         if seller.city_id:
             city = db.query(City).filter(City.id == seller.city_id).first()
             if city:
                 seller_city = city.name
+                seller_city_id = city.id  # ДОБАВИТЬ сохранение ID города
         
         seller_data = {
             'seller_name': seller.full_name,
             'seller_role': seller.role.value if seller.role else None,
             'seller_city': seller_city,
+            'seller_city_id': seller_city_id,  # ДОБАВИТЬ в словарь
             'seller_cluster_id': seller.cluster_id,
             'seller_rate': seller.rate or 0.0
         }
@@ -1030,6 +1034,7 @@ class CRUDInventory:
                 seller_name=seller_data['seller_name'],
                 seller_role=seller_data['seller_role'],
                 seller_city=seller_data['seller_city'],
+                seller_city_id=seller_data['seller_city_id'],  # ДОБАВИТЬ это поле
                 seller_cluster_id=seller_data['seller_cluster_id'],
                 product_name=product.name,
                 product_sku=product.sku,
