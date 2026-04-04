@@ -148,6 +148,7 @@ class CRUDCompany:
         self,
         db: Session,
         operation_type: Optional[str] = None,
+        reference_type: Optional[str] = None,  # Добавляем параметр
         date_from: Optional[datetime] = None,
         date_to: Optional[datetime] = None,
         city: Optional[str] = None,
@@ -166,6 +167,9 @@ class CRUDCompany:
         
         if operation_type:
             query = query.filter(CompanyBalance.operation_type == operation_type)
+        
+        if reference_type:  # Добавляем фильтрацию по reference_type
+            query = query.filter(CompanyBalance.reference_type == reference_type)
         
         if date_from:
             query = query.filter(CompanyBalance.created_at >= date_from)

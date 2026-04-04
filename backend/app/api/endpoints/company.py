@@ -56,6 +56,7 @@ def get_balance_by_cities(
 @router.get("/transactions")
 def get_company_transactions(
     operation_type: Optional[str] = Query(None),
+    reference_type: Optional[str] = Query(None, description="Фильтр по типу ссылки (REPORT, DEBT_WRITEOFF и т.д.)"),
     city: Optional[str] = Query(None, description="Фильтр по городу"),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
@@ -91,6 +92,8 @@ def get_company_transactions(
     count_query = db.query(CompanyBalance)
     if operation_type:
         count_query = count_query.filter(CompanyBalance.operation_type == operation_type)
+    if reference_type:
+        count_query = count_query.filter(CompanyBalance.reference_type == reference_type)
     if date_from_dt:
         count_query = count_query.filter(CompanyBalance.created_at >= date_from_dt)
     if date_to_dt:
@@ -105,6 +108,7 @@ def get_company_transactions(
     results = crud_company.get_transactions_with_users(
         db,
         operation_type=operation_type,
+        reference_type=reference_type,  # Добавляем фильтрацию по reference_type
         date_from=date_from_dt,
         date_to=date_to_dt,
         city=city,
@@ -148,6 +152,7 @@ def get_dashboard_data(
     date_to: Optional[str] = Query(None, description="Конечная дата для произвольного периода"),
     max_points: int = Query(100, ge=10, le=1000),
     transactions_limit: int = Query(100, ge=1, le=500, description="Лимит транзакций для дашборда"),
+    reference_type: Optional[str] = Query(None, description="Фильтр по типу ссылки"),
     db: Session = Depends(get_db),
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
@@ -167,6 +172,10 @@ def get_dashboard_data(
     transactions_params = {
         'city': city
     }
+    
+    # Добавляем фильтр по reference_type если указан
+    if reference_type:
+        transactions_params['reference_type'] = reference_type
     
     history_params = {
         'city': city,
@@ -246,6 +255,7 @@ def get_dashboard_data(
     transactions_data = crud_company.get_transactions_with_users(
         db,
         city=transactions_params.get('city'),
+        reference_type=transactions_params.get('reference_type'),  # Добавляем фильтр
         date_from=transactions_params.get('date_from'),
         date_to=transactions_params.get('date_to'),
         limit=transactions_limit

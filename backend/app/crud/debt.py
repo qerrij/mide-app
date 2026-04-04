@@ -128,27 +128,61 @@ class CRUDDebt:
     ) -> UserDebt:
         """
         Ручная корректировка долга (только для OWNER)
+        При списании долга (DECREASE) создается запись о доходе в бухгалтерии
         """
         if amount <= 0:
             raise ValueError("Сумма корректировки должна быть положительной")
         
+        # Получаем пользователя для определения города
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise ValueError(f"Пользователь с id {user_id} не найден")
+        
         debt = self.get_or_create_user_debt(db, user_id)
         old_amount = debt.total_amount
         
+        # Определяем тип транзакции и изменение суммы
         if adjustment_type == "INCREASE":
             debt.total_amount += amount
             amount_change = amount
             transaction_type = DebtTransactionType.MANUAL_INCREASE
+            # При увеличении долга бухгалтерская запись НЕ создается
+            accounting_transaction = None
+            
         elif adjustment_type == "DECREASE":
             if debt.total_amount < amount:
                 raise ValueError(f"Нельзя списать {amount} руб. Долг составляет {debt.total_amount} руб.")
             debt.total_amount -= amount
             amount_change = -amount
             transaction_type = DebtTransactionType.MANUAL_DECREASE
+            
+            # 🔴 ВАЖНО: При списании долга создаем запись о доходе в бухгалтерии
+            from app.crud.company import crud_company
+            
+            # Определяем город пользователя (через связь city_ref)
+            user_city = None
+            if user.city_ref:
+                user_city = user.city_ref.name
+            
+            # Формируем описание для бухгалтерии
+            accounting_description = f"Списание долга у {user.full_name} - {description}" if description else f"Списание долга у {user.full_name} (ID: {user_id})"
+            
+            # Создаем запись о доходе
+            # ВАЖНО: Используем ту же сессию db, чтобы операция была атомарной
+            accounting_transaction = crud_company.add_income(
+                db=db,  # Передаем ту же сессию, не создаем новую!
+                amount=amount,
+                description=accounting_description,
+                reference_id=debt.id,  # Ссылка на запись долга
+                reference_type="DEBT_WRITEOFF",  # Тип: списание долга
+                created_by=performed_by_id,
+                city=user_city
+            )
+            
         else:
             raise ValueError(f"Неизвестный тип корректировки: {adjustment_type}")
         
-        # Добавляем в историю
+        # Добавляем в историю (JSON поле)
         history_entry = {
             'timestamp': datetime.now().isoformat(),
             'type': 'MANUAL_ADJUSTMENT',
@@ -157,7 +191,8 @@ class CRUDDebt:
             'change': amount_change,
             'new_total': debt.total_amount,
             'description': description,
-            'performed_by_id': performed_by_id
+            'performed_by_id': performed_by_id,
+            'accounting_transaction_id': accounting_transaction.id if adjustment_type == "DECREASE" and accounting_transaction else None
         }
         
         if not debt.history:
@@ -167,7 +202,7 @@ class CRUDDebt:
         if len(debt.history) > 100:
             debt.history = debt.history[-100:]
         
-        # Создаем транзакцию
+        # Создаем транзакцию долга
         transaction = DebtTransaction(
             user_id=user_id,
             user_debt_id=debt.id,
@@ -180,6 +215,7 @@ class CRUDDebt:
         )
         db.add(transaction)
         
+        # Коммитим все изменения одной транзакцией
         db.commit()
         db.refresh(debt)
         

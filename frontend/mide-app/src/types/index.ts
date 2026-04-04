@@ -1291,7 +1291,7 @@ export interface CompanyTransaction {
   operation_type: 'INCOME' | 'EXPENSE' | 'CORRECTION';
   amount: number;
   reference_id?: number;
-  reference_type?: string;
+  reference_type?: 'REPORT' | 'DEBT_WRITEOFF' | string;
   created_at: string;
   created_by?: number;
   city?: string;

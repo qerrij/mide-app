@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   Container,
   Grid,
@@ -45,7 +45,6 @@ import {
   MoreHoriz as MoreIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
-import { companyService } from '../../api/companyService';
 import {
   CompanyTransaction,
   CompanyBalanceHistory,
@@ -68,6 +67,14 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import {
+  useDashboardData,
+  useTransactions,
+  useStats,
+  useBalanceByCities,
+  useAddIncome,
+  useAddExpense,
+} from '../../hooks/useCompanyData';
 
 // Типы
 type DateRangeType = 'day' | 'week' | 'month' | 'all';
@@ -78,21 +85,24 @@ interface TransactionDialogProps {
   type: 'INCOME' | 'EXPENSE';
   selectedCity: string;
   onClose: () => void;
-  onSuccess: () => void;
 }
 
 // Мемоизированный компонент диалога
-const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
+const TransactionDialog: React.FC<TransactionDialogProps> = React.memo(({
   open,
   type,
   selectedCity,
   onClose,
-  onSuccess,
 }) => {
   const [amount, setAmount] = useState<string>('');
   const [description, setDescription] = useState<string>('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+  
+  const addIncome = useAddIncome();
+  const addExpense = useAddExpense();
+  
+  const mutation = type === 'INCOME' ? addIncome : addExpense;
+  const isLoading = mutation.isPending;
 
   const handleSubmit = async () => {
     if (!amount || parseFloat(amount) <= 0) {
@@ -104,40 +114,39 @@ const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
       return;
     }
 
-    setLoading(true);
     setError('');
 
     try {
-      if (type === 'INCOME') {
-        await companyService.addIncome({
-          amount: parseFloat(amount),
-          description: description.trim(),
-          city: selectedCity !== 'all' ? selectedCity : undefined,
-        });
-      } else {
-        await companyService.addExpense({
-          amount: parseFloat(amount),
-          description: description.trim(),
-          city: selectedCity !== 'all' ? selectedCity : undefined,
-        });
-      }
+      const data = {
+        amount: parseFloat(amount),
+        description: description.trim(),
+        city: selectedCity !== 'all' ? selectedCity : undefined,
+      };
+      
+      await mutation.mutateAsync(data);
       
       setAmount('');
       setDescription('');
-      onSuccess();
       onClose();
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Ошибка при выполнении операции');
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleClose = useCallback(() => {
-    if (!loading) {
+    if (!isLoading) {
       onClose();
     }
-  }, [loading, onClose]);
+  }, [isLoading, onClose]);
+
+  // Сбрасываем ошибку при открытии/закрытии
+  useEffect(() => {
+    if (!open) {
+      setError('');
+      setAmount('');
+      setDescription('');
+    }
+  }, [open]);
 
   return (
     <Dialog
@@ -196,7 +205,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
               onChange={(e) => setAmount(e.target.value)}
               fullWidth
               required
-              disabled={loading}
+              disabled={isLoading}
               placeholder="0"
               InputProps={{
                 startAdornment: (
@@ -225,7 +234,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
               onChange={(e) => setDescription(e.target.value)}
               fullWidth
               required
-              disabled={loading}
+              disabled={isLoading}
               placeholder="Например: Оплата за товар, аренда, зарплата..."
               sx={{
                 '& .MuiOutlinedInput-root': {
@@ -265,7 +274,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
       <DialogActions sx={{ p: 2.5, pt: 1, gap: 1 }}>
         <Button
           onClick={handleClose}
-          disabled={loading}
+          disabled={isLoading}
           sx={{
             borderRadius: 4,
             color: '#4c5454',
@@ -281,7 +290,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
         <Button
           onClick={handleSubmit}
           variant="contained"
-          disabled={loading}
+          disabled={isLoading}
           sx={{
             borderRadius: 4,
             backgroundColor: type === 'INCOME' ? '#4caf50' : '#f44336',
@@ -296,7 +305,7 @@ const TransactionDialog: React.FC<TransactionDialogProps> = memo(({
             minWidth: 120,
           }}
         >
-          {loading ? <CircularProgress size={24} color="inherit" /> : (type === 'INCOME' ? 'Добавить' : 'Списать')}
+          {isLoading ? <CircularProgress size={24} color="inherit" /> : (type === 'INCOME' ? 'Добавить' : 'Списать')}
         </Button>
       </DialogActions>
     </Dialog>
@@ -358,7 +367,7 @@ const ChipTabs: React.FC<{
   value: number;
   onChange: (value: number) => void;
   tabs: Array<{ label: string; icon: React.ReactNode; count: number }>;
-}> = memo(({ value, onChange, tabs }) => {
+}> = React.memo(({ value, onChange, tabs }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
@@ -457,7 +466,7 @@ const DateRangeSelector: React.FC<{
   onEndDateChange: (date: Date | null) => void;
   onApplyDateRange: () => void;
   onResetDateRange: () => void;
-}> = memo(({ 
+}> = React.memo(({ 
   value, 
   onChange, 
   customDate, 
@@ -613,20 +622,36 @@ const DateRangeSelector: React.FC<{
 });
 
 // Мемоизированный компонент карточки транзакции
-const TransactionCard = memo(({ transaction }: { transaction: CompanyTransaction }) => {
+// Мемоизированный компонент карточки транзакции (оригинальный дизайн)
+const TransactionCard = React.memo(({ transaction }: { transaction: CompanyTransaction }) => {
   const isIncome = transaction.operation_type === 'INCOME';
   const isExpense = transaction.operation_type === 'EXPENSE';
   const isReportIncome = isIncome && transaction.reference_type === 'REPORT';
+  const isDebtWriteoff = isIncome && transaction.reference_type === 'DEBT_WRITEOFF';
 
   let IconComponent = isIncome ? IncomeIcon : isExpense ? ExpenseIcon : CorrectionIcon;
   let color = '#ff9800';
 
   if (isReportIncome) {
-    color = '#2196f3'; 
+    color = '#2196f3';
+  } else if (isDebtWriteoff) {
+    color = '#ff9800'; // Оранжевый для долгов, как и для обычных доходов
   } else if (isIncome) {
-    color = '#4caf50'; 
+    color = '#4caf50';
   } else if (isExpense) {
-    color = '#f44336'; 
+    color = '#f44336';
+  }
+
+  // Определяем текст для отображения в карточке
+  let operationLabel = '';
+  if (isDebtWriteoff) {
+    operationLabel = 'ДОЛГ';
+  } else if (isReportIncome) {
+    operationLabel = 'ДОХОД (ОТЧЕТ)';
+  } else if (isIncome) {
+    operationLabel = 'ДОХОД';
+  } else {
+    operationLabel = 'РАСХОД';
   }
 
   const formatDate = useCallback((date: string) => {
@@ -740,7 +765,9 @@ const TransactionCard = memo(({ transaction }: { transaction: CompanyTransaction
             
             {transaction.reference_type && (
               <Chip
-                label={transaction.reference_type === 'REPORT' ? 'Отчет' : transaction.reference_type}
+                label={transaction.reference_type === 'REPORT' ? 'Отчет' : 
+                       transaction.reference_type === 'DEBT_WRITEOFF' ? 'Долг' : 
+                       transaction.reference_type}
                 size="small"
                 sx={{
                   height: 20,
@@ -754,87 +781,6 @@ const TransactionCard = memo(({ transaction }: { transaction: CompanyTransaction
         </CardContent>
       </Card>
     </Fade>
-  );
-});
-
-// Мемоизированный компонент графика
-const ChartSection = memo(({ 
-  chartData, 
-  dateRange, 
-  isMobile,
-  loading,
-  selectedCity
-}: { 
-  chartData: any[]; 
-  dateRange: string;
-  isMobile: boolean;
-  loading: boolean;
-  selectedCity: string;
-}) => {
-  if (loading) {
-    return (
-      <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 8 }} />
-    );
-  }
-
-  return (
-    <Box sx={{ height: 300, width: '100%' }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart 
-          data={chartData}
-          margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
-        >
-          <defs>
-            <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
-              <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-          
-          <XAxis 
-            dataKey="index"
-            type="number"
-            domain={[0, chartData.length - 1]}
-            tickFormatter={(value) => {
-              const point = chartData[value];
-              if (!point) return '';
-              
-              const step = Math.max(1, Math.floor(chartData.length / (isMobile ? 8 : 12)));
-              if (value % step === 0 || value === chartData.length - 1) {
-                return point.displayLabel;
-              }
-              return '';
-            }}
-            tick={{ fill: '#4c5454', fontSize: 12 }}
-            axisLine={false}
-            tickLine={false}
-            interval={0}
-          />
-          
-          <YAxis 
-            tick={{ fill: '#4c5454', fontSize: 12 }}
-            axisLine={false}
-            tickLine={false}
-            tickFormatter={(value) => `${(value / 1000).toFixed(1)}K`}
-          />
-          
-          <Tooltip content={<CustomAreaTooltip selectedCity={selectedCity} />} />
-          
-          <Area 
-            type="monotone" 
-            dataKey="balance" 
-            stroke="#674fb6" 
-            strokeWidth={2}
-            fill="url(#balanceGradient)" 
-            isAnimationActive={true}
-            connectNulls={true}
-            dot={{ r: 4, fill: '#674fb6', strokeWidth: 0 }}
-            activeDot={{ r: 6, fill: '#674fb6', stroke: '#fff', strokeWidth: 2 }}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
-    </Box>
   );
 });
 
@@ -866,64 +812,17 @@ const CompanyPage: React.FC = () => {
   const isOwner = user?.role === UserRole.OWNER;
   const isAccountant = user?.role === UserRole.ACCOUNTANT;
 
-  // Состояния для данных
-  const [dashboardData, setDashboardData] = useState<{
-    balance: number;
-    transactions: CompanyTransaction[];
-    history: CompanyBalanceHistory[];
-    cities: string[];
-  }>({
-    balance: 0,
-    transactions: [],
-    history: [],
-    cities: []
-  });
-
-  const [loading, setLoading] = useState(true);
-  const [loadingBalance, setLoadingBalance] = useState(false);
+  // Состояния для фильтров
   const [activeTab, setActiveTab] = useState(0);
-  
-  // Пагинация
-  const [transactionsPage, setTransactionsPage] = useState(1);
-  const [transactionsTotal, setTransactionsTotal] = useState(0);
-  const [transactionsLoading, setTransactionsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  
-  // Города
   const [selectedCity, setSelectedCity] = useState<string>('all');
-  
-  // Фильтры
   const [searchTerm, setSearchTerm] = useState('');
   const [dateRange, setDateRange] = useState<DateRangeType>('month');
   const [customDate, setCustomDate] = useState<Date>(new Date());
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(null);
   const [tempStartDate, setTempStartDate] = useState<Date | null>(null);
   const [tempEndDate, setTempEndDate] = useState<Date | null>(null);
   const [appliedStartDate, setAppliedStartDate] = useState<Date | null>(null);
   const [appliedEndDate, setAppliedEndDate] = useState<Date | null>(null);
-
-  const [periodStats, setPeriodStats] = useState<{
-    regular_income: number;
-    regular_income_count: number;
-    report_income: number;
-    report_income_count: number;
-    total_expense: number;
-    income_count: number;
-    expense_count: number;
-    total_income: number;
-  }>({
-    regular_income: 0,
-    regular_income_count: 0,
-    report_income: 0,
-    report_income_count: 0,
-    total_expense: 0,
-    income_count: 0,
-    expense_count: 0,
-    total_income: 0,
-  });
+  const [transactionsPage, setTransactionsPage] = useState(1);
   
   // Диалоги
   const [incomeDialogOpen, setIncomeDialogOpen] = useState(false);
@@ -944,225 +843,134 @@ const CompanyPage: React.FC = () => {
   useEffect(() => {
     if (isAccountant && user && user.cityName) {
       setSelectedCity(user.cityName);
-    } else if (isAccountant && user && !user.cityName) {
-      console.error('У бухгалтера не назначен город');
     }
   }, [isAccountant, user]);
 
-  const loadStats = useCallback(async () => {
-    try {
-      let params: any = {
-        period: dateRange,
-        city: selectedCity !== 'all' ? selectedCity : undefined,
-      };
-
-      if (dateRange === 'day') {
-        params.date = format(customDate, 'yyyy-MM-dd');
-      } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
-        params.date_from = format(appliedStartDate, 'yyyy-MM-dd');
-        params.date_to = format(appliedEndDate, 'yyyy-MM-dd');
-      }
-
-      const stats = await companyService.getStats(params);
-      setPeriodStats(stats);
-    } catch (error) {
-      console.error('Error loading stats:', error);
-    }
-  }, [selectedCity, dateRange, customDate, appliedStartDate, appliedEndDate]);
-
-  // Загрузка транзакций с пагинацией
-  const loadTransactions = useCallback(async (page: number, reset: boolean = false) => {
-    setTransactionsLoading(true);
-    try {
-      let params: any = {
-        page: page,
-        page_size: 50,
-        city: isAccountant && user?.cityName ? user.cityName : (selectedCity !== 'all' ? selectedCity : undefined),
-      };
-
-      if (activeTab === 1) {
-        params.operation_type = 'INCOME';
-      } else if (activeTab === 2) {
-        params.operation_type = 'INCOME';
-        params.reference_type = 'REPORT';
-      } else if (activeTab === 3) {
-        params.operation_type = 'EXPENSE';
-      }
-
-      // Получаем текущую дату для end_date
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      if (dateRange === 'day') {
-        const selectedDate = new Date(customDate);
-        const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
-        
-        params.date_from = format(dayStart, 'yyyy-MM-dd');
-        params.date_to = format(dayEnd, 'yyyy-MM-dd');
-      } else if (dateRange === 'week') {
-        const end = new Date();
-        const start = subDays(end, 7);
-        // Устанавливаем start на начало дня
-        const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-        // Устанавливаем end на конец сегодняшнего дня
-        const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-        const endDateNext = new Date(endDate);
-        endDateNext.setDate(endDateNext.getDate() + 1);
-        
-        params.date_from = format(startDate, 'yyyy-MM-dd');
-        params.date_to = format(endDateNext, 'yyyy-MM-dd');
-      } else if (dateRange === 'month') {
-        const end = new Date();
-        const start = subMonths(end, 1);
-        const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-        const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-        const endDateNext = new Date(endDate);
-        endDateNext.setDate(endDateNext.getDate() + 1);
-        
-        params.date_from = format(startDate, 'yyyy-MM-dd');
-        params.date_to = format(endDateNext, 'yyyy-MM-dd');
-      } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
-        const startDate = new Date(appliedStartDate);
-        const endDate = new Date(appliedEndDate);
-        const endDateNext = new Date(endDate);
-        endDateNext.setDate(endDateNext.getDate() + 1);
-        
-        params.date_from = format(startDate, 'yyyy-MM-dd');
-        params.date_to = format(endDateNext, 'yyyy-MM-dd');
-      } else if (dateRange === 'all' && !appliedStartDate && !appliedEndDate) {
-        // Для "все время" без выбранных дат - не передаем date_from и date_to
-        // backend вернет все транзакции
-      }
-
-      const response = await companyService.getTransactions(params);
-      
-      if (reset || page === 1) {
-        setDashboardData(prev => ({ ...prev, transactions: response.items }));
-      } else {
-        setDashboardData(prev => ({ 
-          ...prev, 
-          transactions: [...prev.transactions, ...response.items] 
-        }));
-      }
-      
-      setTransactionsTotal(response.total);
-      setHasMore(page < response.total_pages);
-      setTransactionsPage(page);
-    } catch (error) {
-      console.error('Error loading transactions:', error);
-    } finally {
-      setTransactionsLoading(false);
-    }
-  }, [selectedCity, activeTab, dateRange, customDate, appliedStartDate, appliedEndDate, isAccountant, user, searchTerm]);
-
-  // Загрузка данных дашборда
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  // Получаем данные для дашборда
+  const dashboardFilters = useMemo(() => {
+    let period = dateRange;
+    let date = undefined;
+    let date_from = undefined;
+    let date_to = undefined;
     
-    // Загружаем баланс
-    setLoadingBalance(true);
-    try {
-      let balanceData: { balance: number };
-      if (isAccountant && user?.cityName) {
-        balanceData = await companyService.getBalanceByCity(user.cityName);
-      } else if (selectedCity === 'all') {
-        balanceData = await companyService.getBalance();
-      } else {
-        balanceData = await companyService.getBalanceByCity(selectedCity);
-      }
-      setDashboardData(prev => ({ ...prev, balance: balanceData.balance }));
-    } catch (error) {
-      console.error('Error loading balance:', error);
-    } finally {
-      setLoadingBalance(false);
+    if (dateRange === 'day') {
+      date = format(customDate, 'yyyy-MM-dd');
+    } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
+      date_from = format(appliedStartDate, 'yyyy-MM-dd');
+      date_to = format(appliedEndDate, 'yyyy-MM-dd');
+      period = 'all';
     }
-
-    // Загружаем статистику
-    await loadStats();
-
-    // Загружаем данные для графиков
-    try {
-      let period = dateRange;
-      let date = undefined;
-      let date_from = undefined;
-      let date_to = undefined;
-      
-      if (dateRange === 'day') {
-        date = format(customDate, 'yyyy-MM-dd');
-      } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
-        date_from = format(appliedStartDate, 'yyyy-MM-dd');
-        date_to = format(appliedEndDate, 'yyyy-MM-dd');
-        period = 'all';
-      }
-      
-      const maxPoints = dateRange === 'all' ? 200 : 100;
-      
-      const data = await companyService.getDashboardData({
-        period,
-        city: isAccountant && user?.cityName ? user.cityName : (selectedCity !== 'all' ? selectedCity : undefined),
-        date,
-        date_from,
-        date_to,
-        max_points: maxPoints
-      });
-      
-      setDashboardData(prev => ({ 
-        ...prev, 
-        history: data.history,
-        cities: data.cities 
-      }));
-      
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-      showSnackbar('Ошибка загрузки данных', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedCity, dateRange, customDate, appliedStartDate, appliedEndDate, loadStats, isAccountant, user]);
-
-  // Загружаем транзакции при изменении фильтров
-  useEffect(() => {
-    loadTransactions(1, true);
-  }, [selectedCity, activeTab, dateRange, customDate, appliedStartDate, appliedEndDate, loadTransactions]);
-
-  // Загружаем основные данные при изменении
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      loadData();
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [loadData]);
-
-  // Настройка Intersection Observer для бесконечной прокрутки
-  useEffect(() => {
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-    }
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !transactionsLoading) {
-          loadTransactions(transactionsPage + 1);
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    if (sentinelRef.current) {
-      observerRef.current.observe(sentinelRef.current);
-    }
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
+    
+    const maxPoints = dateRange === 'all' ? 200 : 100;
+    
+    return {
+      period,
+      city: isAccountant && user?.cityName ? user.cityName : (selectedCity !== 'all' ? selectedCity : undefined),
+      date,
+      date_from,
+      date_to,
+      max_points: maxPoints,
     };
-  }, [hasMore, transactionsLoading, loadTransactions, transactionsPage]);
+  }, [dateRange, customDate, appliedStartDate, appliedEndDate, selectedCity, isAccountant, user]);
+
+  const { 
+    data: dashboardData, 
+    isLoading: dashboardLoading,
+    refetch: refetchDashboard,
+    isFetching: dashboardFetching,
+  } = useDashboardData(dashboardFilters);
+
+  // Получаем статистику
+  const statsParams = useMemo(() => {
+    let params: any = {
+      period: dateRange,
+      city: isAccountant && user?.cityName ? user.cityName : (selectedCity !== 'all' ? selectedCity : undefined),
+    };
+
+    if (dateRange === 'day') {
+      params.date = format(customDate, 'yyyy-MM-dd');
+    } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
+      params.date_from = format(appliedStartDate, 'yyyy-MM-dd');
+      params.date_to = format(appliedEndDate, 'yyyy-MM-dd');
+    }
+
+    return params;
+  }, [dateRange, customDate, appliedStartDate, appliedEndDate, selectedCity, isAccountant, user]);
+
+  const { data: periodStats, isLoading: statsLoading } = useStats(statsParams);
+
+  // Получаем транзакции
+  const transactionsFilters = useMemo(() => {
+    let params: any = {
+      page: transactionsPage,
+      page_size: 50,
+      city: isAccountant && user?.cityName ? user.cityName : (selectedCity !== 'all' ? selectedCity : undefined),
+    };
+
+    if (activeTab === 1) {
+      params.operation_type = 'INCOME';
+    } else if (activeTab === 2) {
+      params.operation_type = 'INCOME';
+      params.reference_type = 'REPORT';
+    } else if (activeTab === 3) {
+      params.operation_type = 'EXPENSE';
+    }
+
+    // Добавляем фильтры по дате
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    if (dateRange === 'day') {
+      const selectedDate = new Date(customDate);
+      const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+      
+      params.date_from = format(dayStart, 'yyyy-MM-dd');
+      params.date_to = format(dayEnd, 'yyyy-MM-dd');
+    } else if (dateRange === 'week') {
+      const end = new Date();
+      const start = subDays(end, 7);
+      const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      const endDateNext = new Date(endDate);
+      endDateNext.setDate(endDateNext.getDate() + 1);
+      
+      params.date_from = format(startDate, 'yyyy-MM-dd');
+      params.date_to = format(endDateNext, 'yyyy-MM-dd');
+    } else if (dateRange === 'month') {
+      const end = new Date();
+      const start = subMonths(end, 1);
+      const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+      const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+      const endDateNext = new Date(endDate);
+      endDateNext.setDate(endDateNext.getDate() + 1);
+      
+      params.date_from = format(startDate, 'yyyy-MM-dd');
+      params.date_to = format(endDateNext, 'yyyy-MM-dd');
+    } else if (dateRange === 'all' && appliedStartDate && appliedEndDate) {
+      const startDate = new Date(appliedStartDate);
+      const endDate = new Date(appliedEndDate);
+      const endDateNext = new Date(endDate);
+      endDateNext.setDate(endDateNext.getDate() + 1);
+      
+      params.date_from = format(startDate, 'yyyy-MM-dd');
+      params.date_to = format(endDateNext, 'yyyy-MM-dd');
+    }
+
+    return params;
+  }, [selectedCity, activeTab, dateRange, customDate, appliedStartDate, appliedEndDate, transactionsPage, isAccountant, user]);
+
+  const { 
+    data: transactionsData, 
+    isLoading: transactionsLoading,
+    isFetching: transactionsFetching,
+  } = useTransactions(transactionsFilters);
+
+  // Получаем список городов (только для OWNER)
+  const { data: citiesData } = useBalanceByCities(isOwner);
 
   const showSnackbar = (message: string, severity: 'success' | 'error' = 'success') => {
     setSnackbar({ open: true, message, severity });
@@ -1173,26 +981,35 @@ const CompanyPage: React.FC = () => {
     setTransactionsPage(1);
   };
 
+  const handleRefresh = () => {
+    refetchDashboard();
+    showSnackbar('Данные обновляются...', 'success');
+  };
+
   // Фильтрация транзакций по поиску на клиенте
   const filteredTransactions = useMemo(() => {
-    if (!searchTerm) return dashboardData.transactions;
+    const transactions = transactionsData?.items || [];
+    if (!searchTerm) return transactions;
     
     const searchLower = searchTerm.toLowerCase();
-    return dashboardData.transactions.filter(t => 
+    return transactions.filter(t => 
       t.description.toLowerCase().includes(searchLower) ||
       (t.reference_type?.toLowerCase() || '').includes(searchLower)
     );
-  }, [dashboardData.transactions, searchTerm]);
+  }, [transactionsData?.items, searchTerm]);
 
   const chartData = useMemo(() => {
-    if (!dashboardData.history || dashboardData.history.length === 0) {
+    const history = dashboardData?.history || [];
+    const balance = dashboardData?.balance || 0;
+    
+    if (!history || history.length === 0) {
       return [{
         id: 'current',
         index: 0,
         displayLabel: dateRange === 'day' 
           ? format(new Date(), 'HH:mm')
           : format(new Date(), 'dd MMM', { locale: ru }),
-        balance: dashboardData.balance,
+        balance: balance,
         date: new Date().toISOString(),
         city: selectedCity !== 'all' ? selectedCity : undefined,
         timestamp: new Date().getTime(),
@@ -1201,7 +1018,7 @@ const CompanyPage: React.FC = () => {
       }];
     }
 
-    return dashboardData.history.map((item, index) => {
+    return history.map((item, index) => {
       const date = new Date(item.date);
       
       return {
@@ -1215,32 +1032,32 @@ const CompanyPage: React.FC = () => {
         uniqueKey: `point-${index}-${date.getTime()}`
       };
     });
-  }, [dashboardData.history, dashboardData.balance, dateRange, selectedCity]);
+  }, [dashboardData?.history, dashboardData?.balance, dateRange, selectedCity]);
 
   const totalStats = useMemo(() => ({
-    totalIncome: dashboardData.transactions
+    totalIncome: (transactionsData?.items || [])
       .filter(t => t.operation_type === 'INCOME')
       .reduce((sum, t) => sum + t.amount, 0),
-    totalExpense: dashboardData.transactions
+    totalExpense: (transactionsData?.items || [])
       .filter(t => t.operation_type === 'EXPENSE')
       .reduce((sum, t) => sum + t.amount, 0),
-    transactionsCount: dashboardData.transactions.length,
-  }), [dashboardData.transactions]);
+    transactionsCount: transactionsData?.items?.length || 0,
+  }), [transactionsData?.items]);
 
   const pieData = useMemo(() => [
     { 
       name: 'Обычные доходы', 
-      value: periodStats.regular_income, 
+      value: periodStats?.regular_income || 0, 
       color: '#4caf50' 
     },
     { 
       name: 'Доходы от отчетов', 
-      value: periodStats.report_income, 
+      value: periodStats?.report_income || 0, 
       color: '#2196f3' 
     },
     { 
       name: 'Расходы', 
-      value: periodStats.total_expense, 
+      value: periodStats?.total_expense || 0, 
       color: '#f44336' 
     },
   ].filter(item => item.value > 0), [periodStats]);
@@ -1249,22 +1066,22 @@ const CompanyPage: React.FC = () => {
     {
       label: 'Все',
       icon: <HistoryIcon sx={{ fontSize: 18 }} />,
-      count: periodStats.income_count + periodStats.expense_count,
+      count: (periodStats?.income_count || 0) + (periodStats?.expense_count || 0),
     },
     {
       label: 'Доходы',
       icon: <IncomeIcon sx={{ fontSize: 18 }} />,
-      count: periodStats.income_count,
+      count: periodStats?.income_count || 0,
     },
     {
       label: 'Доходы от отчетов',
       icon: <IncomeIcon sx={{ fontSize: 18 }} />,
-      count: periodStats.report_income_count,
+      count: periodStats?.report_income_count || 0,
     },
     {
       label: 'Расходы',
       icon: <ExpenseIcon sx={{ fontSize: 18 }} />,
-      count: periodStats.expense_count,
+      count: periodStats?.expense_count || 0,
     },
   ], [periodStats]);
 
@@ -1302,7 +1119,15 @@ const CompanyPage: React.FC = () => {
     }
   }, [dateRange, appliedStartDate, appliedEndDate]);
 
-  if (loading && !dashboardData.transactions.length) {
+  // Сбрасываем страницу при смене фильтров
+  useEffect(() => {
+    setTransactionsPage(1);
+  }, [activeTab, dateRange, customDate, appliedStartDate, appliedEndDate, selectedCity]);
+
+  const isLoading = dashboardLoading || statsLoading;
+  const isFetching = dashboardFetching || transactionsFetching;
+
+  if (isLoading && !dashboardData) {
     return <DashboardSkeleton />;
   }
 
@@ -1334,7 +1159,7 @@ const CompanyPage: React.FC = () => {
             </Box>
             
             {/* Селект городов - показываем только для OWNER */}
-            {isOwner && (
+            {isOwner && citiesData && (
               <FormControl size="small" sx={{ minWidth: 200 }}>
                 <Select
                   value={selectedCity}
@@ -1354,25 +1179,21 @@ const CompanyPage: React.FC = () => {
                   }}
                 >
                   <MenuItem value="all">Все города</MenuItem>
-                  {dashboardData.cities.map((city) => (
-                    <MenuItem key={city} value={city}>{city}</MenuItem>
+                  {citiesData.map((city: { city: string; balance: number }) => (
+                    <MenuItem key={city.city} value={city.city}>{city.city}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
             )}
 
-            {loadingBalance && (
+            {isFetching && (
               <CircularProgress size={20} sx={{ color: '#674fb6', ml: 1 }} />
             )}
           </Box>
 
           <IconButton
-            onClick={() => {
-              setTransactionsPage(1);
-              loadData();
-              loadTransactions(1, true);
-            }}
-            disabled={loading}
+            onClick={handleRefresh}
+            disabled={isFetching}
             sx={{
               backgroundColor: '#ffffff',
               borderRadius: '50%',
@@ -1386,7 +1207,7 @@ const CompanyPage: React.FC = () => {
           >
             <RefreshIcon sx={{ 
               color: '#674fb6',
-              animation: loading ? 'spin 1s linear infinite' : 'none',
+              animation: isFetching ? 'spin 1s linear infinite' : 'none',
               '@keyframes spin': {
                 '0%': { transform: 'rotate(0deg)' },
                 '100%': { transform: 'rotate(360deg)' }
@@ -1413,7 +1234,7 @@ const CompanyPage: React.FC = () => {
                 {selectedCity !== 'all' && ` г. ${selectedCity}`}
               </Typography>
               <Typography variant="h2" component="div" sx={{ fontWeight: 700, mb: 1, color: '#000000' }}>
-                {formatAmount(dashboardData.balance)}
+                {formatAmount(dashboardData?.balance || 0)}
               </Typography>
               <Stack direction="row" spacing={2} flexWrap="wrap">
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -1541,13 +1362,67 @@ const CompanyPage: React.FC = () => {
                 />
               </Box>
 
-              <ChartSection
-                chartData={chartData}
-                dateRange={dateRange}
-                isMobile={isMobile}
-                loading={loading}
-                selectedCity={selectedCity}
-              />
+              {dashboardLoading ? (
+                <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 8 }} />
+              ) : (
+                <Box sx={{ height: 300, width: '100%' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart 
+                      data={chartData}
+                      margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
+                    >
+                      <defs>
+                        <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#674fb6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#674fb6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      
+                      <XAxis 
+                        dataKey="index"
+                        type="number"
+                        domain={[0, chartData.length - 1]}
+                        tickFormatter={(value) => {
+                          const point = chartData[value];
+                          if (!point) return '';
+                          
+                          const step = Math.max(1, Math.floor(chartData.length / (isMobile ? 8 : 12)));
+                          if (value % step === 0 || value === chartData.length - 1) {
+                            return point.displayLabel;
+                          }
+                          return '';
+                        }}
+                        tick={{ fill: '#4c5454', fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                      />
+                      
+                      <YAxis 
+                        tick={{ fill: '#4c5454', fontSize: 12 }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(value) => `${(value / 1000).toFixed(1)}K`}
+                      />
+                      
+                      <Tooltip content={<CustomAreaTooltip selectedCity={selectedCity} />} />
+                      
+                      <Area 
+                        type="monotone" 
+                        dataKey="balance" 
+                        stroke="#674fb6" 
+                        strokeWidth={2}
+                        fill="url(#balanceGradient)" 
+                        isAnimationActive={true}
+                        connectNulls={true}
+                        dot={{ r: 4, fill: '#674fb6', strokeWidth: 0 }}
+                        activeDot={{ r: 6, fill: '#674fb6', stroke: '#fff', strokeWidth: 2 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </Box>
+              )}
             </Paper>
           </Grid>
           <Grid size={{ xs: 12, lg: 4 }}>
@@ -1574,7 +1449,9 @@ const CompanyPage: React.FC = () => {
                         ? `с ${format(appliedStartDate, 'dd MMM', { locale: ru })} по ${format(appliedEndDate, 'dd MMM', { locale: ru })}`
                         : 'за все время'}
               </Typography>
-              {pieData.length > 0 ? (
+              {statsLoading ? (
+                <Skeleton variant="rectangular" height={300} sx={{ borderRadius: 8 }} />
+              ) : pieData.length > 0 ? (
                 <>
                   <Box sx={{ height: 200 }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -1608,9 +1485,9 @@ const CompanyPage: React.FC = () => {
                   </Stack>
                   <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #f0f0f0' }}>
                     <Typography variant="body2" color="#4c5454" align="center">
-                        Обычные доходы: {formatAmount(periodStats.regular_income)}<br />
-                        Доходы от отчетов: {formatAmount(periodStats.report_income)}<br />
-                        Расходы: {formatAmount(periodStats.total_expense)}<br />
+                        Обычные доходы: {formatAmount(periodStats?.regular_income || 0)}<br />
+                        Доходы от отчетов: {formatAmount(periodStats?.report_income || 0)}<br />
+                        Расходы: {formatAmount(periodStats?.total_expense || 0)}<br />
                     </Typography>
                   </Box>
                 </>
@@ -1679,14 +1556,22 @@ const CompanyPage: React.FC = () => {
             </Grid>
             <Grid size={{ xs: 12, md: 6 }}>
               <Typography variant="body2" color="#4c5454" align="right">
-                Показано {filteredTransactions.length} из {transactionsTotal} операций
+                Показано {filteredTransactions.length} из {transactionsData?.total || 0} операций
               </Typography>
             </Grid>
           </Grid>
         </Paper>
 
         {/* Список транзакций */}
-        {filteredTransactions.length === 0 ? (
+        {transactionsLoading && !transactionsData ? (
+          <Grid container spacing={1.5}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <Grid size={{ xs: 12, sm: 6, lg: 4 }} key={i}>
+                <Skeleton variant="rectangular" height={200} sx={{ borderRadius: 8 }} />
+              </Grid>
+            ))}
+          </Grid>
+        ) : filteredTransactions.length === 0 ? (
           <Paper
             sx={{
               p: 4,
@@ -1714,19 +1599,16 @@ const CompanyPage: React.FC = () => {
                 </Grid>
               ))}
             </Grid>
-            {/* Sentinel для бесконечной прокрутки */}
-            <div ref={sentinelRef} style={{ height: '20px', margin: '20px 0' }}>
-              {transactionsLoading && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
-                  <CircularProgress size={30} />
-                </Box>
-              )}
-              {!hasMore && transactionsTotal > 0 && (
-                <Typography variant="body2" color="#4c5454" align="center" sx={{ mt: 2 }}>
-                  Загружены все операции ({transactionsTotal})
-                </Typography>
-              )}
-            </div>
+            {transactionsFetching && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                <CircularProgress size={30} />
+              </Box>
+            )}
+            {!transactionsFetching && transactionsData && transactionsPage >= (transactionsData.total_pages || 1) && transactionsData.total > 0 && (
+              <Typography variant="body2" color="#4c5454" align="center" sx={{ mt: 2 }}>
+                Загружены все операции ({transactionsData.total})
+              </Typography>
+            )}
           </>
         )}
 
@@ -1736,12 +1618,6 @@ const CompanyPage: React.FC = () => {
           type="INCOME"
           selectedCity={selectedCity}
           onClose={() => setIncomeDialogOpen(false)}
-          onSuccess={() => {
-            showSnackbar('Доход успешно добавлен', 'success');
-            setTransactionsPage(1);
-            loadData();
-            loadTransactions(1, true);
-          }}
         />
 
         <TransactionDialog
@@ -1749,12 +1625,6 @@ const CompanyPage: React.FC = () => {
           type="EXPENSE"
           selectedCity={selectedCity}
           onClose={() => setExpenseDialogOpen(false)}
-          onSuccess={() => {
-            showSnackbar('Расход успешно добавлен', 'success');
-            setTransactionsPage(1);
-            loadData();
-            loadTransactions(1, true);
-          }}
         />
 
         {/* Snackbar */}
