@@ -63,6 +63,9 @@ class CRUDAccountantAssignment:
         if not accountant:
             raise ValueError("Бухгалтер не найден")
         
+        # Получаем текущие назначения
+        old_assigned_ids = self.get_accountant_assignments(db, accountant_id)
+        
         # Проверяем, что все пользователи существуют
         users = db.query(User).filter(
             User.id.in_(user_ids),
@@ -74,7 +77,27 @@ class CRUDAccountantAssignment:
             missing = set(user_ids) - found_ids
             raise ValueError(f"Пользователи с ID {missing} не найдены")
         
-        # Сохраняем назначения (конфликты уже исключены на уровне получения доступных пользователей)
+        # Определяем, кого нужно отвязать (были назначены, но больше не назначены)
+        users_to_unassign = old_assigned_ids - set(user_ids)
+        
+        # Определяем, кого нужно привязать (новые назначения)
+        users_to_assign = set(user_ids) - old_assigned_ids
+        
+        # Обновляем accountant_id для отвязываемых пользователей
+        if users_to_unassign:
+            db.query(User).filter(User.id.in_(users_to_unassign)).update(
+                {User.accountant_id: None},
+                synchronize_session=False
+            )
+        
+        # Обновляем accountant_id для привязываемых пользователей
+        if users_to_assign:
+            db.query(User).filter(User.id.in_(users_to_assign)).update(
+                {User.accountant_id: accountant_id},
+                synchronize_session=False
+            )
+        
+        # Сохраняем назначения в поле бухгалтера
         accountant.accountant_user_ids = json.dumps(user_ids) if user_ids else None
         db.commit()
         db.refresh(accountant)

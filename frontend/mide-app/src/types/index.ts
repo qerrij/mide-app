@@ -53,6 +53,7 @@ export interface User {
   role: UserRole;
   rate?: number;  // Общая ставка (всегда 0)
   categoryRates?: UserCategoryRate[];  // Добавляем ставки по категориям
+  accountantDescription?: string;
   
   clusterId?: number;
   groupId?: number;
@@ -61,6 +62,7 @@ export interface User {
   adminId?: number;
   adminClusterIds?: number[];
   accountantUserIds?: number[];
+  accountantId?: number;
   
   createdAt: Date;
   updatedAt?: Date;
@@ -88,7 +90,8 @@ export interface CreateUserDto {
   seniorSellerId?: number;
   adminId?: number;
   adminClusterIds?: number[];
-  categoryRates?: UserCategoryRateCreate[];  // Добавляем
+  categoryRates?: UserCategoryRateCreate[];  
+  accountantDescription?: string;
 }
 
 // Обновляем UpdateUserDto
@@ -108,7 +111,8 @@ export interface UpdateUserDto {
   adminClusterIds?: number[];
   accountantUserIds?: number[];
   isActive?: boolean;
-  categoryRates?: UserCategoryRateCreate[];  // Добавляем
+  categoryRates?: UserCategoryRateCreate[];  
+  accountantDescription?: string;
 }
 
 // ================ ТОВАРЫ ================
@@ -120,12 +124,12 @@ export interface Product {
   price: number;
   sku: string;
   description?: string;
-  defaultRate?: number;  
-  city?: string;         
+  defaultRate?: number;
+  cityId?: number;        // ID города (внешний ключ) - замена поля city
+  cityName?: string;      // Название города (для отображения)
   createdAt?: Date;
   updatedAt?: Date;
 }
-
 
 export interface ProductCreateDto {
   name: string;
@@ -133,8 +137,8 @@ export interface ProductCreateDto {
   categoryId: number;
   price: number;
   description?: string;
-  defaultRate?: number;  
-  city?: string;        
+  defaultRate?: number;
+  cityId?: number;        // ID города вместо city
 }
 
 export interface ProductUpdateDto {
@@ -143,8 +147,8 @@ export interface ProductUpdateDto {
   categoryId?: number;
   price?: number;
   description?: string;
-  defaultRate?: number; 
-  city?: string;        
+  defaultRate?: number;
+  cityId?: number;        // ID города вместо city
   isActive?: boolean;
 }
 
@@ -776,8 +780,9 @@ export interface InventoryItem {
   productName?: string;
   productSku?: string;
   productPrice?: number;
-  userName?: string;        // ДОБАВЛЯЕМ
-  userCity?: string;        // ДОБАВЛЯЕМ город пользователя
+  userName?: string;
+  userCityId?: number;    // ID города пользователя (вместо userCity)
+  userCityName?: string;  // Название города пользователя (для отображения)
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -1570,4 +1575,26 @@ export interface SoldProductsDashboardResponse {
   top_products: SoldProductStats[];
   categories: CategorySoldProductStats[];
   trend: SoldProductDailyStats[];
+}
+
+
+// ================ ГОРОДА ================
+export interface City {
+  id: number;
+  name: string;
+  region: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface CityCreate {
+  name: string;
+  region?: string | null;
+}
+
+export interface CityUpdate {
+  name?: string;
+  region?: string | null;
+  isActive?: boolean;
 }

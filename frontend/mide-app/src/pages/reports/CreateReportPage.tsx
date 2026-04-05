@@ -38,14 +38,16 @@ import {
   PhotoCamera as PhotoCameraIcon,
   Info as InfoIcon,
   ExitToApp as ExitToAppIcon,
+  AccountBalance as AccountBalanceIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { productService } from '../../api/productService';
 import { reportService } from '../../api/reportService';
 import { userService } from '../../api/userService';
-import { userCategoryRateService } from '../../api/userCategoryRateService'
-import { Product, ProductCategory, InventoryItem, UserCategoryRate } from '../../types';
+import { userCategoryRateService } from '../../api/userCategoryRateService';
+import { assignmentsService } from '../../api/assignmentsService';
+import { Product, ProductCategory, InventoryItem, UserCategoryRate, User } from '../../types';
 import { PhotoViewer } from '../../components/PhotoViewer';
 
 interface SelectedProduct {
@@ -80,6 +82,14 @@ const CreateReportPage: React.FC = () => {
   const [accountantAmount, setAccountantAmount] = useState<string>('');
   const [comment, setComment] = useState<string>('');
   
+  // Новое состояние для бухгалтера
+  const [accountantInfo, setAccountantInfo] = useState<{
+    id: number;
+    fullName: string;
+    description: string | null;
+  } | null>(null);
+  const [loadingAccountant, setLoadingAccountant] = useState(false);
+  
   const [loading, setLoading] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +110,7 @@ const CreateReportPage: React.FC = () => {
   useEffect(() => {
     loadData();
     loadUserRates();
+    loadAccountantInfo();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
@@ -142,6 +153,31 @@ const CreateReportPage: React.FC = () => {
       }
     } catch (err) {
       console.error('Error loading user rates:', err);
+    }
+  };
+
+  const loadAccountantInfo = async () => {
+    if (!user) return;
+    
+    setLoadingAccountant(true);
+    try {
+      // Используем новый метод userService
+      const response = await userService.getMyAccountantInfo();
+      
+      if (response.has_accountant && response.accountant) {
+        setAccountantInfo({
+          id: response.accountant.id,
+          fullName: response.accountant.full_name,
+          description: response.accountant.description,
+        });
+      } else {
+        setAccountantInfo(null);
+      }
+    } catch (err) {
+      console.error('Error loading accountant info:', err);
+      setAccountantInfo(null);
+    } finally {
+      setLoadingAccountant(false);
     }
   };
 
@@ -914,6 +950,53 @@ const CreateReportPage: React.FC = () => {
                     </Grid>
                   </Grid>
                   
+                  {/* НОВЫЙ БЛОК: Информация о бухгалтере */}
+                  {!loadingAccountant && accountantInfo && (
+                    <Box sx={{ 
+                      mt: 2, 
+                      pt: 2, 
+                      borderTop: '1px dashed rgba(63, 31, 75, 0.2)',
+                      backgroundColor: 'rgba(255, 152, 0, 0.05)',
+                      borderRadius: 2,
+                      p: 1.5,
+                    }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <AccountBalanceIcon sx={{ color: '#ff9800', fontSize: 20 }} />
+                        <Typography variant="subtitle2" color="#ff9800" fontWeight={600}>
+                          Реквизиты для перевода
+                        </Typography>
+                      </Box>
+                      <Typography variant="body2" color="#2a0f35" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {accountantInfo.description || `Бухгалтер: ${accountantInfo.fullName}\nРеквизиты не указаны. Уточните у бухгалтера.`}
+                      </Typography>
+                    </Box>
+                  )}
+                  
+                  {!loadingAccountant && !accountantInfo && (
+                    <Box sx={{ 
+                      mt: 2, 
+                      pt: 2, 
+                      borderTop: '1px dashed rgba(63, 31, 75, 0.2)',
+                      backgroundColor: 'rgba(244, 67, 54, 0.05)',
+                      borderRadius: 2,
+                      p: 1.5,
+                    }}>
+                      <Typography variant="body2" color="#f44336" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <InfoIcon sx={{ fontSize: 18 }} />
+                        Внимание: Вам не назначен бухгалтер. Уточните реквизиты для перевода у руководителя.
+                      </Typography>
+                    </Box>
+                  )}
+                  
+                  {loadingAccountant && (
+                    <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed rgba(63, 31, 75, 0.2)', textAlign: 'center' }}>
+                      <CircularProgress size={24} sx={{ color: '#ff9800' }} />
+                      <Typography variant="caption" color="#4c5454" display="block">
+                        Загрузка реквизитов...
+                      </Typography>
+                    </Box>
+                  )}
+                  
                   <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed rgba(63, 31, 75, 0.2)' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Typography variant="body2" color="#4c5454">
@@ -1124,6 +1207,23 @@ const CreateReportPage: React.FC = () => {
                 </Grid>
               </Grid>
             </Box>
+
+            {/* Добавляем информацию о бухгалтере в диалог подтверждения */}
+            {accountantInfo && (
+              <Box sx={{ 
+                p: 2, 
+                backgroundColor: 'rgba(255, 152, 0, 0.05)',
+                borderRadius: 4,
+                border: '1px solid rgba(255, 152, 0, 0.2)',
+              }}>
+                <Typography variant="caption" color="#ff9800" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: '0.75rem' }}>
+                  РЕКВИЗИТЫ ДЛЯ ПЕРЕВОДА
+                </Typography>
+                <Typography variant="body2" color="#2a0f35" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {accountantInfo.description || `Бухгалтер: ${accountantInfo.fullName}\nРеквизиты не указаны. Уточните у бухгалтера.`}
+                </Typography>
+              </Box>
+            )}
 
             <Box sx={{ 
               p: 2, 

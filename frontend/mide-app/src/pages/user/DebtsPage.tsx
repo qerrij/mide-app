@@ -24,6 +24,7 @@ import {
   MenuItem,
   Select,
   SelectChangeEvent,
+  Autocomplete,
 } from '@mui/material';
 import {
   TrendingDown as TrendingDownIcon,
@@ -34,11 +35,13 @@ import {
   Search as SearchIcon,
   Close as CloseIcon,
   ArrowBack as ArrowBackIcon,
+  PersonAdd as PersonAddIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { debtService } from '../../api/debtService';
 import { productService } from '../../api/productService';
+import { userService } from '../../api/userService';
 import { 
   UserDebtResponse, 
   DebtTransactionResponse, 
@@ -47,20 +50,289 @@ import {
   DebtSummary,
   UserRole,
   Product,
-  RevisionDebtDetails
+  RevisionDebtDetails,
+  User,
 } from '../../types';
 
-// Компонент модалки для корректировки долга (стилизован под TransactionDialog)
-interface DebtAdjustDialogProps {
+// Компонент модалки для создания долга (для OWNER)
+interface CreateDebtDialogProps {
   open: boolean;
-  type: 'INCREASE' | 'DECREASE';
-  userName: string;
-  currentAmount: number;
   onClose: () => void;
-  onConfirm: (amount: number, description: string) => Promise<void>;
+  onConfirm: (userId: number, amount: number, description: string) => Promise<void>;
 }
 
-// Компонент модалки для корректировки долга (стилизован под TransactionDialog)
+const CreateDebtDialog: React.FC<CreateDebtDialogProps> = React.memo(({
+  open,
+  onClose,
+  onConfirm,
+}) => {
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [amount, setAmount] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
+  const [error, setError] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  useEffect(() => {
+    if (open && users.length === 0) {
+      loadUsers();
+    }
+  }, [open]);
+
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const allUsers = await userService.getAllUsers();
+      setUsers(allUsers.filter(u => u.role !== UserRole.OWNER));
+    } catch (err) {
+      console.error('Error loading users:', err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const isFormValid = () => {
+    return selectedUser && amount && parseFloat(amount) > 0 && description.trim().length > 0;
+  };
+
+  const handleSubmit = async () => {
+    if (!isFormValid()) {
+      if (!selectedUser) {
+        setError('Выберите сотрудника');
+      } else if (!amount || parseFloat(amount) <= 0) {
+        setError('Введите корректную сумму');
+      } else if (!description.trim()) {
+        setError('Введите описание причины создания долга');
+      }
+      return;
+    }
+
+    setError('');
+    setLoading(true);
+
+    try {
+      await onConfirm(selectedUser!.id, parseFloat(amount), description.trim());
+      setSelectedUser(null);
+      setAmount('');
+      setDescription('');
+      onClose();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Ошибка при создании долга');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (!loading) {
+      setError('');
+      setSelectedUser(null);
+      setAmount('');
+      setDescription('');
+      onClose();
+    }
+  };
+
+  const formatNumber = (num: number): string => {
+    return new Intl.NumberFormat('ru-RU').format(num);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      PaperProps={{
+        sx: {
+          borderRadius: 4,
+          maxWidth: 520,
+          width: '100%',
+          m: 2,
+          boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+        }
+      }}
+    >
+      <DialogTitle sx={{ p: 2.5, pb: 1, pr: 6 }}>
+        <Typography variant="h6" color="#2a0f35" fontWeight={600} sx={{ mb: 0.5 }}>
+          Создание долга
+        </Typography>
+        <Typography variant="body2" color="#4c5454" sx={{ fontSize: '0.85rem' }}>
+          Ручное создание задолженности для сотрудника
+        </Typography>
+      </DialogTitle>
+      
+      <IconButton
+        onClick={handleClose}
+        sx={{
+          position: 'absolute',
+          right: 12,
+          top: 12,
+          color: '#8E8E93',
+        }}
+      >
+        <CloseIcon />
+      </IconButton>
+
+      <DialogContent sx={{ p: 2.5, pt: 3 }}>
+        <Stack spacing={2.5}>
+          <Box>
+            <Typography variant="caption" color="#4c5454" sx={{ mb: 0.5, display: 'block', fontWeight: 600, fontSize: '0.75rem' }}>
+              СОТРУДНИК
+            </Typography>
+            <Autocomplete
+              options={users}
+              loading={loadingUsers}
+              getOptionLabel={(option) => option.fullName}
+              value={selectedUser}
+              onChange={(_, newValue) => setSelectedUser(newValue)}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder="Выберите сотрудника"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 4,
+                      backgroundColor: '#f8f7fa',
+                    },
+                  }}
+                />
+              )}
+              renderOption={(props, option) => (
+                <li {...props}>
+                  <Box>
+                    <Typography variant="body2" fontWeight={500}>{option.fullName}</Typography>
+                    <Typography variant="caption" color="#4c5454">
+                      {option.role === UserRole.SELLER ? 'Продавец' : 
+                       option.role === UserRole.ADMIN ? 'Администратор' :
+                       option.role === UserRole.SENIOR_SELLER ? 'Старший продавец' :
+                       option.role === UserRole.MENTOR ? 'Наставник' : 'Бухгалтер'}
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+            />
+          </Box>
+
+          <Box>
+            <Typography variant="caption" color="#4c5454" sx={{ mb: 0.5, display: 'block', fontWeight: 600, fontSize: '0.75rem' }}>
+              СУММА ДОЛГА
+            </Typography>
+            <TextField
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              fullWidth
+              required
+              disabled={loading}
+              placeholder="0"
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Typography sx={{ color: '#8E8E93', fontSize: 20, fontWeight: 500 }}>₽</Typography>
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 4,
+                  backgroundColor: '#f8f7fa',
+                },
+              }}
+            />
+          </Box>
+
+          <Box>
+            <Typography variant="caption" color="#4c5454" sx={{ mb: 0.5, display: 'block', fontWeight: 600, fontSize: '0.75rem' }}>
+              ПРИЧИНА СОЗДАНИЯ ДОЛГА
+            </Typography>
+            <TextField
+              multiline
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              fullWidth
+              required
+              disabled={loading}
+              placeholder="Например: штраф, бонус, возврат товара, списание..."
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 4,
+                  backgroundColor: '#f8f7fa',
+                },
+              }}
+            />
+          </Box>
+
+          {error && (
+            <Alert 
+              severity="error"
+              sx={{ 
+                borderRadius: 4,
+                backgroundColor: 'rgba(244, 67, 54, 0.08)',
+              }}
+            >
+              {error}
+            </Alert>
+          )}
+
+          <Alert 
+            severity="info"
+            sx={{ 
+              borderRadius: 4,
+              backgroundColor: 'rgba(103, 79, 182, 0.08)',
+            }}
+          >
+            Создание долга добавит запись в историю операций сотрудника
+          </Alert>
+        </Stack>
+      </DialogContent>
+
+      <DialogActions sx={{ p: 2.5, pt: 1, gap: 1 }}>
+        <Button
+          onClick={handleClose}
+          disabled={loading}
+          sx={{
+            borderRadius: 4,
+            color: '#4c5454',
+            px: 3,
+            py: 1,
+            textTransform: 'none',
+            fontSize: '0.95rem',
+            fontWeight: 500,
+          }}
+        >
+          Отмена
+        </Button>
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
+          disabled={loading || !isFormValid()}
+          sx={{
+            borderRadius: 4,
+            backgroundColor: '#674fb6',
+            '&:hover': {
+              backgroundColor: '#563d9e',
+            },
+            '&.Mui-disabled': {
+              backgroundColor: '#d8d1e0',
+              color: '#ffffff',
+            },
+            px: 3,
+            py: 1,
+            textTransform: 'none',
+            fontSize: '0.95rem',
+            fontWeight: 500,
+            minWidth: 120,
+          }}
+        >
+          {loading ? <CircularProgress size={24} color="inherit" /> : 'Создать долг'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+});
+
+// Компонент модалки для корректировки долга
 interface DebtAdjustDialogProps {
   open: boolean;
   type: 'INCREASE' | 'DECREASE';
@@ -85,7 +357,6 @@ const DebtAdjustDialog: React.FC<DebtAdjustDialogProps> = React.memo(({
 
   const isIncrease = type === 'INCREASE';
   
-  // Проверка, что все поля заполнены корректно
   const isFormValid = () => {
     return amount && parseFloat(amount) > 0 && description.trim().length > 0;
   };
@@ -121,7 +392,6 @@ const DebtAdjustDialog: React.FC<DebtAdjustDialogProps> = React.memo(({
     }
   };
 
-  // Сбрасываем форму при открытии/закрытии
   useEffect(() => {
     if (!open) {
       setError('');
@@ -335,15 +605,16 @@ const DebtsPage: React.FC = () => {
   const [selectedUserName, setSelectedUserName] = useState('');
   const [adjustDialog, setAdjustDialog] = useState(false);
   const [adjustmentType, setAdjustmentType] = useState<'INCREASE' | 'DECREASE'>('INCREASE');
+  const [createDebtDialog, setCreateDebtDialog] = useState(false);
   const [productCache, setProductCache] = useState<Map<number, Product>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
 
   const isOwner = user?.role === UserRole.OWNER;
   const isManager = user?.role && [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER, UserRole.MENTOR].includes(user.role);
   
+  // Не-владельцы видят только свой долг
   const showMyDebt = !isOwner;
 
-  // Загрузка товара по ID и получение названия
   const getProductName = async (productId: number): Promise<string> => {
     if (productCache.has(productId)) {
       return productCache.get(productId)!.name;
@@ -358,7 +629,6 @@ const DebtsPage: React.FC = () => {
     }
   };
 
-  // Обогащение транзакций названиями товаров
   const enrichTransactionsWithProductNames = async (transactions: DebtTransactionResponse[]): Promise<DebtTransactionResponse[]> => {
     const enriched = [...transactions];
     for (const transaction of enriched) {
@@ -382,6 +652,8 @@ const DebtsPage: React.FC = () => {
   };
 
   const loadAllDebts = async () => {
+    // Только владелец может загружать все долги
+    if (!isOwner) return;
     try {
       const data = await debtService.getAllDebts();
       setAllDebts(data);
@@ -416,6 +688,16 @@ const DebtsPage: React.FC = () => {
     await loadAllDebts();
   };
 
+  const handleCreateDebt = async (userId: number, amount: number, description: string) => {
+    await debtService.manualAdjustDebt(userId, {
+      adjustment_type: DebtAdjustmentType.INCREASE,
+      amount: amount,
+      description: description,
+    });
+    
+    await loadAllDebts();
+  };
+
   const handleViewTransactions = (transactions: DebtTransactionResponse[], userName: string) => {
     setSelectedTransactions(transactions);
     setSelectedUserName(userName);
@@ -426,13 +708,13 @@ const DebtsPage: React.FC = () => {
     const loadData = async () => {
       setLoading(true);
       await loadMyDebt();
-      if (isManager) {
+      if (isOwner) {
         await loadAllDebts();
       }
       setLoading(false);
     };
     loadData();
-  }, []);
+  }, [isOwner]);
 
   useEffect(() => {
     if (selectedUser) {
@@ -485,6 +767,8 @@ const DebtsPage: React.FC = () => {
     return transaction.manual_description || 'Без описания';
   };
 
+  // Для владельца показываем всех сотрудников (включая тех у кого нет долгов)
+  // Для не-владельца показываем только если есть долги
   const filteredUsers = allDebts.filter(u => 
     u.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) && 
     u.user_id !== user?.id
@@ -527,9 +811,30 @@ const DebtsPage: React.FC = () => {
               <Typography variant="h5" component="h1" color="#2a0f35" fontWeight={600}>
                 {selectedUser 
                   ? `Долг: ${selectedUser.user_name}`
-                  : showMyDebt ? 'Мой долг' : 'Долги сотрудников'}
+                  : isOwner ? 'Управление долгами' : 'Мой долг'}
               </Typography>
             </Box>
+            
+            {/* Кнопка "Создать долг" только для OWNER когда не выбран пользователь */}
+            {isOwner && !selectedUser && (
+              <Button
+                onClick={() => setCreateDebtDialog(true)}
+                variant="contained"
+                startIcon={<PersonAddIcon />}
+                sx={{
+                  borderRadius: 8,
+                  backgroundColor: '#674fb6',
+                  textTransform: 'none',
+                  px: 3,
+                  py: 1,
+                  '&:hover': {
+                    backgroundColor: '#563d9e',
+                  },
+                }}
+              >
+                Создать долг
+              </Button>
+            )}
           </Box>
         </Box>
 
@@ -544,105 +849,104 @@ const DebtsPage: React.FC = () => {
         )}
 
         {/* Блок с суммой долга и кнопками (только для выбранного пользователя и OWNER) */}
-{/* Блок с суммой долга и кнопками (только для выбранного пользователя и OWNER) */}
-{selectedUser && isOwner && (
-  <Paper
-    elevation={0}
-    sx={{
-      p: 3,
-      mb: 3,
-      borderRadius: 8,
-      backgroundColor: '#ffffff',
-      border: '1px solid #f0f0f0',
-    }}
-  >
-    <Grid container spacing={2} alignItems="center">
-      <Grid size={{ xs: 12, md: 6 }}>
-        <Typography variant="body2" color="#4c5454" gutterBottom>
-          Текущий долг
-        </Typography>
-        <Typography variant="h3" fontWeight={700} color={currentDebt && currentDebt.total_amount > 0 ? '#f44336' : '#4caf50'}>
-          {formatNumber(currentDebt?.total_amount || 0)} ₽
-        </Typography>
-      </Grid>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <Stack 
-          direction={{ xs: 'column', sm: 'row' }} 
-          spacing={1.5}
-          justifyContent={{ md: 'flex-end' }}
-        >
-          <Button
-            onClick={() => {
-              setAdjustmentType('INCREASE');
-              setAdjustDialog(true);
-            }}
+        {selectedUser && isOwner && (
+          <Paper
+            elevation={0}
             sx={{
-              flex: 1,
+              p: 3,
+              mb: 3,
               borderRadius: 8,
-              backgroundColor: '#F0F0F0',
-              color: '#f44336',
-              textTransform: 'none',
-              py: 1.5,
-              justifyContent: 'flex-start',
-              '&:hover': {
-                backgroundColor: '#E8E8E8',
-              },
+              backgroundColor: '#ffffff',
+              border: '1px solid #f0f0f0',
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Avatar
-                sx={{
-                  width: 32,
-                  height: 32,
-                  bgcolor: '#f44336',
-                  color: '#ffffff',
-                }}
-              >
-                <AddIcon sx={{ fontSize: 18 }} />
-              </Avatar>
-              <Typography fontWeight={500}>Увеличить долг</Typography>
-            </Box>
-          </Button>
-          <Button
-            onClick={() => {
-              setAdjustmentType('DECREASE');
-              setAdjustDialog(true);
-            }}
-            sx={{
-              flex: 1,
-              borderRadius: 8,
-              backgroundColor: '#F0F0F0',
-              color: '#4caf50',
-              textTransform: 'none',
-              py: 1.5,
-              justifyContent: 'flex-start',
-              '&:hover': {
-                backgroundColor: '#E8E8E8',
-              },
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Avatar
-                sx={{
-                  width: 32,
-                  height: 32,
-                  bgcolor: '#4caf50',
-                  color: '#ffffff',
-                }}
-              >
-                <RemoveIcon sx={{ fontSize: 18 }} />
-              </Avatar>
-              <Typography fontWeight={500}>Уменьшить долг</Typography>
-            </Box>
-          </Button>
-        </Stack>
-      </Grid>
-    </Grid>
-  </Paper>
-)}
+            <Grid container spacing={2} alignItems="center">
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Typography variant="body2" color="#4c5454" gutterBottom>
+                  Текущий долг
+                </Typography>
+                <Typography variant="h3" fontWeight={700} color={currentDebt && currentDebt.total_amount > 0 ? '#f44336' : '#4caf50'}>
+                  {formatNumber(currentDebt?.total_amount || 0)} ₽
+                </Typography>
+              </Grid>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Stack 
+                  direction={{ xs: 'column', sm: 'row' }} 
+                  spacing={1.5}
+                  justifyContent={{ md: 'flex-end' }}
+                >
+                  <Button
+                    onClick={() => {
+                      setAdjustmentType('INCREASE');
+                      setAdjustDialog(true);
+                    }}
+                    sx={{
+                      flex: 1,
+                      borderRadius: 8,
+                      backgroundColor: '#F0F0F0',
+                      color: '#f44336',
+                      textTransform: 'none',
+                      py: 1.5,
+                      justifyContent: 'flex-start',
+                      '&:hover': {
+                        backgroundColor: '#E8E8E8',
+                      },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Avatar
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          bgcolor: '#f44336',
+                          color: '#ffffff',
+                        }}
+                      >
+                        <AddIcon sx={{ fontSize: 18 }} />
+                      </Avatar>
+                      <Typography fontWeight={500}>Увеличить долг</Typography>
+                    </Box>
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setAdjustmentType('DECREASE');
+                      setAdjustDialog(true);
+                    }}
+                    sx={{
+                      flex: 1,
+                      borderRadius: 8,
+                      backgroundColor: '#F0F0F0',
+                      color: '#4caf50',
+                      textTransform: 'none',
+                      py: 1.5,
+                      justifyContent: 'flex-start',
+                      '&:hover': {
+                        backgroundColor: '#E8E8E8',
+                      },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <Avatar
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          bgcolor: '#4caf50',
+                          color: '#ffffff',
+                        }}
+                      >
+                        <RemoveIcon sx={{ fontSize: 18 }} />
+                      </Avatar>
+                      <Typography fontWeight={500}>Уменьшить долг</Typography>
+                    </Box>
+                  </Button>
+                </Stack>
+              </Grid>
+            </Grid>
+          </Paper>
+        )}
 
         {/* Для не-OWNER показываем просто сумму долга */}
-        {selectedUser && !isOwner && currentDebt && currentDebt.total_amount > 0 && (
+        {!selectedUser && !isOwner && myDebt && (
           <Paper
             elevation={0}
             sx={{
@@ -657,14 +961,14 @@ const DebtsPage: React.FC = () => {
             <Typography variant="body2" color="#4c5454" gutterBottom>
               Текущий долг
             </Typography>
-            <Typography variant="h3" fontWeight={700} color="#f44336">
-              {formatNumber(currentDebt.total_amount)} ₽
+            <Typography variant="h3" fontWeight={700} color={myDebt.total_amount > 0 ? '#f44336' : '#4caf50'}>
+              {formatNumber(myDebt.total_amount)} ₽
             </Typography>
           </Paper>
         )}
 
-        {/* Для руководителей - список подчиненных */}
-        {isManager && !selectedUser && (
+        {/* Для владельца - список всех сотрудников */}
+        {isOwner && !selectedUser && (
           <Paper
             elevation={0}
             sx={{
@@ -677,7 +981,7 @@ const DebtsPage: React.FC = () => {
           >
             <Box sx={{ mb: 2 }}>
               <Typography variant="subtitle1" fontWeight={600} color="#2a0f35">
-                Сотрудники с долгами
+                Сотрудники
               </Typography>
               <Typography variant="caption" color="#4c5454">
                 {filteredUsers.length} человек
@@ -752,113 +1056,217 @@ const DebtsPage: React.FC = () => {
               ))}
               {filteredUsers.length === 0 && (
                 <Typography variant="body2" color="#4c5454" textAlign="center" py={3}>
-                  {searchTerm ? 'Ничего не найдено' : 'Нет сотрудников с долгами'}
+                  {searchTerm ? 'Ничего не найдено' : 'Нет сотрудников'}
                 </Typography>
               )}
             </Stack>
           </Paper>
         )}
 
-        {/* История транзакций - сетка карточек */}
-        {isLoadingDebt ? (
-          <Box display="flex" justifyContent="center" py={4}>
-            <CircularProgress sx={{ color: '#674fb6' }} />
-          </Box>
-        ) : !currentDebt || currentDebt.transactions.length === 0 ? (
-          <Paper
-            elevation={0}
-            sx={{
-              p: 6,
-              textAlign: 'center',
-              borderRadius: 8,
-              backgroundColor: '#ffffff',
-              border: '1px solid #f0f0f0',
-            }}
-          >
-            <HistoryIcon sx={{ fontSize: 48, color: '#d8d1e0', mb: 1 }} />
-            <Typography variant="h6" color="#2a0f35" fontWeight={500} gutterBottom>
-              Нет истории операций
-            </Typography>
-            <Typography variant="body2" color="#4c5454">
-              {hasDebt 
-                ? 'Долг был создан, но история операций отсутствует'
-                : 'Нет долгов и истории операций'}
-            </Typography>
-          </Paper>
+        {/* История транзакций - показываем всем, но разные данные */}
+        {!selectedUser ? (
+          // Показываем историю текущего пользователя (для не-владельца)
+          !isOwner && myDebt && (
+            <>
+              <Typography variant="subtitle1" fontWeight={600} color="#2a0f35" sx={{ mb: 2 }}>
+                История операций
+              </Typography>
+              
+              {myDebt.transactions.length === 0 ? (
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 6,
+                    textAlign: 'center',
+                    borderRadius: 8,
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #f0f0f0',
+                  }}
+                >
+                  <HistoryIcon sx={{ fontSize: 48, color: '#d8d1e0', mb: 1 }} />
+                  <Typography variant="h6" color="#2a0f35" fontWeight={500} gutterBottom>
+                    Нет истории операций
+                  </Typography>
+                  <Typography variant="body2" color="#4c5454">
+                    {myDebt.total_amount > 0 
+                      ? 'Долг был создан, но история операций отсутствует'
+                      : 'Нет долгов и истории операций'}
+                  </Typography>
+                </Paper>
+              ) : (
+                <Grid container spacing={2}>
+                  {myDebt.transactions.map((transaction) => (
+                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={transaction.id}>
+                      <Card
+                        sx={{
+                          borderRadius: 8,
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #f0f0f0',
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          transition: 'all 0.2s',
+                          '&:hover': { 
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+                            borderColor: '#674fb6',
+                          }
+                        }}
+                      >
+                        <CardContent sx={{ p: 2.5, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              {getTransactionIcon(transaction.transaction_type)}
+                              <Typography variant="subtitle2" fontWeight={600} color="#2a0f35">
+                                {getTransactionTypeText(transaction.transaction_type)}
+                              </Typography>
+                            </Box>
+                            <Typography 
+                              variant="body2" 
+                              fontWeight={700}
+                              sx={{ color: transaction.amount_change > 0 ? '#f44336' : '#4caf50' }}
+                            >
+                              {transaction.amount_change > 0 ? '+' : ''}{formatNumber(transaction.amount_change)} ₽
+                            </Typography>
+                          </Box>
+                          
+                          <Typography variant="body2" color="#4c5454" sx={{ mb: 1.5, flex: '1 0 auto' }}>
+                            {getTransactionDescription(transaction)}
+                          </Typography>
+                          
+                          <Box sx={{ mt: 'auto' }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                              <Typography variant="caption" color="#4c5454">
+                                Итого: {formatNumber(transaction.new_total_amount)} ₽
+                              </Typography>
+                              <Typography variant="caption" color="#8E8E93">
+                                {formatDate(transaction.created_at)}
+                              </Typography>
+                            </Box>
+                            
+                            {transaction.performed_by_name && (
+                              <Typography variant="caption" color="#8E8E93" display="block" sx={{ mt: 1 }}>
+                                Выполнил: {transaction.performed_by_name}
+                              </Typography>
+                            )}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </>
+          )
         ) : (
-          <>
-            <Typography variant="subtitle1" fontWeight={600} color="#2a0f35" sx={{ mb: 2 }}>
-              История операций
-            </Typography>
-            
-            <Grid container spacing={2}>
-              {currentDebt.transactions.map((transaction) => (
-                <Grid size={{ xs: 12, sm: 6, md: 4 }} key={transaction.id}>
-                  <Card
-                    sx={{
-                      borderRadius: 8,
-                      backgroundColor: '#ffffff',
-                      border: '1px solid #f0f0f0',
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      transition: 'all 0.2s',
-                      '&:hover': { 
-                        transform: 'translateY(-2px)',
-                        boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
-                        borderColor: '#674fb6',
-                      }
-                    }}
-                  >
-                    <CardContent sx={{ p: 2.5, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {getTransactionIcon(transaction.transaction_type)}
-                          <Typography variant="subtitle2" fontWeight={600} color="#2a0f35">
-                            {getTransactionTypeText(transaction.transaction_type)}
-                          </Typography>
-                        </Box>
-                        <Typography 
-                          variant="body2" 
-                          fontWeight={700}
-                          sx={{ color: transaction.amount_change > 0 ? '#f44336' : '#4caf50' }}
-                        >
-                          {transaction.amount_change > 0 ? '+' : ''}{formatNumber(transaction.amount_change)} ₽
-                        </Typography>
-                      </Box>
-                      
-                      {/* Описание - может быть разной длины */}
-                      <Typography variant="body2" color="#4c5454" sx={{ mb: 1.5, flex: '1 0 auto' }}>
-                        {getTransactionDescription(transaction)}
-                      </Typography>
-                      
-                      {/* Блок с итогом и датой - всегда внизу */}
-                      <Box sx={{ mt: 'auto' }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-                          <Typography variant="caption" color="#4c5454">
-                            Итого: {formatNumber(transaction.new_total_amount)} ₽
-                          </Typography>
-                          <Typography variant="caption" color="#8E8E93">
-                            {formatDate(transaction.created_at)}
+          // Показываем историю выбранного пользователя (для владельца)
+          isLoadingDebt ? (
+            <Box display="flex" justifyContent="center" py={4}>
+              <CircularProgress sx={{ color: '#674fb6' }} />
+            </Box>
+          ) : !currentDebt || currentDebt.transactions.length === 0 ? (
+            <Paper
+              elevation={0}
+              sx={{
+                p: 6,
+                textAlign: 'center',
+                borderRadius: 8,
+                backgroundColor: '#ffffff',
+                border: '1px solid #f0f0f0',
+              }}
+            >
+              <HistoryIcon sx={{ fontSize: 48, color: '#d8d1e0', mb: 1 }} />
+              <Typography variant="h6" color="#2a0f35" fontWeight={500} gutterBottom>
+                Нет истории операций
+              </Typography>
+              <Typography variant="body2" color="#4c5454">
+                {hasDebt 
+                  ? 'Долг был создан, но история операций отсутствует'
+                  : 'Нет долгов и истории операций'}
+              </Typography>
+            </Paper>
+          ) : (
+            <>
+              <Typography variant="subtitle1" fontWeight={600} color="#2a0f35" sx={{ mb: 2 }}>
+                История операций
+              </Typography>
+              
+              <Grid container spacing={2}>
+                {currentDebt.transactions.map((transaction) => (
+                  <Grid size={{ xs: 12, sm: 6, md: 4 }} key={transaction.id}>
+                    <Card
+                      sx={{
+                        borderRadius: 8,
+                        backgroundColor: '#ffffff',
+                        border: '1px solid #f0f0f0',
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        transition: 'all 0.2s',
+                        '&:hover': { 
+                          transform: 'translateY(-2px)',
+                          boxShadow: '0 8px 24px rgba(106, 61, 122, 0.15)',
+                          borderColor: '#674fb6',
+                        }
+                      }}
+                    >
+                      <CardContent sx={{ p: 2.5, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {getTransactionIcon(transaction.transaction_type)}
+                            <Typography variant="subtitle2" fontWeight={600} color="#2a0f35">
+                              {getTransactionTypeText(transaction.transaction_type)}
+                            </Typography>
+                          </Box>
+                          <Typography 
+                            variant="body2" 
+                            fontWeight={700}
+                            sx={{ color: transaction.amount_change > 0 ? '#f44336' : '#4caf50' }}
+                          >
+                            {transaction.amount_change > 0 ? '+' : ''}{formatNumber(transaction.amount_change)} ₽
                           </Typography>
                         </Box>
                         
-                        {transaction.performed_by_name && (
-                          <Typography variant="caption" color="#8E8E93" display="block" sx={{ mt: 1 }}>
-                            Выполнил: {transaction.performed_by_name}
-                          </Typography>
-                        )}
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          </>
+                        <Typography variant="body2" color="#4c5454" sx={{ mb: 1.5, flex: '1 0 auto' }}>
+                          {getTransactionDescription(transaction)}
+                        </Typography>
+                        
+                        <Box sx={{ mt: 'auto' }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                            <Typography variant="caption" color="#4c5454">
+                              Итого: {formatNumber(transaction.new_total_amount)} ₽
+                            </Typography>
+                            <Typography variant="caption" color="#8E8E93">
+                              {formatDate(transaction.created_at)}
+                            </Typography>
+                          </Box>
+                          
+                          {transaction.performed_by_name && (
+                            <Typography variant="caption" color="#8E8E93" display="block" sx={{ mt: 1 }}>
+                              Выполнил: {transaction.performed_by_name}
+                            </Typography>
+                          )}
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </>
+          )
         )}
       </Container>
 
-      {/* Диалог ручной корректировки долга - новый стиль */}
+      {/* Диалог создания долга (только для OWNER) */}
+      {isOwner && (
+        <CreateDebtDialog
+          open={createDebtDialog}
+          onClose={() => setCreateDebtDialog(false)}
+          onConfirm={handleCreateDebt}
+        />
+      )}
+
+      {/* Диалог ручной корректировки долга */}
       {selectedUser && (
         <DebtAdjustDialog
           open={adjustDialog}

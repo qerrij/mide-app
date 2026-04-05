@@ -31,7 +31,7 @@ class CRUDUser:
         if role:
             query = query.filter(User.role == role)
         
-        users = query.offset(skip).limit(limit).all()
+        users = query.order_by(User.id).offset(skip).limit(limit).all()
         
         for user in users:
             self._enrich_user_data(db, user)
@@ -202,7 +202,8 @@ class CRUDUser:
                 senior_seller_id=user_data.get('senior_seller_id'),
                 admin_clusters=admin_clusters_str,
                 is_active=True,
-                rate=0.0
+                rate=0.0,
+                accountant_description=user_data.get('accountant_description')
             )
             
             db.add(db_user)
@@ -299,10 +300,23 @@ class CRUDUser:
         if "password" in update_data:
             update_data["password_hash"] = get_password_hash(update_data.pop("password"))
         
+        # ИСПРАВЛЕНИЕ: Убираем условие с ролью, просто проверяем наличие поля
+        # accountant_description может быть передан даже если роль не меняется
+        # и нужно разрешить устанавливать None для очистки поля
+        if "accountant_description" in update_data:
+            # Если значение None или пустая строка - сохраняем как None
+            if update_data["accountant_description"] is None or update_data["accountant_description"] == "":
+                update_data["accountant_description"] = None
+            # Иначе оставляем как есть
+        
         try:
             for field, value in update_data.items():
-                if field != "password":
+                if field != "password" and field != "accountant_description":
                     setattr(db_user, field, value)
+            
+            # Отдельно обрабатываем accountant_description, так как это Text поле
+            if "accountant_description" in update_data:
+                db_user.accountant_description = update_data["accountant_description"]
             
             db.commit()
             db.refresh(db_user)

@@ -157,7 +157,7 @@ def read_users(
     mentor_id: Optional[int] = None,
     senior_seller_id: Optional[int] = None,
     admin_id: Optional[int] = None,
-    city_id: Optional[int] = None,  # Добавляем фильтр по городу
+    city_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -185,7 +185,7 @@ def read_users(
         if city_id:
             query = query.filter(User.city_id == city_id)
         
-        users = query.offset(skip).limit(limit).all()
+        users = query.order_by(User.id).offset(skip).limit(limit).all()
         
         # Обогащаем данные
         enriched_users = []
@@ -224,7 +224,7 @@ def read_users(
         if city_id:
             query = query.filter(User.city_id == city_id)
         
-        users = query.offset(skip).limit(limit).all()
+        users = query.order_by(User.id).offset(skip).limit(limit).all()
         
         # Обогащаем данные
         enriched_users = []
@@ -249,7 +249,7 @@ def read_users(
         if city_id:
             query = query.filter(User.city_id == city_id)
         
-        users = query.offset(skip).limit(limit).all()
+        users = query.order_by(User.id).offset(skip).limit(limit).all()
         
         # Обогащаем данные
         enriched_users = []
@@ -271,7 +271,7 @@ def read_users(
         if city_id:
             query = query.filter(User.city_id == city_id)
         
-        users = query.offset(skip).limit(limit).all()
+        users = query.order_by(User.id).offset(skip).limit(limit).all()
         
         # Обогащаем данные
         enriched_users = []
@@ -469,3 +469,41 @@ def change_user_password(
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    
+@router.get("/me/accountant-info")
+def get_my_accountant_info(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Получить информацию о бухгалтере текущего пользователя (доступно всем авторизованным)
+    Возвращает id, имя и описание бухгалтера
+    """
+    # Если у пользователя нет привязанного бухгалтера
+    if not current_user.accountant_id:
+        return {
+            "has_accountant": False,
+            "accountant": None
+        }
+    
+    # Получаем бухгалтера
+    accountant = db.query(User).filter(
+        User.id == current_user.accountant_id,
+        User.is_active == True,
+        User.role == UserRole.ACCOUNTANT
+    ).first()
+    
+    if not accountant:
+        return {
+            "has_accountant": False,
+            "accountant": None
+        }
+    
+    return {
+        "has_accountant": True,
+        "accountant": {
+            "id": accountant.id,
+            "full_name": accountant.full_name,
+            "description": accountant.accountant_description
+        }
+    }

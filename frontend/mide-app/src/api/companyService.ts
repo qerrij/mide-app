@@ -1,6 +1,21 @@
-// companyService.ts - убираем ручной кеш, оставляем только API вызовы
 import api from './axios';
 import { CompanyTransaction, CompanyBalanceResponse, CompanyBalanceHistory } from '../types';
+
+// Интерфейс для статистики с добавленными полями debt_income
+export interface CompanyStatsResponse {
+  regular_income: number;
+  regular_income_count: number;
+  report_income: number;
+  report_income_count: number;
+  debt_income: number;        // Доходы от долгов (списания)
+  debt_income_count: number;  // Количество доходов от долгов
+  total_expense: number;
+  income_count: number;
+  expense_count: number;
+  total_income: number;
+  period_start: string;
+  period_end: string;
+}
 
 export const companyService = {
   async getBalance(city?: string): Promise<CompanyBalanceResponse> {
@@ -20,6 +35,7 @@ export const companyService = {
 
   async getTransactions(params?: {
     operation_type?: string;
+    reference_type?: string;  // Добавляем фильтр по reference_type
     date_from?: string;
     date_to?: string;
     city?: string;
@@ -75,24 +91,14 @@ export const companyService = {
     return response.data;
   },
 
+  // Обновленный метод getStats с правильным типом возврата
   async getStats(params: {
     period: string;
     city?: string;
     date?: string;
     date_from?: string;
     date_to?: string;
-  }): Promise<{
-    regular_income: number;
-    regular_income_count: number;
-    report_income: number;
-    report_income_count: number;
-    total_expense: number;
-    income_count: number;
-    expense_count: number;
-    total_income: number;
-    period_start: string;
-    period_end: string;
-  }> {
+  }): Promise<CompanyStatsResponse> {
     const response = await api.get('api/company/stats', { params });
     return response.data;
   },

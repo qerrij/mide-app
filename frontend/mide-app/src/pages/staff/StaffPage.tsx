@@ -600,6 +600,25 @@ const UserDetailsDialog: React.FC<UserDetailsDialogProps> = ({
               <AttachMoney sx={{ fontSize: 20, color: getRoleColor(user.role) }} />
               Бухгалтер
             </Typography>
+
+            {user.accountantDescription && (
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 1.5,
+                  backgroundColor: alpha(theme.palette.info.main, 0.05),
+                  borderRadius: 2,
+                  border: `1px solid ${alpha(theme.palette.info.main, 0.2)}`,
+                }}
+              >
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                  Описание реквизитов:
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {user.accountantDescription}
+                </Typography>
+              </Paper>
+            )}
             
             {user.cityName && (
               <Typography variant="body2">
@@ -1679,6 +1698,7 @@ const StaffPage: React.FC = () => {
     telegram: '',
     cityId: undefined,
     rate: 0,
+    accountantDescription: '',
   });
   const [newUserCategoryRates, setNewUserCategoryRates] = useState<UserCategoryRateCreate[]>([]);
 
@@ -1987,6 +2007,9 @@ const StaffPage: React.FC = () => {
     if (editUser.cityId !== undefined) trimmedEditUser.cityId = editUser.cityId;
     if (editUser.role !== undefined) trimmedEditUser.role = editUser.role;
     if (editUser.rate !== undefined) trimmedEditUser.rate = 0;
+    if (editUser.accountantDescription !== undefined) {
+      trimmedEditUser.accountantDescription = editUser.accountantDescription;
+    }
     trimmedEditUser.categoryRates = editUserCategoryRates;
 
     try {
@@ -2829,6 +2852,7 @@ const StaffPage: React.FC = () => {
             cityId: user.cityId,
             role: user.role,
             rate: 0,
+            accountantDescription: user.accountantDescription || '',
           });
           setEditUserCategoryRates(user.categoryRates?.map(cr => ({
             category_id: cr.category_id,
@@ -2943,6 +2967,22 @@ const StaffPage: React.FC = () => {
                 ))}
               </Select>
             </FormControl>
+
+            {newUser.role === UserRole.ACCOUNTANT && (
+              <TextField
+                label="Описание"
+                fullWidth
+                multiline
+                rows={3}
+                value={newUser.accountantDescription || ''}
+                onChange={(e) => setNewUser({ ...newUser, accountantDescription: e.target.value })}
+                placeholder="Укажите реквизиты бухгалтера, куда надо переводить деньги"
+                sx={{ 
+                  '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } },
+                  '& .MuiInputBase-root': { alignItems: 'flex-start' }
+                }}
+              />
+            )}
             
             {newUser.role !== UserRole.OWNER && newUser.role !== UserRole.ACCOUNTANT && (
               <UserCategoryRatesEditor
@@ -3027,6 +3067,22 @@ const StaffPage: React.FC = () => {
                 ))}
               </Select>
             </FormControl>
+
+            {editUser.role === UserRole.ACCOUNTANT && openEditDialog?.role === UserRole.ACCOUNTANT && (
+              <TextField
+                label="Описание"
+                fullWidth
+                multiline
+                rows={3}
+                value={editUser.accountantDescription || ''}
+                onChange={(e) => setEditUser({ ...editUser, accountantDescription: e.target.value })}
+                placeholder="Укажите реквизиты бухгалтера, куда надо переводить деньги"
+                sx={{ 
+                  '& .MuiInputBase-input': { fontSize: { xs: '1rem', sm: '0.9rem' } },
+                  '& .MuiInputBase-root': { alignItems: 'flex-start' }
+                }}
+              />
+            )}
             
             {editUser.role !== UserRole.OWNER && editUser.role !== UserRole.ACCOUNTANT && 
             openEditDialog?.role !== UserRole.OWNER && openEditDialog?.role !== UserRole.ACCOUNTANT && (

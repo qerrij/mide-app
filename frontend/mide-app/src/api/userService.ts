@@ -75,6 +75,8 @@ const transformUserFromApi = (user: any): User => {
     seniorSellerName: user.senior_seller_name,
     adminName: user.admin_name,
     accountantUserIds,
+    accountantDescription: user.accountant_description,
+    accountantId: user.accountant_id,
   };
 };
 
@@ -129,6 +131,14 @@ const transformUserToApi = (user: CreateUserDto | UpdateUserDto): any => {
   }
   if ('categoryRates' in user && user.categoryRates !== undefined) {
     transformed.category_rates = user.categoryRates;
+  }
+
+  if ('accountantDescription' in user && user.accountantDescription !== undefined) {
+    transformed.accountant_description = user.accountantDescription;
+  }
+
+  if ('accountantId' in user && user.accountantId !== undefined) {
+    transformed.accountant_id = user.accountantId;
   }
   
   return transformed;
@@ -318,6 +328,22 @@ export const userService = {
     } catch (error) {
       console.error('Error changing user password:', error);
       throw error;
+    }
+  },
+  getMyAccountantInfo: async (): Promise<{
+    has_accountant: boolean;
+    accountant: {
+      id: number;
+      full_name: string;
+      description: string | null;
+    } | null;
+  }> => {
+    try {
+      const response = await axiosInstance.get('/api/users/me/accountant-info');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching accountant info:', error);
+      return { has_accountant: false, accountant: null };
     }
   },
 };

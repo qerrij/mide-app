@@ -769,17 +769,22 @@ def final_approve_report(
                 approved_by=current_user.id
             )
             
-            # Получаем город бухгалтера, который утвердил отчет
-            accountant_city = None
-            if report.accountant_reviewed_by:
-                accountant = db.query(User).filter(User.id == report.accountant_reviewed_by).first()
-                if accountant and accountant.city_id:
-                    # Получаем город по city_id
-                    city = db.query(City).filter(City.id == accountant.city_id).first()
-                    if city:
-                        accountant_city = city.name
+            # ИЗМЕНЕНИЕ ЗДЕСЬ: Берем город продавца, а не бухгалтера
+            seller_city = None
+            if report.seller and report.seller.city_id:
+                city = db.query(City).filter(City.id == report.seller.city_id).first()
+                if city:
+                    seller_city = city.name
+            else:
+                # Если у продавца нет города, пробуем взять город из кластера
+                if report.seller and report.seller.cluster_id:
+                    cluster = db.query(Cluster).filter(Cluster.id == report.seller.cluster_id).first()
+                    if cluster and cluster.city_id:
+                        city = db.query(City).filter(City.id == cluster.city_id).first()
+                        if city:
+                            seller_city = city.name
             
-            # Добавляем деньги в общий банк
+            # Добавляем деньги в общий банк с городом продавца
             description = f"Отчет №{report_id} от {report.seller.full_name}. Продано товаров на сумму: {report.accountant_final_amount}"
             crud_company.add_income(
                 db,
@@ -788,7 +793,7 @@ def final_approve_report(
                 reference_id=report_id,
                 reference_type="REPORT",
                 created_by=report.accountant_reviewed_by,
-                city=accountant_city
+                city=seller_city  # ИСПРАВЛЕНО: теперь город продавца
             )
             
             # ТОЛЬКО ПОСЛЕ ВСЕХ УСПЕШНЫХ ОПЕРАЦИЙ меняем статус

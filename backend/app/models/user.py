@@ -36,9 +36,11 @@ class User(Base):
     mentor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     senior_seller_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
+    accountant_description = Column(Text, nullable=True)
     # Для администраторов - список кустов (хранится как JSON строка)
     _admin_clusters = Column("admin_clusters", Text, nullable=True)
+    
+    accountant_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -87,11 +89,17 @@ class User(Base):
         backref="administered_users"
     )
 
-    # Инвентарь пользователя
     inventory = relationship(
         "UserInventory",
         back_populates="user",
         cascade="all, delete-orphan"
+    )
+    
+    accountant = relationship(
+        "User",
+        foreign_keys=[accountant_id],
+        remote_side=[id],
+        backref="assigned_users" 
     )
     
     city_ref = relationship("City", back_populates="users")

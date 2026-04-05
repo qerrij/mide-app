@@ -150,13 +150,12 @@ def get_dashboard_data(
     date: Optional[str] = Query(None, description="Дата для режима 'day'"),
     date_from: Optional[str] = Query(None, description="Начальная дата для произвольного периода"),
     date_to: Optional[str] = Query(None, description="Конечная дата для произвольного периода"),
-    max_points: int = Query(100, ge=10, le=1000),
-    transactions_limit: int = Query(100, ge=1, le=500, description="Лимит транзакций для дашборда"),
-    reference_type: Optional[str] = Query(None, description="Фильтр по типу ссылки"),
+    max_points: int = Query(100, ge=10, le=200, description="Максимум точек на графике"),
+    transactions_limit: int = Query(50, ge=1, le=100, description="Лимит транзакций для дашборда"),
     db: Session = Depends(get_db),
     current_user = Depends(require_roles([UserRole.OWNER, UserRole.ACCOUNTANT]))
 ):
-    """Единый эндпоинт для дашборда - возвращает ограниченное количество транзакций"""
+    """Единый эндпоинт для дашборда - оптимизированная версия"""
     
     # Для бухгалтера - ограничиваем его городом
     if current_user.role == UserRole.ACCOUNTANT:
@@ -165,66 +164,41 @@ def get_dashboard_data(
             raise HTTPException(status_code=403, detail="Бухгалтеру не назначен город")
         city = user_city
     
-    # Получаем баланс
+    # Получаем баланс (быстро, из кэша)
     balance = crud_company.get_balance(db, city)
     
-    # Определяем параметры для транзакций и истории
-    transactions_params = {
-        'city': city
-    }
+    # Определяем даты
+    end_date = datetime.now()
+    if end_date.tzinfo is not None:
+        end_date = end_date.replace(tzinfo=None)
     
-    # Добавляем фильтр по reference_type если указан
-    if reference_type:
-        transactions_params['reference_type'] = reference_type
-    
-    history_params = {
-        'city': city,
-        'max_points': max_points
-    }
-    
-    if period == 'day':
-        if date:
-            target_date = datetime.fromisoformat(date) if 'T' in date else datetime.strptime(date, '%Y-%m-%d')
-        else:
-            target_date = datetime.now()
+    if period == 'day' and date:
+        try:
+            target_date = datetime.fromisoformat(date.replace('Z', '+00:00'))
+        except:
+            target_date = datetime.strptime(date, '%Y-%m-%d')
         
         if target_date.tzinfo is not None:
             target_date = target_date.replace(tzinfo=None)
         
-        day_start = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
-        day_end = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59, 999999)
-        transactions_params['date_from'] = day_start
-        transactions_params['date_to'] = day_end
+        start_date = datetime(target_date.year, target_date.month, target_date.day, 0, 0, 0)
+        end_date = start_date + timedelta(days=1)
         
-        history = crud_company.get_hourly_balance_history(db, target_date, city)
+        # Для дня используем агрегированные данные по часам
+        history = get_hourly_aggregated_balance(db, start_date, end_date, city)
         
     elif period == 'week':
-        end_date = datetime.now()
-        if end_date.tzinfo is not None:
-            end_date = end_date.replace(tzinfo=None)
-            
         start_date = end_date - timedelta(days=7)
-        
-        transactions_params['date_from'] = start_date
-        transactions_params['date_to'] = end_date
-        history_params['start_date'] = start_date
-        history_params['end_date'] = end_date
-        history = crud_company.get_balance_history(db, days=7, **history_params)
+        start_date = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0)
+        # Для недели - агрегированные данные по дням
+        history = get_daily_aggregated_balance(db, start_date, end_date, city, max_points)
         
     elif period == 'month':
-        end_date = datetime.now()
-        if end_date.tzinfo is not None:
-            end_date = end_date.replace(tzinfo=None)
-            
         start_date = end_date - timedelta(days=30)
+        start_date = datetime(start_date.year, start_date.month, start_date.day, 0, 0, 0)
+        history = get_daily_aggregated_balance(db, start_date, end_date, city, max_points)
         
-        transactions_params['date_from'] = start_date
-        transactions_params['date_to'] = end_date
-        history_params['start_date'] = start_date
-        history_params['end_date'] = end_date
-        history = crud_company.get_balance_history(db, days=30, **history_params)
-        
-    elif period == 'all':
+    else:  # period == 'all'
         if date_from and date_to:
             try:
                 start_date = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
@@ -239,30 +213,29 @@ def get_dashboard_data(
                 end_date = end_date.replace(tzinfo=None)
             
             end_date = end_date + timedelta(days=1)
-            
-            transactions_params['date_from'] = start_date
-            transactions_params['date_to'] = end_date
-            history_params['start_date'] = start_date
-            history_params['end_date'] = end_date
-            
             days = (end_date - start_date).days
-            history = crud_company.get_balance_history(db, days=days, **history_params)
+            history = get_daily_aggregated_balance(db, start_date, end_date, city, max_points)
         else:
-            # Для "все время" - берем последние 500 транзакций
-            history = crud_company.get_balance_history(db, days=365*10, city=city, max_points=max_points)
+            # Для "все время" - последние 500 транзакций для графика с агрегацией
+            history = get_daily_aggregated_balance(db, datetime(2020, 1, 1), end_date, city, max_points)
     
-    # Получаем ОГРАНИЧЕННОЕ количество транзакций для дашборда
-    transactions_data = crud_company.get_transactions_with_users(
-        db,
-        city=transactions_params.get('city'),
-        reference_type=transactions_params.get('reference_type'),  # Добавляем фильтр
-        date_from=transactions_params.get('date_from'),
-        date_to=transactions_params.get('date_to'),
-        limit=transactions_limit
-    )
+    # Получаем последние транзакции (ограниченное количество)
+    transactions_data = db.query(
+        CompanyBalance
+    ).filter(
+        CompanyBalance.city == city if city else True
+    ).order_by(
+        CompanyBalance.created_at.desc()
+    ).limit(transactions_limit).all()
     
     transactions = []
-    for transaction, created_by_name, created_by_username in transactions_data:
+    for transaction in transactions_data:
+        # Получаем имя создателя одним запросом (можно оптимизировать с join)
+        created_by_name = None
+        if transaction.created_by:
+            user = db.query(User.full_name).filter(User.id == transaction.created_by).first()
+            created_by_name = user[0] if user else None
+            
         transactions.append({
             'id': transaction.id,
             'operation_type': transaction.operation_type,
@@ -273,10 +246,10 @@ def get_dashboard_data(
             'reference_type': transaction.reference_type,
             'city': transaction.city,
             'created_by': transaction.created_by,
-            'created_by_name': created_by_name or f"ID: {transaction.created_by}"
+            'created_by_name': created_by_name or f"ID: {transaction.created_by}" if transaction.created_by else None
         })
     
-    # Получаем список городов (только для OWNER)
+    # Получаем список городов
     if current_user.role == UserRole.OWNER:
         cities_query = db.query(CompanyBalance.city).filter(
             CompanyBalance.city.isnot(None)
@@ -292,6 +265,127 @@ def get_dashboard_data(
         "cities": cities,
         "has_more": len(transactions) == transactions_limit
     }
+
+
+def get_hourly_aggregated_balance(db: Session, start_date: datetime, end_date: datetime, city: Optional[str] = None) -> List[dict]:
+    """Получить агрегированные почасовые данные баланса для дня"""
+    from sqlalchemy import func, case
+    
+    # Получаем начальный баланс на начало дня
+    initial_balance_query = db.query(
+        func.sum(
+            case(
+                (CompanyBalance.operation_type == 'INCOME', CompanyBalance.amount),
+                (CompanyBalance.operation_type == 'EXPENSE', -CompanyBalance.amount),
+                else_=0
+            )
+        )
+    ).filter(
+        CompanyBalance.created_at < start_date
+    )
+    if city:
+        initial_balance_query = initial_balance_query.filter(CompanyBalance.city == city)
+    
+    initial_balance = initial_balance_query.scalar() or 0
+    
+    # Агрегируем транзакции по часам
+    query = db.query(
+        func.date_part('hour', CompanyBalance.created_at).label('hour'),
+        func.sum(
+            case(
+                (CompanyBalance.operation_type == 'INCOME', CompanyBalance.amount),
+                (CompanyBalance.operation_type == 'EXPENSE', -CompanyBalance.amount),
+                else_=0
+            )
+        ).label('change')
+    ).filter(
+        CompanyBalance.created_at >= start_date,
+        CompanyBalance.created_at < end_date
+    )
+    
+    if city:
+        query = query.filter(CompanyBalance.city == city)
+    
+    hourly_changes = query.group_by('hour').order_by('hour').all()
+    
+    # Формируем точки для графика
+    history = []
+    current_balance = initial_balance
+    
+    for hour in range(24):
+        # Находим изменение за этот час
+        change = next((c[1] for c in hourly_changes if int(c[0]) == hour), 0)
+        current_balance += change
+        
+        date_point = start_date + timedelta(hours=hour)
+        history.append({
+            'date': date_point.isoformat(),
+            'balance': current_balance,
+            'city': city
+        })
+    
+    return history
+
+
+def get_daily_aggregated_balance(db: Session, start_date: datetime, end_date: datetime, city: Optional[str] = None, max_points: int = 100) -> List[dict]:
+    """Получить агрегированные данные баланса по дням"""
+    from sqlalchemy import func, case
+    
+    # Получаем начальный баланс
+    initial_balance_query = db.query(
+        func.sum(
+            case(
+                (CompanyBalance.operation_type == 'INCOME', CompanyBalance.amount),
+                (CompanyBalance.operation_type == 'EXPENSE', -CompanyBalance.amount),
+                else_=0
+            )
+        )
+    ).filter(
+        CompanyBalance.created_at < start_date
+    )
+    if city:
+        initial_balance_query = initial_balance_query.filter(CompanyBalance.city == city)
+    
+    initial_balance = initial_balance_query.scalar() or 0
+    
+    # Агрегируем по дням
+    query = db.query(
+        func.date_trunc('day', CompanyBalance.created_at).label('day'),
+        func.sum(
+            case(
+                (CompanyBalance.operation_type == 'INCOME', CompanyBalance.amount),
+                (CompanyBalance.operation_type == 'EXPENSE', -CompanyBalance.amount),
+                else_=0
+            )
+        ).label('change')
+    ).filter(
+        CompanyBalance.created_at >= start_date,
+        CompanyBalance.created_at < end_date
+    )
+    
+    if city:
+        query = query.filter(CompanyBalance.city == city)
+    
+    daily_changes = query.group_by('day').order_by('day').all()
+    
+    # Формируем точки
+    history = []
+    current_balance = initial_balance
+    total_days = len(daily_changes)
+    
+    # Если дней слишком много, прореживаем
+    step = max(1, total_days // max_points)
+    
+    for idx, (day, change) in enumerate(daily_changes):
+        current_balance += change
+        if idx % step == 0 or idx == total_days - 1:
+            history.append({
+                'date': day.isoformat(),
+                'balance': current_balance,
+                'city': city
+            })
+    
+    return history
 
 @router.post("/add-income")
 def add_company_income(
@@ -446,6 +540,15 @@ def get_company_stats(
         ).label('report_income'),
         func.sum(
             case(
+                (and_(
+                    CompanyBalance.operation_type == 'INCOME',
+                    CompanyBalance.reference_type == 'DEBT_WRITEOFF'
+                ), CompanyBalance.amount),
+                else_=0
+            )
+        ).label('debt_income'),  # Добавляем доходы от долгов
+        func.sum(
+            case(
                 (CompanyBalance.operation_type == 'EXPENSE', CompanyBalance.amount),
                 else_=0
             )
@@ -467,6 +570,15 @@ def get_company_stats(
         ).label('report_income_count'),
         func.sum(
             case(
+                (and_(
+                    CompanyBalance.operation_type == 'INCOME',
+                    CompanyBalance.reference_type == 'DEBT_WRITEOFF'
+                ), 1),
+                else_=0
+            )
+        ).label('debt_income_count'),  # Добавляем количество доходов от долгов
+        func.sum(
+            case(
                 (CompanyBalance.operation_type == 'EXPENSE', 1),
                 else_=0
             )
@@ -483,19 +595,23 @@ def get_company_stats(
     
     total_income = float(result[0] if result and result[0] is not None else 0)
     report_income = float(result[1] if result and result[1] is not None else 0)
-    total_expense = float(result[2] if result and result[2] is not None else 0)
-    income_count = int(result[3] if result and result[3] is not None else 0)
-    report_income_count = int(result[4] if result and result[4] is not None else 0)
-    expense_count = int(result[5] if result and result[5] is not None else 0)
+    debt_income = float(result[2] if result and result[2] is not None else 0)  # Добавляем
+    total_expense = float(result[3] if result and result[3] is not None else 0)
+    income_count = int(result[4] if result and result[4] is not None else 0)
+    report_income_count = int(result[5] if result and result[5] is not None else 0)
+    debt_income_count = int(result[6] if result and result[6] is not None else 0)  # Добавляем
+    expense_count = int(result[7] if result and result[7] is not None else 0)
     
-    regular_income = total_income - report_income
-    regular_income_count = income_count - report_income_count
+    regular_income = total_income - report_income - debt_income  # Обычные доходы без отчетов и долгов
+    regular_income_count = income_count - report_income_count - debt_income_count
     
     return {
         "regular_income": regular_income,
         "regular_income_count": regular_income_count,
         "report_income": report_income,
         "report_income_count": report_income_count,
+        "debt_income": debt_income,  # Добавляем в ответ
+        "debt_income_count": debt_income_count,  # Добавляем в ответ
         "total_expense": total_expense,
         "income_count": income_count,
         "expense_count": expense_count,

@@ -49,6 +49,7 @@ import {
   Pagination,
   FormControlLabel,
   Switch,
+  Autocomplete,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -75,6 +76,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { productService } from '../api/productService';
 import { inventoryService } from '../api/inventoryService';
+import { cityService, City } from '../api/cityService';
 import { Product, ProductCategory, UserRole, InventoryItem, ProductReservationsResponse, User } from '../types';
 
 // iOS стили
@@ -490,15 +492,15 @@ const TabBadges: React.FC<TabBadgeProps> = ({ value, onChange, tabs }) => {
 
 // Компонент фильтров (только для владельца)
 interface FilterSectionProps {
-  users: { id: number; name: string; city?: string }[];
+  users: { id: number; name: string; cityId?: number; cityName?: string }[];
   categories: ProductCategory[];
   products: Product[];
-  cities: string[];
+  cities: City[];
   filters: {
     userId: number | 'all';
     categoryId: number | 'all';
     productId: number | 'all';
-    city: string | 'all';
+    cityId: number | 'all';
   };
   onFilterChange: (filters: any) => void;
   onClearFilters: () => void;
@@ -567,7 +569,7 @@ const FilterSection: React.FC<FilterSectionProps> = ({
     filters.userId !== 'all',
     filters.categoryId !== 'all',
     filters.productId !== 'all',
-    filters.city !== 'all',
+    filters.cityId !== 'all',
   ].filter(Boolean).length;
 
   return (
@@ -641,9 +643,9 @@ const FilterSection: React.FC<FilterSectionProps> = ({
                       <Typography variant="body2" fontWeight={500}>
                         {user.name}
                       </Typography>
-                      {user.city && (
+                      {user.cityName && (
                         <Typography variant="caption" color="text.secondary">
-                          {user.city}
+                          {user.cityName}
                         </Typography>
                       )}
                     </Box>
@@ -665,13 +667,13 @@ const FilterSection: React.FC<FilterSectionProps> = ({
               <InputLabel id="city-filter-label">Город</InputLabel>
               <Select
                 labelId="city-filter-label"
-                value={filters.city}
+                value={filters.cityId}
                 label="Город"
-                onChange={(e) => onFilterChange({ city: e.target.value })}
+                onChange={(e) => onFilterChange({ cityId: e.target.value })}
               >
                 <MenuItem value="all">Все города</MenuItem>
                 {cities.map(city => (
-                  <MenuItem key={city} value={city}>{city}</MenuItem>
+                  <MenuItem key={city.id} value={city.id}>{city.name}</MenuItem>
                 ))}
               </Select>
             </FormControl>
@@ -763,10 +765,11 @@ interface ProductModalProps {
     categoryId: number;
     price: number;
     description?: string;
-    city?: string;
+    cityId?: number | null;
     defaultRate?: number;
   }) => Promise<void>;
   categories: ProductCategory[];
+  cities: City[];
   product?: Product | null;
   loading?: boolean;
 }
@@ -776,6 +779,7 @@ const ProductModal: React.FC<ProductModalProps> = ({
   onClose,
   onSave,
   categories,
+  cities,
   product = null,
   loading = false,
 }) => {
@@ -788,7 +792,7 @@ const ProductModal: React.FC<ProductModalProps> = ({
     categoryId: '',
     price: '',
     description: '',
-    city: '',
+    cityId: '',
     hasCustomRate: false,
     defaultRate: '',
   });
@@ -802,7 +806,7 @@ const ProductModal: React.FC<ProductModalProps> = ({
         categoryId: product.categoryId?.toString() || '',
         price: product.price?.toString() || '',
         description: product.description || '',
-        city: product.city || '',
+        cityId: product.cityId?.toString() || '',
         hasCustomRate: product.defaultRate !== undefined && product.defaultRate !== null && product.defaultRate !== 0,
         defaultRate: product.defaultRate?.toString() || '',
       });
@@ -813,7 +817,7 @@ const ProductModal: React.FC<ProductModalProps> = ({
         categoryId: '',
         price: '',
         description: '',
-        city: '',
+        cityId: '',
         hasCustomRate: false,
         defaultRate: '',
       });
@@ -885,7 +889,7 @@ const ProductModal: React.FC<ProductModalProps> = ({
               productData.description = formData.description.trim();
           }
           
-          productData.city = formData.city.trim() || null;
+          productData.cityId = formData.cityId ? parseInt(formData.cityId) : null;
           
           productData.defaultRate = formData.hasCustomRate && formData.defaultRate 
               ? parseFloat(formData.defaultRate) 
@@ -905,13 +909,15 @@ const ProductModal: React.FC<ProductModalProps> = ({
       categoryId: '',
       price: '',
       description: '',
-      city: '',
+      cityId: '',
       hasCustomRate: false,
       defaultRate: '',
     });
     setErrors({});
     onClose();
   };
+
+  const selectedCity = cities.find(c => c.id.toString() === formData.cityId);
 
   return (
     <Dialog
@@ -1055,29 +1061,38 @@ const ProductModal: React.FC<ProductModalProps> = ({
             <Typography variant="caption" color="#2a0f35" display="block" gutterBottom sx={{ fontWeight: 600, fontSize: { xs: '0.7rem', sm: '0.75rem' }, mb: 0.5 }}>
               ГОРОД
             </Typography>
-            <TextField
-              fullWidth
-              size="small"
-              value={formData.city}
-              onChange={(e) => handleChange('city', e.target.value)}
-              placeholder="Оставьте пустым для всех городов"
-              helperText="Если указать город, товар будет доступен только в этом городе"
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: 2,
-                  backgroundColor: '#ffffff',
-                  '& fieldset': {
-                    borderColor: '#e0e0e0',
-                    borderWidth: 1.5,
-                  },
-                  '&:hover fieldset': {
-                    borderColor: '#9c7cae',
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: '#3f1f4b',
-                  },
-                },
+            <Autocomplete
+              options={cities}
+              getOptionLabel={(option) => option.name}
+              value={selectedCity || null}
+              onChange={(_, newValue) => {
+                handleChange('cityId', newValue ? newValue.id.toString() : '');
               }}
+              isOptionEqualToValue={(option, value) => option.id === value?.id}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  size="small"
+                  placeholder="Выберите город"
+                  helperText="Если не выбрать город, товар будет доступен во всех городах"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 2,
+                      backgroundColor: '#ffffff',
+                      '& fieldset': {
+                        borderColor: '#e0e0e0',
+                        borderWidth: 1.5,
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#9c7cae',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#3f1f4b',
+                      },
+                    },
+                  }}
+                />
+              )}
             />
           </Box>
 
@@ -1332,8 +1347,10 @@ interface InventoryTableProps {
   items: InventoryItem[];
   products: Product[];
   categories: ProductCategory[];
+  cities: City[];
   loading: boolean;
   getCategoryName: (categoryId: number) => string;
+  getCityName: (cityId?: number) => string;
   onReservedClick: (item: InventoryItem) => void;
   onEditClick: (item: InventoryItem) => void;
   page: number;
@@ -1346,8 +1363,10 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
   items,
   products,
   categories,
+  cities,
   loading,
   getCategoryName,
+  getCityName,
   onReservedClick,
   onEditClick,
   page,
@@ -1506,10 +1525,10 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                             {item.userName || `Пользователь #${item.userId}`}
                           </Typography>
                         </Box>
-                        {item.userCity && (
+                        {item.userCityId && (
                           <Chip
                             icon={<LocationIcon sx={{ fontSize: 12 }} />}
-                            label={item.userCity}
+                            label={getCityName(item.userCityId)}
                             size="small"
                             sx={{
                               height: 20,
@@ -1662,10 +1681,10 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                     </Box>
                   </TableCell>
                   <TableCell>
-                    {item.userCity ? (
+                    {item.userCityId ? (
                       <Chip
                         icon={<LocationIcon sx={{ fontSize: 14 }} />}
-                        label={item.userCity}
+                        label={getCityName(item.userCityId)}
                         size="small"
                         sx={{
                           height: 24,
@@ -1805,17 +1824,6 @@ const EditInventoryModal: React.FC<EditInventoryModalProps> = ({
                   fontWeight: 500,
                 }}
               />
-              {item.userCity && (
-                <Chip
-                  icon={<LocationIcon sx={{ fontSize: 14 }} />}
-                  label={item.userCity}
-                  size="small"
-                  sx={{
-                    backgroundColor: alpha(theme.palette.info.main, 0.1),
-                    color: theme.palette.info.main,
-                  }}
-                />
-              )}
               <Chip
                 label={product.name}
                 size="small"
@@ -2272,6 +2280,7 @@ const CategoriesManager: React.FC<CategoriesManagerProps> = ({
 interface ProductsListProps {
   products: Product[];
   categories: ProductCategory[];
+  cities: City[];
   loading: boolean;
   userRate?: number;
   onEditProduct?: (product: Product) => void;
@@ -2282,6 +2291,7 @@ interface ProductsListProps {
 const ProductsList: React.FC<ProductsListProps> = ({
   products,
   categories,
+  cities,
   loading,
   userRate,
   onEditProduct,
@@ -2296,12 +2306,16 @@ const ProductsList: React.FC<ProductsListProps> = ({
     return category?.name || `Категория #${categoryId}`;
   };
 
+  const getCityName = (cityId?: number): string => {
+    if (!cityId) return 'Все города';
+    const city = cities.find(c => c.id === cityId);
+    return city?.name || 'Не указан';
+  };
+
   const getEffectiveRate = (product: Product): number | undefined => {
-    // Сначала проверяем ставку товара (если владелец установил свою ставку)
     if (product.defaultRate && product.defaultRate > 0) {
       return product.defaultRate;
     }
-    // Если нет, используем ставку продавца
     if (userRate && userRate > 0) {
       return userRate;
     }
@@ -2373,14 +2387,12 @@ const ProductsList: React.FC<ProductsListProps> = ({
                             height: 20,
                           }}
                         />
-                        {product.city && (
-                          <Chip
-                            icon={<LocationIcon sx={{ fontSize: 12 }} />}
-                            label={product.city}
-                            size="small"
-                            sx={{ height: 20, fontSize: '0.65rem' }}
-                          />
-                        )}
+                        <Chip
+                          icon={<LocationIcon sx={{ fontSize: 12 }} />}
+                          label={getCityName(product.cityId)}
+                          size="small"
+                          sx={{ height: 20, fontSize: '0.65rem' }}
+                        />
                       </Box>
                       <Typography variant="body2" color="text.secondary" paragraph sx={{ fontSize: '0.875rem' }}>
                         {product.description || 'Нет описания'}
@@ -2451,6 +2463,7 @@ const ProductsPage: React.FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [cities, setCities] = useState<City[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [totalQuantity, setTotalQuantity] = useState(0);
   const [totalValue, setTotalValue] = useState(0);
@@ -2479,7 +2492,7 @@ const ProductsPage: React.FC = () => {
     userId: 'all' as number | 'all',
     categoryId: 'all' as number | 'all',
     productId: 'all' as number | 'all',
-    city: 'all' as string | 'all',
+    cityId: 'all' as number | 'all',
   });
   
   const [sortConfig, setSortConfig] = useState({
@@ -2501,7 +2514,7 @@ const ProductsPage: React.FC = () => {
       categoryId: '',
       price: '',
       description: '',
-      city: '',
+      cityId: '',
       hasCustomRate: false,
       defaultRate: '',
     },
@@ -2524,29 +2537,27 @@ const ProductsPage: React.FC = () => {
 
   // Получаем список уникальных пользователей из остатков
   const usersList = useMemo(() => {
-    const userMap = new Map<number, { id: number; name: string; city?: string }>();
+    const userMap = new Map<number, { id: number; name: string; cityId?: number; cityName?: string }>();
     inventory.forEach(item => {
       if (item.userId && !userMap.has(item.userId) && item.userName) {
+        const city = cities.find(c => c.id === item.userCityId);
         userMap.set(item.userId, {
           id: item.userId,
           name: item.userName,
-          city: item.userCity,
+          cityId: item.userCityId,
+          cityName: city?.name,
         });
       }
     });
     return Array.from(userMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [inventory]);
+  }, [inventory, cities]);
 
-  // Получаем список уникальных городов из остатков
-  const cities = useMemo(() => {
-    const citySet = new Set<string>();
-    inventory.forEach(item => {
-      if (item.userCity) {
-        citySet.add(item.userCity);
-      }
-    });
-    return Array.from(citySet).sort();
-  }, [inventory]);
+  // Функция для получения названия города по ID
+  const getCityName = useCallback((cityId?: number): string => {
+    if (!cityId) return 'Все города';
+    const city = cities.find(c => c.id === cityId);
+    return city?.name || 'Не указан';
+  }, [cities]);
 
   useEffect(() => {
     if (user) {
@@ -2558,14 +2569,16 @@ const ProductsPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // Загружаем товары и категории
-      const [productsData, categoriesData] = await Promise.all([
+      // Загружаем товары, категории и города
+      const [productsData, categoriesData, citiesData] = await Promise.all([
         productService.getAllProducts(),
         productService.getAllCategories(),
+        cityService.getAllCities(),
       ]);
       
       setProducts(productsData);
       setCategories(categoriesData);
+      setCities(citiesData);
       
       // Если владелец - загружаем инвентарь
       if (isOwner) {
@@ -2575,7 +2588,7 @@ const ProductsPage: React.FC = () => {
           user_id: filters.userId !== 'all' ? Number(filters.userId) : undefined,
           category_id: filters.categoryId !== 'all' ? Number(filters.categoryId) : undefined,
           product_id: filters.productId !== 'all' ? Number(filters.productId) : undefined,
-          city: filters.city !== 'all' ? filters.city : undefined,
+          city_id: filters.cityId !== 'all' ? Number(filters.cityId) : undefined,
         });
         
         setInventory(inventoryData.items || []);
@@ -2643,7 +2656,7 @@ const ProductsPage: React.FC = () => {
           categoryId: parseInt(replenishForm.newProduct.categoryId),
           price: parseFloat(replenishForm.newProduct.price) || 0,
           description: replenishForm.newProduct.description,
-          city: replenishForm.newProduct.city || undefined,
+          cityId: replenishForm.newProduct.cityId ? parseInt(replenishForm.newProduct.cityId) : undefined,
           defaultRate: replenishForm.newProduct.hasCustomRate ? parseFloat(replenishForm.newProduct.defaultRate) : undefined,
         });
         
@@ -2667,38 +2680,43 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  const handleSaveProduct = async (productData: {
-    name: string;
-    sku: string;
-    categoryId: number;
-    price: number;
-    description?: string;
-    city?: string;
-    defaultRate?: number;
-  }) => {
-    setSavingProduct(true);
-    try {
-      if (productToEdit) {
-        const updated = await productService.updateProduct(productToEdit.id, productData);
-        setProducts(prevProducts => prevProducts.map(p => 
-          p.id === productToEdit.id ? { ...updated, city: updated.city, defaultRate: updated.defaultRate } : p
-        ));
-        setSuccessMessage('Товар успешно обновлен');
-      } else {
-        const newProduct = await productService.createProduct(productData);
-        setProducts(prevProducts => [...prevProducts, newProduct]);
-        setSuccessMessage('Товар успешно создан');
-      }
-      // Закрываем модалку
-      setProductModalOpen(false);
-      setProductToEdit(null);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Ошибка сохранения товара');
-      throw err;
-    } finally {
-      setSavingProduct(false);
+const handleSaveProduct = async (productData: {
+  name: string;
+  sku: string;
+  categoryId: number;
+  price: number;
+  description?: string;
+  cityId?: number | null;
+  defaultRate?: number;
+}) => {
+  setSavingProduct(true);
+  try {
+    // Преобразуем данные для отправки на сервер
+    const dataToSend = {
+      ...productData,
+      cityId: productData.cityId === null ? undefined : productData.cityId,
+    };
+    
+    if (productToEdit) {
+      const updated = await productService.updateProduct(productToEdit.id, dataToSend);
+      setProducts(prevProducts => prevProducts.map(p => 
+        p.id === productToEdit.id ? { ...updated, cityId: updated.cityId, defaultRate: updated.defaultRate } : p
+      ));
+      setSuccessMessage('Товар успешно обновлен');
+    } else {
+      const newProduct = await productService.createProduct(dataToSend);
+      setProducts(prevProducts => [...prevProducts, newProduct]);
+      setSuccessMessage('Товар успешно создан');
     }
-  };
+    setProductModalOpen(false);
+    setProductToEdit(null);
+  } catch (err: any) {
+    setError(err.response?.data?.detail || 'Ошибка сохранения товара');
+    throw err;
+  } finally {
+    setSavingProduct(false);
+  }
+};
 
   const resetReplenishForm = () => {
     setReplenishForm({
@@ -2711,7 +2729,7 @@ const ProductsPage: React.FC = () => {
         categoryId: '',
         price: '',
         description: '',
-        city: '',
+        cityId: '',
         hasCustomRate: false,
         defaultRate: '',
       },
@@ -2725,7 +2743,7 @@ const ProductsPage: React.FC = () => {
   };
 
   const handleClearFilters = () => {
-    setFilters({ userId: 'all', categoryId: 'all', productId: 'all', city: 'all' });
+    setFilters({ userId: 'all', categoryId: 'all', productId: 'all', cityId: 'all' });
     setInventoryPage(0);
   };
 
@@ -2750,7 +2768,6 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  // Обработчик клика по резерву
   const handleReservedClick = async (item: InventoryItem) => {
     setSelectedInventoryItem(item);
     setReservationsModalOpen(true);
@@ -2767,7 +2784,6 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  // Обработчик редактирования
   const handleEditClick = (item: InventoryItem) => {
     const product = products.find(p => p.id === item.productId);
     
@@ -2814,7 +2830,6 @@ const ProductsPage: React.FC = () => {
     setProductModalOpen(true);
   };
 
-  // Фильтрация и сортировка инвентаря (локальная, после пагинации) - только для владельца
   const filteredInventory = useMemo(() => {
     if (!isOwner) return [];
     
@@ -2846,7 +2861,6 @@ const ProductsPage: React.FC = () => {
     setInventoryPage(newPage);
   };
 
-  // Для не-владельца показываем только вкладку с товарами
   const availableTabs = isOwner 
     ? [{ label: 'Остатки', icon: <InventoryIcon fontSize="small" />, value: 0 },
        { label: 'Товары', icon: <CategoryIcon fontSize="small" />, value: 1 }]
@@ -2889,7 +2903,6 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-  // Получаем ставку текущего пользователя (для не-владельца)
   const currentUserRate = !isOwner ? (user as any)?.rate : undefined;
 
   return (
@@ -2918,7 +2931,6 @@ const ProductsPage: React.FC = () => {
           </Alert>
         )}
 
-        {/* Вкладка остатков - только для владельца */}
         {isOwner && tabValue === 0 && (
           <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', mb: 3, gap: 2 }}>
@@ -3002,8 +3014,10 @@ const ProductsPage: React.FC = () => {
               items={filteredInventory}
               products={products}
               categories={categories}
+              cities={cities}
               loading={loading}
               getCategoryName={getCategoryName}
+              getCityName={getCityName}
               onReservedClick={handleReservedClick}
               onEditClick={handleEditClick}
               page={inventoryPage}
@@ -3014,7 +3028,6 @@ const ProductsPage: React.FC = () => {
           </Box>
         )}
 
-        {/* Вкладка товаров - для всех */}
         {((isOwner && tabValue === 1) || (!isOwner && tabValue === 0)) && (
           <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
             {isOwner && (
@@ -3102,6 +3115,7 @@ const ProductsPage: React.FC = () => {
                 <ProductsList
                   products={products}
                   categories={categories}
+                  cities={cities}
                   loading={loading}
                   userRate={currentUserRate}
                   onEditProduct={isOwner ? handleOpenEditProduct : undefined}
@@ -3117,7 +3131,6 @@ const ProductsPage: React.FC = () => {
         )}
       </Paper>
 
-      {/* Диалог пополнения товара (только для владельца) */}
       {isOwner && (
         <Dialog 
           open={replenishDialogOpen} 
@@ -3310,33 +3323,41 @@ const ProductsPage: React.FC = () => {
                         />
                       </Grid>
                       <Grid size={{ xs: 12 }}>
-                        <TextField
-                          label="Город"
-                          fullWidth
-                          size="small"
-                          value={replenishForm.newProduct.city}
-                          onChange={(e) => setReplenishForm({
-                            ...replenishForm,
-                            newProduct: {...replenishForm.newProduct, city: e.target.value}
-                          })}
-                          placeholder="Оставьте пустым для всех городов"
-                          helperText="Если указать город, товар будет доступен только в этом городе"
-                          sx={{
-                            '& .MuiOutlinedInput-root': {
-                              borderRadius: 2,
-                              backgroundColor: '#ffffff',
-                              '& fieldset': {
-                                borderColor: '#e0e0e0',
-                                borderWidth: 1.5,
-                              },
-                              '&:hover fieldset': {
-                                borderColor: '#9c7cae',
-                              },
-                              '&.Mui-focused fieldset': {
-                                borderColor: '#3f1f4b',
-                              },
-                            },
+                        <Autocomplete
+                          options={cities}
+                          getOptionLabel={(option) => option.name}
+                          value={cities.find(c => c.id.toString() === replenishForm.newProduct.cityId) || null}
+                          onChange={(_, newValue) => {
+                            setReplenishForm({
+                              ...replenishForm,
+                              newProduct: {...replenishForm.newProduct, cityId: newValue ? newValue.id.toString() : ''}
+                            });
                           }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Город"
+                              size="small"
+                              placeholder="Выберите город"
+                              helperText="Если не выбрать город, товар будет доступен во всех городах"
+                              sx={{
+                                '& .MuiOutlinedInput-root': {
+                                  borderRadius: 2,
+                                  backgroundColor: '#ffffff',
+                                  '& fieldset': {
+                                    borderColor: '#e0e0e0',
+                                    borderWidth: 1.5,
+                                  },
+                                  '&:hover fieldset': {
+                                    borderColor: '#9c7cae',
+                                  },
+                                  '&.Mui-focused fieldset': {
+                                    borderColor: '#3f1f4b',
+                                  },
+                                },
+                              }}
+                            />
+                          )}
                         />
                       </Grid>
                       <Grid size={{ xs: 12 }}>
@@ -3474,7 +3495,7 @@ const ProductsPage: React.FC = () => {
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
                                 {product.sku} • {product.price} ₽
-                                {product.city && ` • ${product.city}`}
+                                {product.cityId && ` • ${getCityName(product.cityId)}`}
                               </Typography>
                             </Box>
                           </MenuItem>
@@ -3600,7 +3621,6 @@ const ProductsPage: React.FC = () => {
         </Dialog>
       )}
 
-      {/* Модалка для товара (только для владельца) */}
       {isOwner && (
         <ProductModal
           open={productModalOpen}
@@ -3610,12 +3630,12 @@ const ProductsPage: React.FC = () => {
           }}
           onSave={handleSaveProduct}
           categories={categories}
+          cities={cities}
           product={productToEdit}
           loading={savingProduct}
         />
       )}
 
-      {/* Диалог удаления товара (только для владельца) */}
       {isOwner && (
         <Dialog 
           open={deleteProductDialogOpen} 
@@ -3664,7 +3684,6 @@ const ProductsPage: React.FC = () => {
         </Dialog>
       )}
 
-      {/* Модалка с деталями резервов (только для владельца) */}
       {isOwner && selectedInventoryItem && (
         <ReservationDetailsModal
           open={reservationsModalOpen}
@@ -3681,7 +3700,6 @@ const ProductsPage: React.FC = () => {
         />
       )}
       
-      {/* Модалка редактирования остатков (только для владельца) */}
       {isOwner && (
         <EditInventoryModal
           open={editModalOpen}
@@ -3697,7 +3715,6 @@ const ProductsPage: React.FC = () => {
         />
       )}
 
-      {/* Уведомление об успехе */}
       <Snackbar
         open={!!successMessage}
         autoHideDuration={3000}

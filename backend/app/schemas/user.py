@@ -27,6 +27,7 @@ class UserBase(BaseModel):
     senior_seller_id: Optional[int] = None
     admin_clusters: Optional[List[int]] = None 
     rate: Optional[float] = 0.0
+    accountant_description: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -61,6 +62,7 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     rate: Optional[float] = None
     category_rates: Optional[List[UserCategoryRateCreate]] = None
+    accountant_description: Optional[str] = None
 
 
 class UserResponse(UserBase):
@@ -85,6 +87,9 @@ class UserResponse(UserBase):
     accountant_user_ids: Optional[List[int]] = None
     
     category_rates: List[UserCategoryRateResponse] = []
+    accountant_description: Optional[str] = None
+    
+    accountant_id: Optional[int] = None
     
     @field_validator('accountant_user_ids', mode='before')
     @classmethod

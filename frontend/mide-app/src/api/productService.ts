@@ -1,5 +1,5 @@
 import axiosInstance from './axios';
-import { Product, ProductCategory, InventoryItem, InventoryResponse } from '../types';
+import { Product, ProductCategory, InventoryItem, InventoryResponse, City } from '../types';
 
 export interface CreateProductData {
   name: string;
@@ -7,7 +7,7 @@ export interface CreateProductData {
   categoryId: number;
   price: number;
   description?: string;
-  city?: string;
+  cityId?: number;        // ID города вместо city
   defaultRate?: number;
 }
 
@@ -21,8 +21,9 @@ const transformProductFromApi = (product: any): Product => {
     price: product.price,
     sku: product.sku,
     description: product.description,
-    city: product.city, // Добавляем city
-    defaultRate: product.default_rate, // Добавляем defaultRate
+    cityId: product.city_id,           // city_id -> cityId
+    cityName: product.city_name,       // city_name -> cityName (если приходит с сервера)
+    defaultRate: product.default_rate,
     createdAt: product.created_at ? new Date(product.created_at) : undefined,
     updatedAt: product.updated_at ? new Date(product.updated_at) : undefined,
   };
@@ -53,7 +54,8 @@ const transformInventoryItemFromApi = (item: any): InventoryItem => {
     productSku: item.product_sku,
     productPrice: item.product_price,
     userName: item.user_name,
-    userCity: item.user_city,
+    userCityId: item.user_city_id,      // user_city_id -> userCityId
+    userCityName: item.user_city_name,  // user_city_name -> userCityName
     createdAt: item.created_at ? new Date(item.created_at) : undefined,
     updatedAt: item.updated_at ? new Date(item.updated_at) : undefined,
   };
@@ -80,10 +82,10 @@ const transformToSnakeCase = (obj: any): any => {
 
 export const productService = {
   // Получить все товары
-  getAllProducts: async (categoryId?: number, city?: string): Promise<Product[]> => {
+  getAllProducts: async (categoryId?: number, cityId?: number): Promise<Product[]> => {
     const params: any = {};
     if (categoryId) params.category_id = categoryId;
-    if (city) params.city = city;
+    if (cityId) params.city_id = cityId;  // city -> city_id
     const response = await axiosInstance.get<any[]>('/api/products', { params });
     return response.data.map(transformProductFromApi);
   },
@@ -104,7 +106,7 @@ export const productService = {
   // Обновить товар
   updateProduct: async (id: number, product: Partial<Product>): Promise<Product> => {
     // Убираем поля, которые не должны обновляться
-    const { id: _, categoryName, createdAt, updatedAt, ...updateData } = product;
+    const { id: _, categoryName, cityName, createdAt, updatedAt, ...updateData } = product;
     const snakeCaseData = transformToSnakeCase(updateData);
     
     const response = await axiosInstance.put<any>(`/api/products/${id}`, snakeCaseData);
@@ -159,7 +161,7 @@ export const productService = {
     user_id?: number;
     category_id?: number;
     product_id?: number;
-    city?: string;
+    city_id?: number;      // city -> city_id
   }): Promise<{
     quantity: number;
     total_value: number;
@@ -176,7 +178,7 @@ export const productService = {
         user_id: params?.user_id,
         category_id: params?.category_id,
         product_id: params?.product_id,
-        city: params?.city,
+        city_id: params?.city_id,      // city -> city_id
       }
     });
     
@@ -211,7 +213,7 @@ export const productService = {
       categoryId: number;
       price: number;
       description?: string;
-      city?: string;
+      cityId?: number;      // city -> cityId
       defaultRate?: number;
     };
   }): Promise<any> => {

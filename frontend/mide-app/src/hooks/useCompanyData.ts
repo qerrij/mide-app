@@ -1,7 +1,5 @@
-// hooks/useCompanyData.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { companyService } from '../api/companyService';
-import { CompanyTransaction, CompanyBalanceHistory } from '../types';
+import { companyService, CompanyStatsResponse } from '../api/companyService';
 
 // Типы для фильтров
 interface DashboardFilters {
@@ -15,6 +13,7 @@ interface DashboardFilters {
 
 interface TransactionsFilters {
   operation_type?: string;
+  reference_type?: string;  // Добавляем фильтр по reference_type
   date_from?: string;
   date_to?: string;
   city?: string;
@@ -42,7 +41,7 @@ export const useTransactions = (filters: TransactionsFilters) => {
   });
 };
 
-// Хук для получения статистики
+// Хук для получения статистики с правильным типом возврата
 export const useStats = (params: {
   period: string;
   city?: string;
@@ -50,7 +49,7 @@ export const useStats = (params: {
   date_from?: string;
   date_to?: string;
 }) => {
-  return useQuery({
+  return useQuery<CompanyStatsResponse>({
     queryKey: ['company-stats', params],
     queryFn: () => companyService.getStats(params),
     staleTime: 0,

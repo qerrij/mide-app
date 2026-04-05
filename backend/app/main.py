@@ -22,7 +22,10 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://mide-app.ru",
+        "http://mide-app.ru",     
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
