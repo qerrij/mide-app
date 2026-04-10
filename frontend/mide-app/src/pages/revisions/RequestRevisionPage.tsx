@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Container,
   Paper,
@@ -18,6 +18,7 @@ import {
   StepLabel,
   Card,
   CardContent,
+  Autocomplete,
 } from '@mui/material';
 import { ArrowBack, ArrowForward, Send } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -33,6 +34,7 @@ import {
   Group,
   Cluster,
   getRevisionTypeText,
+  getRoleName,
 } from '../../types';
 import { assignmentsService } from '../../api/assignmentsService';
 
@@ -56,56 +58,68 @@ const RequestRevisionPage: React.FC = () => {
   const [cities, setCities] = useState<string[]>([]);
   
   // Выбранные значения
-  const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<number | ''>('');
   const [selectedClusterId, setSelectedClusterId] = useState<number | ''>('');
   const [selectedCity, setSelectedCity] = useState<string>('');
 
   // Загрузка данных в зависимости от роли пользователя
-
-// RequestRevisionPage.tsx - исправленный useEffect
-useEffect(() => {
-  const loadData = async () => {
-    if (!user) return;
+  useEffect(() => {
+    const loadData = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        
+        // Теперь бекенд сам фильтрует данные по роли пользователя
+        const [usersData, groupsData, clustersData] = await Promise.all([
+          userService.getAllUsers(),
+          groupService.getAllGroups(),
+          clusterService.getAllClusters()
+        ]);
+        
+        // Для не-OWNER ролей, бекенд уже вернул только доступных пользователей
+        // Но все равно фильтруем OWNER и ADMIN для запроса ревизии
+        setUsers(usersData.filter(u => 
+          u.role !== UserRole.OWNER && 
+          u.role !== UserRole.ADMIN
+        ));
+        
+        setGroups(groupsData);
+        setClusters(clustersData);
+        
+        // Собираем уникальные города
+        const uniqueCities = Array.from(new Set(
+          usersData
+            .filter(u => u.cityName && u.role !== UserRole.OWNER && u.role !== UserRole.ADMIN)
+            .map(u => u.cityName!)
+        ));
+        setCities(uniqueCities);
+        
+      } catch (err: any) {
+        console.error('Error loading data:', err);
+        setError(err.message || 'Ошибка при загрузке данных');
+      } finally {
+        setLoading(false);
+      }
+    };
     
-    try {
-      setLoading(true);
-      
-      // Теперь бекенд сам фильтрует данные по роли пользователя
-      const [usersData, groupsData, clustersData] = await Promise.all([
-        userService.getAllUsers(),
-        groupService.getAllGroups(),
-        clusterService.getAllClusters()
-      ]);
-      
-      // Для не-OWNER ролей, бекенд уже вернул только доступных пользователей
-      // Но все равно фильтруем OWNER и ADMIN для запроса ревизии
-      setUsers(usersData.filter(u => 
-        u.role !== UserRole.OWNER && 
-        u.role !== UserRole.ADMIN
-      ));
-      
-      setGroups(groupsData);
-      setClusters(clustersData);
-      
-      // Собираем уникальные города
-      const uniqueCities = Array.from(new Set(
-        usersData
-          .filter(u => u.cityName && u.role !== UserRole.OWNER && u.role !== UserRole.ADMIN)
-          .map(u => u.cityName!)
-      ));
-      setCities(uniqueCities);
-      
-    } catch (err: any) {
-      console.error('Error loading data:', err);
-      setError(err.message || 'Ошибка при загрузке данных');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  loadData();
-}, [user]);
+    loadData();
+  }, [user]);
+
+  // Сортировка пользователей по роли и имени
+  const sortedUsers = useMemo(() => {
+    return [...users]
+      .filter(u => u.role !== UserRole.ACCOUNTANT)
+      .sort((a, b) => {
+        const roleA = getRoleName(a.role);
+        const roleB = getRoleName(b.role);
+        if (roleA !== roleB) {
+          return roleA.localeCompare(roleB);
+        }
+        return a.fullName.localeCompare(b.fullName);
+      });
+  }, [users]);
 
   // Проверка, может ли пользователь запросить общую ревизию
   const canRequestGeneralRevision = user?.role === UserRole.OWNER;
@@ -274,20 +288,110 @@ useEffect(() => {
             {revisionType === RevisionType.USER && (
               <Grid size={{ xs: 12 }}>
                 <FormControl fullWidth>
-                  <InputLabel>Пользователь</InputLabel>
-                  <Select
-                    value={selectedUserId}
-                    label="Пользователь"
-                    onChange={(e) => setSelectedUserId(e.target.value as number)}
-                  >
-                    <MenuItem value="">Выберите пользователя</MenuItem>
-                    {users.map((user) => (
-                      <MenuItem key={user.id} value={user.id}>
-                        {user.fullName} ({user.username})
-                        {user.role && ` - ${user.role}`}
-                      </MenuItem>
-                    ))}
-                  </Select>
+                  <Autocomplete
+                    options={sortedUsers}
+                    getOptionLabel={(option) => option.fullName}
+                    loading={loading}
+                    loadingText="Загрузка..."
+                    noOptionsText="Пользователи не найдены"
+                    groupBy={(option) => getRoleName(option.role)}
+                    filterOptions={(options, { inputValue }) => 
+                      options.filter(option => 
+                        option.fullName.toLowerCase().includes(inputValue.toLowerCase()) ||
+                        getRoleName(option.role).toLowerCase().includes(inputValue.toLowerCase())
+                      )
+                    }
+                    value={users.find(u => u.id === selectedUserId) || null}
+                    onChange={(_, newValue) => {
+                      setSelectedUserId(newValue?.id || null);
+                    }}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    slotProps={{
+                      paper: {
+                        sx: {
+                          borderRadius: 6,
+                          mt: 1,
+                          boxShadow: '0 8px 24px rgba(106, 61, 122, 0.12)',
+                          border: '1px solid rgba(103, 79, 182, 0.08)',
+                          overflow: 'hidden',
+                          animation: 'fadeIn 0.2s ease-out',
+                          '@keyframes fadeIn': {
+                            from: {
+                              opacity: 0,
+                              transform: 'translateY(-8px)',
+                            },
+                            to: {
+                              opacity: 1,
+                              transform: 'translateY(0)',
+                            },
+                          },
+                          '& .MuiAutocomplete-listbox': {
+                            '& .MuiAutocomplete-option': {
+                              transition: 'all 0.15s ease',
+                              borderRadius: 3,
+                              mx: 1,
+                              my: 0.25,
+                              '&:hover': {
+                                backgroundColor: 'rgba(103, 79, 182, 0.06)',
+                              },
+                              '&.Mui-focused': {
+                                backgroundColor: 'rgba(103, 79, 182, 0.08) !important',
+                              },
+                            },
+                          },
+                        },
+                      },
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Пользователь *"
+                        placeholder="Выберите пользователя"
+                        sx={{
+                          '& .MuiOutlinedInput-root': {
+                            borderRadius: 4,
+                            backgroundColor: '#f8f7fa',
+                            transition: 'background-color 0.2s ease',
+                            '&:hover': {
+                              backgroundColor: '#f3f1f5',
+                            },
+                            '&.Mui-focused': {
+                              backgroundColor: '#ffffff',
+                            },
+                          },
+                        }}
+                      />
+                    )}
+                    renderOption={(props, option) => (
+                      <li {...props}>
+                        <Box sx={{ py: 1 }}>
+                          <Typography variant="body2" fontWeight={500}>
+                            {option.fullName}
+                          </Typography>
+                          <Typography variant="caption" color="#4c5454">
+                            {getRoleName(option.role)}
+                            {option.cityName && ` • ${option.cityName}`}
+                          </Typography>
+                        </Box>
+                      </li>
+                    )}
+                    renderGroup={(params) => (
+                      <li key={params.key}>
+                        <Box sx={{ 
+                          px: 2.5, 
+                          py: 1.5, 
+                          backgroundColor: '#f8f7fa',
+                          borderBottom: '1px solid rgba(103, 79, 182, 0.08)',
+                          borderTop: params.key !== 0 ? '1px solid rgba(103, 79, 182, 0.08)' : 'none',
+                        }}>
+                          <Typography variant="caption" fontWeight={600} color="#674fb6" sx={{ letterSpacing: '0.3px' }}>
+                            {params.group}
+                          </Typography>
+                        </Box>
+                        <ul style={{ padding: 0, margin: 0 }}>{params.children}</ul>
+                      </li>
+                    )}
+                  />
                 </FormControl>
                 {users.length === 0 && (
                   <Alert severity="info" sx={{ mt: 2 }}>
@@ -305,6 +409,10 @@ useEffect(() => {
                     value={selectedGroupId}
                     label="Группа"
                     onChange={(e) => setSelectedGroupId(e.target.value as number)}
+                    sx={{
+                      borderRadius: 4,
+                      backgroundColor: '#f8f7fa',
+                    }}
                   >
                     <MenuItem value="">Выберите группу</MenuItem>
                     {groups.map((group) => (
@@ -331,6 +439,10 @@ useEffect(() => {
                     value={selectedClusterId}
                     label="Куст"
                     onChange={(e) => setSelectedClusterId(e.target.value as number)}
+                    sx={{
+                      borderRadius: 4,
+                      backgroundColor: '#f8f7fa',
+                    }}
                   >
                     <MenuItem value="">Выберите куст</MenuItem>
                     {clusters.map((cluster) => (
@@ -357,6 +469,10 @@ useEffect(() => {
                     value={selectedCity}
                     label="Город"
                     onChange={(e) => setSelectedCity(e.target.value)}
+                    sx={{
+                      borderRadius: 4,
+                      backgroundColor: '#f8f7fa',
+                    }}
                   >
                     <MenuItem value="">Выберите город</MenuItem>
                     {cities.map((city) => (
@@ -402,11 +518,17 @@ useEffect(() => {
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder="Укажите причину ревизии или дополнительные инструкции..."
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 4,
+                    backgroundColor: '#f8f7fa',
+                  },
+                }}
               />
             </Grid>
             
             <Grid size={{ xs: 12 }}>
-              <Paper sx={{ p: 2, backgroundColor: '#f5f5f5' }}>
+              <Paper sx={{ p: 2, backgroundColor: '#f5f5f5', borderRadius: 4 }}>
                 <Typography variant="subtitle2" gutterBottom color="#2a0f35">
                   Сводка ревизии
                 </Typography>
@@ -475,18 +597,18 @@ useEffect(() => {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert severity="error" sx={{ mb: 3, borderRadius: 4 }}>
           {error}
         </Alert>
       )}
 
       {success && (
-        <Alert severity="success" sx={{ mb: 3 }}>
+        <Alert severity="success" sx={{ mb: 3, borderRadius: 4 }}>
           Ревизия успешно запрошена! Вы будете перенаправлены на страницу ревизий...
         </Alert>
       )}
 
-      <Paper sx={{ p: 3, mb: 3 }}>
+      <Paper sx={{ p: 3, mb: 3, borderRadius: 4 }}>
         {loading ? (
           <Box display="flex" justifyContent="center" sx={{ py: 4 }}>
             <CircularProgress />
@@ -501,6 +623,15 @@ useEffect(() => {
           disabled={step === 0 || loading}
           onClick={handleBack}
           startIcon={<ArrowBack />}
+          sx={{
+            borderRadius: 4,
+            borderColor: '#d8d1e0',
+            color: '#674fb6',
+            '&:hover': {
+              borderColor: '#674fb6',
+              backgroundColor: 'rgba(103, 79, 182, 0.04)',
+            },
+          }}
         >
           Назад
         </Button>
@@ -513,8 +644,10 @@ useEffect(() => {
               disabled={loading}
               startIcon={loading ? <CircularProgress size={20} /> : <Send />}
               sx={{
+                borderRadius: 4,
                 backgroundColor: '#2196f3',
                 '&:hover': { backgroundColor: '#1976d2' },
+                px: 4,
               }}
             >
               {loading ? 'Отправка...' : 'Запросить ревизию'}
@@ -525,8 +658,10 @@ useEffect(() => {
               onClick={handleNext}
               endIcon={<ArrowForward />}
               sx={{
+                borderRadius: 4,
                 backgroundColor: '#2196f3',
                 '&:hover': { backgroundColor: '#1976d2' },
+                px: 4,
               }}
             >
               Далее

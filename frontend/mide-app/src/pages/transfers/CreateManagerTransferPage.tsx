@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -25,6 +25,7 @@ import {
   DialogActions,
   SelectChangeEvent,
   Avatar,
+  Autocomplete,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -158,8 +159,7 @@ const CreateManagerTransferPage: React.FC = () => {
 
   const loadSubordinateUsers = async () => {
     try {
-      // В реальном приложении здесь должен быть API эндпоинт для получения подчиненных
-      // Пока фильтруем на основе ролей для демонстрации
+
       const allUsers = await userService.getAllUsers();
       const subordinates = allUsers.filter(u => {
         if (user?.role === UserRole.OWNER) return true;
@@ -195,6 +195,32 @@ const CreateManagerTransferPage: React.FC = () => {
       setSenderInventory([]);
     }
   };
+
+  const sortedSubordinateUsers = useMemo(() => {
+    return [...subordinateUsers]
+      .filter(u => u.role !== UserRole.ACCOUNTANT)
+      .sort((a, b) => {
+        const roleA = getRoleName(a.role);
+        const roleB = getRoleName(b.role);
+        if (roleA !== roleB) {
+          return roleA.localeCompare(roleB);
+        }
+        return a.fullName.localeCompare(b.fullName);
+      });
+  }, [subordinateUsers]);
+
+  const sortedAllUsers = useMemo(() => {
+    return [...users]
+      .filter(u => u.id !== formData.fromUserId && u.role !== UserRole.ACCOUNTANT)
+      .sort((a, b) => {
+        const roleA = getRoleName(a.role);
+        const roleB = getRoleName(b.role);
+        if (roleA !== roleB) {
+          return roleA.localeCompare(roleB);
+        }
+        return a.fullName.localeCompare(b.fullName);
+      });
+  }, [users, formData.fromUserId]);
 
   // Получить доступное количество товара у отправителя
   const getAvailableQuantity = (productId: number): number => {
@@ -516,75 +542,217 @@ const CreateManagerTransferPage: React.FC = () => {
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
                   <FormControl fullWidth>
-                    <InputLabel id="from-user-label">У кого запросить товары *</InputLabel>
-                    <Select
-                      labelId="from-user-label"
-                      value={formData.fromUserId}
-                      label="У кого запросить товары *"
-                      onChange={(e: SelectChangeEvent<number>) => setFormData({ ...formData, fromUserId: Number(e.target.value) })}
-                      sx={{
-                        borderRadius: 4,
-                        backgroundColor: '#f8f7fa',
+                    <Autocomplete
+                      options={sortedSubordinateUsers}
+                      getOptionLabel={(option) => option.fullName}
+                      loading={loadingData}
+                      loadingText="Загрузка..."
+                      noOptionsText="Пользователи не найдены"
+                      groupBy={(option) => getRoleName(option.role)}
+                      filterOptions={(options, { inputValue }) => 
+                        options.filter(option => 
+                          option.fullName.toLowerCase().includes(inputValue.toLowerCase()) ||
+                          getRoleName(option.role).toLowerCase().includes(inputValue.toLowerCase())
+                        )
+                      }
+                      value={users.find(u => u.id === formData.fromUserId) || null}
+                      onChange={(_, newValue) => {
+                        setFormData({ ...formData, fromUserId: newValue?.id || 0 });
                       }}
-                    >
-                      <MenuItem value={0}>Выберите пользователя</MenuItem>
-                      {subordinateUsers.map((u) => (
-                        <MenuItem key={u.id} value={u.id}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <PersonIcon fontSize="small" sx={{ color: '#674fb6' }} />
-                            <span>{u.fullName}</span>
-                            <Chip 
-                              label={getRoleName(u.role)} 
-                              size="small" 
-                              sx={{ 
-                                ml: 1, 
-                                backgroundColor: 'rgba(103, 79, 182, 0.1)',
-                                color: '#674fb6',
-                                fontSize: '0.7rem',
-                              }} 
-                            />
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      slotProps={{
+                        paper: {
+                          sx: {
+                            borderRadius: 6,
+                            mt: 1,
+                            boxShadow: '0 8px 24px rgba(106, 61, 122, 0.12)',
+                            border: '1px solid rgba(103, 79, 182, 0.08)',
+                            overflow: 'hidden',
+                            animation: 'fadeIn 0.2s ease-out',
+                            '@keyframes fadeIn': {
+                              from: {
+                                opacity: 0,
+                                transform: 'translateY(-8px)',
+                              },
+                              to: {
+                                opacity: 1,
+                                transform: 'translateY(0)',
+                              },
+                            },
+                            '& .MuiAutocomplete-listbox': {
+                              '& .MuiAutocomplete-option': {
+                                transition: 'all 0.15s ease',
+                                borderRadius: 3,
+                                mx: 1,
+                                my: 0.25,
+                                '&:hover': {
+                                  backgroundColor: 'rgba(103, 79, 182, 0.06)',
+                                },
+                                '&.Mui-focused': {
+                                  backgroundColor: 'rgba(103, 79, 182, 0.08) !important',
+                                },
+                              },
+                            },
+                          },
+                        },
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="У кого запросить товары *"
+                          placeholder="Выберите сотрудника"
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              borderRadius: 4,
+                              backgroundColor: '#f8f7fa',
+                              transition: 'background-color 0.2s ease',
+                              '&:hover': {
+                                backgroundColor: '#f3f1f5',
+                              },
+                              '&.Mui-focused': {
+                                backgroundColor: '#ffffff',
+                              },
+                            },
+                          }}
+                        />
+                      )}
+                      renderOption={(props, option) => (
+                        <li {...props}>
+                          <Box sx={{ py: 1 }}>
+                            <Typography variant="body2" fontWeight={500}>
+                              {option.fullName}
+                            </Typography>
+                            <Typography variant="caption" color="#4c5454">
+                              {getRoleName(option.role)}
+                            </Typography>
                           </Box>
-                        </MenuItem>
-                      ))}
-                    </Select>
+                        </li>
+                      )}
+                      renderGroup={(params) => (
+                        <li key={params.key}>
+                          <Box sx={{ 
+                            px: 2.5, 
+                            py: 1.5, 
+                            backgroundColor: '#f8f7fa',
+                            borderBottom: '1px solid rgba(103, 79, 182, 0.08)',
+                            borderTop: params.key !== 0 ? '1px solid rgba(103, 79, 182, 0.08)' : 'none',
+                          }}>
+                            <Typography variant="caption" fontWeight={600} color="#674fb6" sx={{ letterSpacing: '0.3px' }}>
+                              {params.group}
+                            </Typography>
+                          </Box>
+                          <ul style={{ padding: 0, margin: 0 }}>{params.children}</ul>
+                        </li>
+                      )}
+                    />
                   </FormControl>
                 </Grid>
 
                 <Grid size={{ xs: 12, md: 6 }}>
                   <FormControl fullWidth>
-                    <InputLabel id="to-user-label">Кому направить товары *</InputLabel>
-                    <Select
-                      labelId="to-user-label"
-                      value={formData.toUserId}
-                      label="Кому направить товары *"
-                      onChange={(e: SelectChangeEvent<number>) => setFormData({ ...formData, toUserId: Number(e.target.value) })}
-                      sx={{
-                        borderRadius: 4,
-                        backgroundColor: '#f8f7fa',
+                    <Autocomplete
+                      options={sortedAllUsers}
+                      getOptionLabel={(option) => option.fullName}
+                      loading={loadingData}
+                      loadingText="Загрузка..."
+                      noOptionsText="Пользователи не найдены"
+                      groupBy={(option) => getRoleName(option.role)}
+                      filterOptions={(options, { inputValue }) => 
+                        options.filter(option => 
+                          option.fullName.toLowerCase().includes(inputValue.toLowerCase()) ||
+                          getRoleName(option.role).toLowerCase().includes(inputValue.toLowerCase())
+                        )
+                      }
+                      value={users.find(u => u.id === formData.toUserId) || null}
+                      onChange={(_, newValue) => {
+                        setFormData({ ...formData, toUserId: newValue?.id || 0 });
                       }}
-                    >
-                      <MenuItem value={0}>Выберите пользователя</MenuItem>
-                      {users
-                        .filter(u => u.id !== formData.fromUserId)
-                        .map((u) => (
-                          <MenuItem key={u.id} value={u.id}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <PersonIcon fontSize="small" sx={{ color: '#3f1f4b' }} />
-                              <span>{u.fullName}</span>
-                              <Chip 
-                                label={getRoleName(u.role)} 
-                                size="small" 
-                                sx={{ 
-                                  ml: 1, 
-                                  backgroundColor: 'rgba(63, 31, 75, 0.1)',
-                                  color: '#3f1f4b',
-                                  fontSize: '0.7rem',
-                                }} 
-                              />
-                            </Box>
-                          </MenuItem>
-                        ))}
-                    </Select>
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      slotProps={{
+                        paper: {
+                          sx: {
+                            borderRadius: 6,
+                            mt: 1,
+                            boxShadow: '0 8px 24px rgba(106, 61, 122, 0.12)',
+                            border: '1px solid rgba(63, 31, 75, 0.08)',
+                            overflow: 'hidden',
+                            animation: 'fadeIn 0.2s ease-out',
+                            '@keyframes fadeIn': {
+                              from: {
+                                opacity: 0,
+                                transform: 'translateY(-8px)',
+                              },
+                              to: {
+                                opacity: 1,
+                                transform: 'translateY(0)',
+                              },
+                            },
+                            '& .MuiAutocomplete-listbox': {
+                              '& .MuiAutocomplete-option': {
+                                transition: 'all 0.15s ease',
+                                borderRadius: 3,
+                                mx: 1,
+                                my: 0.25,
+                                '&:hover': {
+                                  backgroundColor: 'rgba(63, 31, 75, 0.06)',
+                                },
+                                '&.Mui-focused': {
+                                  backgroundColor: 'rgba(63, 31, 75, 0.08) !important',
+                                },
+                              },
+                            },
+                          },
+                        },
+                      }}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Кому направить товары *"
+                          placeholder="Выберите сотрудника"
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              borderRadius: 4,
+                              backgroundColor: '#f8f7fa',
+                              transition: 'background-color 0.2s ease',
+                              '&:hover': {
+                                backgroundColor: '#f3f1f5',
+                              },
+                              '&.Mui-focused': {
+                                backgroundColor: '#ffffff',
+                              },
+                            },
+                          }}
+                        />
+                      )}
+                      renderOption={(props, option) => (
+                        <li {...props}>
+                          <Box sx={{ py: 1 }}>
+                            <Typography variant="body2" fontWeight={500}>
+                              {option.fullName}
+                            </Typography>
+                            <Typography variant="caption" color="#4c5454">
+                              {getRoleName(option.role)}
+                            </Typography>
+                          </Box>
+                        </li>
+                      )}
+                      renderGroup={(params) => (
+                        <li key={params.key}>
+                          <Box sx={{ 
+                            px: 2.5, 
+                            py: 1.5, 
+                            backgroundColor: '#f8f7fa',
+                            borderBottom: '1px solid rgba(103, 79, 182, 0.08)',
+                            borderTop: params.key !== 0 ? '1px solid rgba(103, 79, 182, 0.08)' : 'none',
+                          }}>
+                            <Typography variant="caption" fontWeight={600} color="#674fb6" sx={{ letterSpacing: '0.3px' }}>
+                              {params.group}
+                            </Typography>
+                          </Box>
+                          <ul style={{ padding: 0, margin: 0 }}>{params.children}</ul>
+                        </li>
+                      )}
+                    />
                   </FormControl>
                 </Grid>
 
