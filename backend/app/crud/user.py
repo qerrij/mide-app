@@ -177,7 +177,7 @@ class CRUDUser:
         
         # Проверяем валидность категорий для ставок
         if user_in.category_rates:
-            from app.models.product import ProductCategory
+            from app.models.category import ProductCategory
             category_ids = [rate.category_id for rate in user_in.category_rates]
             existing_categories = db.query(ProductCategory).filter(
                 ProductCategory.id.in_(category_ids)
