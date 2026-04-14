@@ -627,7 +627,7 @@ const ViewReportPage: React.FC = () => {
                       Финальное утверждение
                     </Typography>
                     <Typography variant="caption" color="#4c5454" display="block">
-                      Руководитель • {formatDateTime(report.reviewDate)}
+                      {report.reviewerName || `Пользователь ${report.reviewedBy}`} • {formatDateTime(report.reviewDate)}
                     </Typography>
                   </Box>
                 </Box>
@@ -648,7 +648,7 @@ const ViewReportPage: React.FC = () => {
                   </Box>
                   <Box sx={{ flex: 1 }}>
                     <Typography variant="body2" fontWeight={500} color="#2a0f35">
-                      Отклонен руководителем
+                      Отклонен {report.reviewerName || `Пользователь ${report.reviewedBy}`}
                     </Typography>
                     <Typography variant="caption" color="#4c5454" display="block">
                       {formatDateTime(report.reviewDate)}

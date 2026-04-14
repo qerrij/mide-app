@@ -59,6 +59,7 @@ class ReportResponse(ReportBase):
     transfer_photos: List[str]
     status: ReportStatus
     reviewed_by: Optional[int] = None
+    reviewer_name: Optional[str] = None
     review_date: Optional[datetime] = None
     products: List[ReportProductResponse]
     created_at: Optional[datetime] = None
@@ -130,6 +131,19 @@ class ReportResponse(ReportBase):
         data = info.data
         if 'accountant' in data and data['accountant']:
             return data['accountant'].full_name
+        
+        return None
+    
+    @field_validator('reviewer_name', mode='before')
+    @classmethod
+    def get_reviewer_name(cls, v, info):
+        """Получаем имя утвердившего руководителя из связанного объекта reviewer"""
+        if v is not None:
+            return v
+        
+        data = info.data
+        if 'reviewer' in data and data['reviewer']:
+            return data['reviewer'].full_name
         
         return None
     

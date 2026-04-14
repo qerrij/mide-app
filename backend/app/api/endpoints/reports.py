@@ -324,6 +324,9 @@ def enrich_report_response(report):
         if report.accountant and not hasattr(report, 'accountant_name'):
             report.accountant_name = report.accountant.full_name
         
+        if report.reviewer and not hasattr(report, 'reviewer_name'):
+            report.reviewer_name = report.reviewer.full_name
+        
         # Продукты
         if report.products:
             for product_report in report.products:

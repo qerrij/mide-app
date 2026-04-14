@@ -186,6 +186,7 @@ export interface Report {
   accountantReviewedBy?: number;
   accountantReviewDate?: Date;
   accountantName?: string;
+  reviewerName?: string;
   
   // Поле для отслеживания исправлений
   wasWithAccountant: boolean;

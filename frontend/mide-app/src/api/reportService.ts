@@ -41,6 +41,7 @@ const transformReportFromApi = (report: any): Report => {
     accountantReviewedBy: report.accountant_reviewed_by,
     accountantReviewDate: report.accountant_review_date ? new Date(report.accountant_review_date) : undefined,
     accountantName: report.accountant_name,
+    reviewerName: report.reviewer_name,
     wasWithAccountant: report.was_with_accountant || false,
     
     createdAt: new Date(report.created_at),

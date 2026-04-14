@@ -22,9 +22,10 @@ class CRUDReport:
                 .joinedload(Product.category),
                 joinedload(Report.products)
                 .joinedload(ReportProduct.product)
-                .joinedload(Product.city),  # Загружаем city
+                .joinedload(Product.city),
                 joinedload(Report.seller),
-                joinedload(Report.accountant)
+                joinedload(Report.accountant),
+                joinedload(Report.reviewer) 
             )\
             .filter(Report.id == report_id)\
             .first()
@@ -43,9 +44,10 @@ class CRUDReport:
                 .joinedload(Product.category),
                 joinedload(Report.products)
                 .joinedload(ReportProduct.product)
-                .joinedload(Product.city),  # Загружаем city
+                .joinedload(Product.city),
                 joinedload(Report.seller),
-                joinedload(Report.accountant)
+                joinedload(Report.accountant),
+                joinedload(Report.reviewer)
             )
         
         # Фильтрация по роли пользователя
