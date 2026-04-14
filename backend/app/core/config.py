@@ -1,12 +1,12 @@
 from pydantic_settings import BaseSettings
-from typing import Optional
+from typing import List, Optional
 from pathlib import Path
 import os
 
 class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
-    
+    CORS_ORIGINS: List[str] = ["*"]
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
@@ -24,10 +24,10 @@ class Settings(BaseSettings):
     
     # Yandex Cloud Storage
     YC_ENDPOINT_URL: str = "https://storage.yandexcloud.net"
-    YC_ACCESS_KEY_ID: str = ""  # Добавить в .env
-    YC_SECRET_ACCESS_KEY: str = ""  # Добавить в .env
-    YC_BUCKET_NAME: str = ""  # Добавить в .env
-    YC_PUBLIC_URL: Optional[str] = None  # Публичный URL бакета (если настроен)
+    YC_ACCESS_KEY_ID: str = "" 
+    YC_SECRET_ACCESS_KEY: str = ""  
+    YC_BUCKET_NAME: str = "" 
+    YC_PUBLIC_URL: Optional[str] = None 
     
     class Config:
         env_file = ".env"
