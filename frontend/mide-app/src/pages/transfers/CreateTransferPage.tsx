@@ -603,9 +603,9 @@ const CreateTransferPage: React.FC = () => {
                           getRoleName(option.role).toLowerCase().includes(inputValue.toLowerCase())
                         )
                       }
-                      value={users.find(u => u.id === formData.fromUserId) || null}
+                      value={users.find(u => u.id === formData.toUserId) || null}
                       onChange={(_, newValue) => {
-                        setFormData({ ...formData, fromUserId: newValue?.id || 0 });
+                        setFormData({ ...formData, toUserId: newValue?.id || 0 });
                       }}
                       isOptionEqualToValue={(option, value) => option.id === value.id}
                       slotProps={{
