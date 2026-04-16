@@ -613,17 +613,28 @@ const FilterSection: React.FC<FilterSectionProps> = ({
           <Grid size={{ xs: 12, sm: 3 }}>
             <FormControl fullWidth size="small" sx={iOSStyles.input}>
               <InputLabel id="user-filter-label">Пользователь</InputLabel>
-              <Select
-                labelId="user-filter-label"
-                value={filters.userId}
-                label="Пользователь"
-                onChange={(e) => onFilterChange({ userId: e.target.value })}
-                MenuProps={{
-                  PaperProps: {
-                    sx: { borderRadius: 2, maxHeight: 400 },
-                  },
-                }}
-              >
+    <Select
+      labelId="user-filter-label"
+      value={filters.userId}
+      label="Пользователь"
+      onChange={(e) => onFilterChange({ userId: e.target.value })}
+      MenuProps={{
+        PaperProps: {
+          sx: { borderRadius: 2, maxHeight: 400 },
+        },
+      }}
+      sx={{
+        '& .MuiSelect-select': {
+          whiteSpace: 'normal',      // Разрешаем перенос текста
+          wordBreak: 'break-word',   // Переносим длинные слова
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          minHeight: '40px',         // Минимальная высота для многострочного текста
+          display: 'flex',
+          alignItems: 'center',
+        },
+      }}
+    >
                 <MenuItem value="all">Все пользователи</MenuItem>
                 <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
                   <TextField
@@ -1342,7 +1353,7 @@ const SortSection: React.FC<SortSectionProps> = ({ sortBy, sortOrder, onSortChan
   );
 };
 
-// Компонент таблицы инвентаря (с пагинацией) - только для владельца
+// Компонент таблицы инвентаря
 interface InventoryTableProps {
   items: InventoryItem[];
   products: Product[];
@@ -1357,6 +1368,7 @@ interface InventoryTableProps {
   rowsPerPage: number;
   totalCount: number;
   onPageChange: (page: number) => void;
+  isOwner: boolean;
 }
 
 const InventoryTable: React.FC<InventoryTableProps> = ({
@@ -1373,6 +1385,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
   rowsPerPage,
   totalCount,
   onPageChange,
+  isOwner,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -1410,7 +1423,7 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
             Нет товаров в инвентаре
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Используйте кнопку "Пополнить" чтобы добавить товары
+            {isOwner ? 'Используйте кнопку "Пополнить" чтобы добавить товары' : 'Нет доступных товаров'}
           </Typography>
         </Paper>
       </Zoom>
@@ -1467,18 +1480,21 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                         <Typography variant="body1" fontWeight={700} color={item.quantity > 0 ? 'primary' : 'text.secondary'}>
                           {item.quantity} шт.
                         </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={() => onEditClick(item)}
-                          sx={{
-                            backgroundColor: alpha(theme.palette.primary.main, 0.1),
-                            '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
-                            width: 28,
-                            height: 28,
-                          }}
-                        >
-                          <EditIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
+                        {/* Кнопка редактирования только для OWNER */}
+                        {isOwner && (
+                          <IconButton
+                            size="small"
+                            onClick={() => onEditClick(item)}
+                            sx={{
+                              backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                              '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                              width: 28,
+                              height: 28,
+                            }}
+                          >
+                            <EditIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        )}
                       </Box>
                       {item.reservedQuantity > 0 && (
                         <Box sx={{ mt: 0.5 }}>
@@ -1631,20 +1647,23 @@ const InventoryTable: React.FC<InventoryTableProps> = ({
                       <Typography variant="body2" fontWeight="bold" color="primary">
                         {item.quantity} шт.
                       </Typography>
-                      <Tooltip title="Редактировать остатки">
-                        <IconButton
-                          size="small"
-                          onClick={() => onEditClick(item)}
-                          sx={{
-                            backgroundColor: alpha(theme.palette.primary.main, 0.1),
-                            '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
-                            width: 28,
-                            height: 28,
-                          }}
-                        >
-                          <EditIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
-                      </Tooltip>
+                      {/* Кнопка редактирования только для OWNER */}
+                      {isOwner && (
+                        <Tooltip title="Редактировать остатки">
+                          <IconButton
+                            size="small"
+                            onClick={() => onEditClick(item)}
+                            sx={{
+                              backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                              '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.2) },
+                              width: 28,
+                              height: 28,
+                            }}
+                          >
+                            <EditIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                     {item.reservedQuantity > 0 && (
                       <Box sx={{ mt: 0.5 }}>
@@ -2456,6 +2475,7 @@ const ProductsList: React.FC<ProductsListProps> = ({
 };
 
 // Основной компонент страницы
+// Основной компонент страницы
 const ProductsPage: React.FC = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -2534,6 +2554,13 @@ const ProductsPage: React.FC = () => {
   const [replenishCategoryFilter, setReplenishCategoryFilter] = useState<number | 'all'>('all');
 
   const isOwner = user?.role === UserRole.OWNER;
+  const isAdmin = user?.role === UserRole.ADMIN;
+  const isSeniorSeller = user?.role === UserRole.SENIOR_SELLER;
+  const isMentor = user?.role === UserRole.MENTOR;
+  const isSeller = user?.role === UserRole.SELLER;
+  
+  // Показываем вкладку с остатками для всех, кроме SELLER
+  const showInventoryTab = !isSeller;
 
   // Получаем список уникальных пользователей из остатков
   const usersList = useMemo(() => {
@@ -2580,8 +2607,9 @@ const ProductsPage: React.FC = () => {
       setCategories(categoriesData);
       setCities(citiesData);
       
-      // Если владелец - загружаем инвентарь
+      // Загружаем инвентарь в зависимости от роли
       if (isOwner) {
+        // OWNER видит всю компанию с фильтрами
         const inventoryData = await productService.getCompanyInventory({
           page: inventoryPage,
           limit: inventoryRowsPerPage,
@@ -2589,6 +2617,18 @@ const ProductsPage: React.FC = () => {
           category_id: filters.categoryId !== 'all' ? Number(filters.categoryId) : undefined,
           product_id: filters.productId !== 'all' ? Number(filters.productId) : undefined,
           city_id: filters.cityId !== 'all' ? Number(filters.cityId) : undefined,
+        });
+        
+        setInventory(inventoryData.items || []);
+        setTotalQuantity(inventoryData.quantity || 0);
+        setTotalValue(inventoryData.total_value || 0);
+        setInventoryTotalCount(inventoryData.total_count || 0);
+      } else if (showInventoryTab) {
+        // Для ADMIN, SENIOR_SELLER, MENTOR используем ручку my-team
+        // которая вернет инвентарь с учетом подчиненных
+        const inventoryData = await productService.getMyTeamInventory({
+          page: inventoryPage,
+          limit: inventoryRowsPerPage,
         });
         
         setInventory(inventoryData.items || []);
@@ -2680,43 +2720,42 @@ const ProductsPage: React.FC = () => {
     }
   };
 
-const handleSaveProduct = async (productData: {
-  name: string;
-  sku: string;
-  categoryId: number;
-  price: number;
-  description?: string;
-  cityId?: number | null;
-  defaultRate?: number;
-}) => {
-  setSavingProduct(true);
-  try {
-    // Преобразуем данные для отправки на сервер
-    const dataToSend = {
-      ...productData,
-      cityId: productData.cityId === null ? undefined : productData.cityId,
-    };
-    
-    if (productToEdit) {
-      const updated = await productService.updateProduct(productToEdit.id, dataToSend);
-      setProducts(prevProducts => prevProducts.map(p => 
-        p.id === productToEdit.id ? { ...updated, cityId: updated.cityId, defaultRate: updated.defaultRate } : p
-      ));
-      setSuccessMessage('Товар успешно обновлен');
-    } else {
-      const newProduct = await productService.createProduct(dataToSend);
-      setProducts(prevProducts => [...prevProducts, newProduct]);
-      setSuccessMessage('Товар успешно создан');
+  const handleSaveProduct = async (productData: {
+    name: string;
+    sku: string;
+    categoryId: number;
+    price: number;
+    description?: string;
+    cityId?: number | null;
+    defaultRate?: number;
+  }) => {
+    setSavingProduct(true);
+    try {
+      const dataToSend = {
+        ...productData,
+        cityId: productData.cityId === null ? undefined : productData.cityId,
+      };
+      
+      if (productToEdit) {
+        const updated = await productService.updateProduct(productToEdit.id, dataToSend);
+        setProducts(prevProducts => prevProducts.map(p => 
+          p.id === productToEdit.id ? { ...updated, cityId: updated.cityId, defaultRate: updated.defaultRate } : p
+        ));
+        setSuccessMessage('Товар успешно обновлен');
+      } else {
+        const newProduct = await productService.createProduct(dataToSend);
+        setProducts(prevProducts => [...prevProducts, newProduct]);
+        setSuccessMessage('Товар успешно создан');
+      }
+      setProductModalOpen(false);
+      setProductToEdit(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Ошибка сохранения товара');
+      throw err;
+    } finally {
+      setSavingProduct(false);
     }
-    setProductModalOpen(false);
-    setProductToEdit(null);
-  } catch (err: any) {
-    setError(err.response?.data?.detail || 'Ошибка сохранения товара');
-    throw err;
-  } finally {
-    setSavingProduct(false);
-  }
-};
+  };
 
   const resetReplenishForm = () => {
     setReplenishForm({
@@ -2830,41 +2869,81 @@ const handleSaveProduct = async (productData: {
     setProductModalOpen(true);
   };
 
-  const filteredInventory = useMemo(() => {
-    if (!isOwner) return [];
-    
-    let filtered = [...inventory];
+const filteredInventory = useMemo(() => {
+  if (!showInventoryTab) return [];
+  
+  let filtered = [...inventory];
 
-    filtered.sort((a, b) => {
-      const productA = products.find(p => p.id === a.productId);
-      const productB = products.find(p => p.id === b.productId);
-      
-      if (sortConfig.by === 'price') {
-        const priceA = productA?.price || 0;
-        const priceB = productB?.price || 0;
-        return sortConfig.order === 'asc' ? priceA - priceB : priceB - priceA;
-      }
-      
-      if (sortConfig.by === 'quantity') {
-        return sortConfig.order === 'asc' 
-          ? a.quantity - b.quantity
-          : b.quantity - a.quantity;
-      }
-      
-      return 0;
+  // Применяем фильтры (для всех ролей)
+  if (filters.userId !== 'all') {
+    filtered = filtered.filter(item => item.userId === filters.userId);
+  }
+  
+  if (filters.categoryId !== 'all') {
+    filtered = filtered.filter(item => {
+      const product = products.find(p => p.id === item.productId);
+      return product?.categoryId === filters.categoryId;
     });
+  }
+  
+  if (filters.productId !== 'all') {
+    filtered = filtered.filter(item => item.productId === filters.productId);
+  }
+  
+  if (filters.cityId !== 'all') {
+    filtered = filtered.filter(item => item.userCityId === filters.cityId);
+  }
 
-    return filtered;
-  }, [inventory, products, sortConfig, isOwner]);
+  // Применяем сортировку
+  filtered.sort((a, b) => {
+    const productA = products.find(p => p.id === a.productId);
+    const productB = products.find(p => p.id === b.productId);
+    
+    if (sortConfig.by === 'price') {
+      const priceA = productA?.price || 0;
+      const priceB = productB?.price || 0;
+      return sortConfig.order === 'asc' ? priceA - priceB : priceB - priceA;
+    }
+    
+    if (sortConfig.by === 'quantity') {
+      return sortConfig.order === 'asc' 
+        ? a.quantity - b.quantity
+        : b.quantity - a.quantity;
+    }
+    
+    return 0;
+  });
+
+  return filtered;
+}, [inventory, products, filters, sortConfig, showInventoryTab]);
 
   const handleInventoryPageChange = (newPage: number) => {
     setInventoryPage(newPage);
   };
 
-  const availableTabs = isOwner 
-    ? [{ label: 'Остатки', icon: <InventoryIcon fontSize="small" />, value: 0 },
-       { label: 'Товары', icon: <CategoryIcon fontSize="small" />, value: 1 }]
-    : [{ label: 'Товары', icon: <CategoryIcon fontSize="small" />, value: 0 }];
+  // Формируем вкладки в зависимости от роли
+  const getTabs = () => {
+    const tabs = [];
+    
+    // Вкладка с остатками для всех, кроме SELLER
+    if (showInventoryTab) {
+      tabs.push({ label: 'Остатки', icon: <InventoryIcon fontSize="small" />, value: 0 });
+    }
+    
+    // Вкладка с товарами для всех
+    tabs.push({ label: 'Товары', icon: <CategoryIcon fontSize="small" />, value: showInventoryTab ? 1 : 0 });
+    
+    return tabs;
+  };
+
+  const availableTabs = getTabs();
+  
+  // Текущее значение вкладки с учетом сдвига
+  const currentTabValue = showInventoryTab ? tabValue : (tabValue === 0 ? 0 : 0);
+
+  const handleTabChangeWrapper = (newValue: number) => {
+    setTabValue(newValue);
+  };
 
   const filteredProductsForReplenish = replenishCategoryFilter === 'all'
     ? products
@@ -2905,6 +2984,17 @@ const handleSaveProduct = async (productData: {
 
   const currentUserRate = !isOwner ? (user as any)?.rate : undefined;
 
+  // Получаем текст для информационного баннера в зависимости от роли
+
+  // Получаем заголовок для остатков
+  const getInventoryTitle = () => {
+    if (isOwner) return "Общий остаток товаров компании";
+    if (isAdmin) return "Остаток товаров в ваших кустах";
+    if (isSeniorSeller) return "Остаток товаров в вашем кусте";
+    if (isMentor) return "Остаток товаров (вы + подопечные)";
+    return "Остаток товаров";
+  };
+
   return (
     <Container 
       maxWidth="lg" 
@@ -2916,8 +3006,8 @@ const handleSaveProduct = async (productData: {
     >
       <Paper elevation={0} sx={iOSStyles.paper}>
         <TabBadges 
-          value={isOwner ? tabValue : 0} 
-          onChange={handleTabChange} 
+          value={currentTabValue} 
+          onChange={handleTabChangeWrapper} 
           tabs={availableTabs} 
         />
 
@@ -2931,13 +3021,14 @@ const handleSaveProduct = async (productData: {
           </Alert>
         )}
 
-        {isOwner && tabValue === 0 && (
+        {/* Вкладка Остатки - для всех, кроме SELLER */}
+        {showInventoryTab && tabValue === 0 && (
           <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', mb: 3, gap: 2 }}>
               <Box sx={{ display: 'flex', flex: 1, gap: { xs: 2, md: 4 }, flexWrap: 'wrap' }}>
                 <Box>
                   <Typography variant="h5" gutterBottom fontWeight={600} sx={{ fontSize: { xs: '1.1rem', sm: '1.5rem' } }}>
-                    Общий остаток товаров
+                    {getInventoryTitle()}
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
                     <Typography variant="h3" color="primary" fontWeight={700} sx={{ fontSize: { xs: '2rem', sm: '3rem' } }}>
@@ -2949,9 +3040,7 @@ const handleSaveProduct = async (productData: {
                   </Box>
                 </Box>
                 
-                <Box sx={{ 
-                  pl: { xs: 0, md: 4 }, 
-                }}>
+                <Box sx={{ pl: { xs: 0, md: 4 } }}>
                   <Typography variant="h5" gutterBottom fontWeight={600} sx={{ fontSize: { xs: '1.1rem', sm: '1.5rem' } }}>
                     Общая стоимость
                   </Typography>
@@ -2967,18 +3056,21 @@ const handleSaveProduct = async (productData: {
               </Box>
               
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={() => setReplenishDialogOpen(true)}
-                  sx={{ 
-                    ...iOSStyles.button,
-                    background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  Пополнить
-                </Button>
+                {/* Кнопка пополнения только для OWNER */}
+                {isOwner && (
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => setReplenishDialogOpen(true)}
+                    sx={{ 
+                      ...iOSStyles.button,
+                      background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Пополнить
+                  </Button>
+                )}
                 <Tooltip title="Обновить">
                   <IconButton 
                     onClick={loadData} 
@@ -2994,6 +3086,7 @@ const handleSaveProduct = async (productData: {
               </Box>
             </Box>
 
+            {/* Фильтры для всех, у кого есть вкладка Остатки (OWNER, ADMIN, SENIOR_SELLER, MENTOR) */}
             <FilterSection
               users={usersList}
               categories={categories}
@@ -3004,6 +3097,7 @@ const handleSaveProduct = async (productData: {
               onClearFilters={handleClearFilters}
             />
 
+            {/* Сортировка для всех */}
             <SortSection
               sortBy={sortConfig.by}
               sortOrder={sortConfig.order}
@@ -3024,12 +3118,15 @@ const handleSaveProduct = async (productData: {
               rowsPerPage={inventoryRowsPerPage}
               totalCount={inventoryTotalCount}
               onPageChange={handleInventoryPageChange}
+              isOwner={isOwner}
             />
           </Box>
         )}
 
-        {((isOwner && tabValue === 1) || (!isOwner && tabValue === 0)) && (
+        {/* Вкладка Товары */}
+        {((showInventoryTab && tabValue === 1) || (!showInventoryTab && tabValue === 0)) && (
           <Box sx={{ p: { xs: 1.5, sm: 3 } }}>
+            {/* Категории и товары - только для OWNER */}
             {isOwner && (
               <Box sx={{ 
                 display: 'flex', 
@@ -3069,6 +3166,7 @@ const handleSaveProduct = async (productData: {
               </Box>
             )}
 
+            {/* Управление категориями (только для OWNER) */}
             {isOwner && secondLevelTab === 'categories' && (
               <CategoriesManager
                 categories={categories}
@@ -3079,6 +3177,7 @@ const handleSaveProduct = async (productData: {
               />
             )}
 
+            {/* Список товаров */}
             {((isOwner && secondLevelTab === 'products') || !isOwner) && (
               <>
                 <Box sx={{ 
@@ -3131,6 +3230,7 @@ const handleSaveProduct = async (productData: {
         )}
       </Paper>
 
+      {/* Диалог пополнения (только для OWNER) */}
       {isOwner && (
         <Dialog 
           open={replenishDialogOpen} 
@@ -3621,6 +3721,7 @@ const handleSaveProduct = async (productData: {
         </Dialog>
       )}
 
+      {/* Модалка создания/редактирования товара (только для OWNER) */}
       {isOwner && (
         <ProductModal
           open={productModalOpen}
@@ -3636,6 +3737,7 @@ const handleSaveProduct = async (productData: {
         />
       )}
 
+      {/* Диалог удаления товара (только для OWNER) */}
       {isOwner && (
         <Dialog 
           open={deleteProductDialogOpen} 
@@ -3684,7 +3786,8 @@ const handleSaveProduct = async (productData: {
         </Dialog>
       )}
 
-      {isOwner && selectedInventoryItem && (
+      {/* Модалка деталей резервов (только для OWNER) */}
+      {selectedInventoryItem && (
         <ReservationDetailsModal
           open={reservationsModalOpen}
           onClose={() => {
@@ -3700,6 +3803,7 @@ const handleSaveProduct = async (productData: {
         />
       )}
       
+      {/* Модалка редактирования остатков (только для OWNER) */}
       {isOwner && (
         <EditInventoryModal
           open={editModalOpen}
@@ -3714,6 +3818,9 @@ const handleSaveProduct = async (productData: {
           loading={savingEdit}
         />
       )}
+
+      {/* Информационный баннер для руководителей (не OWNER) */}
+
 
       <Snackbar
         open={!!successMessage}
@@ -3743,3 +3850,4 @@ const handleSaveProduct = async (productData: {
 };
 
 export default ProductsPage;
+

@@ -26,6 +26,47 @@ def get_my_inventory(
     """Получить свой инвентарь"""
     return crud_inventory.get_user_inventory_only(db, current_user.id)
 
+@router.get("/my-team", response_model=InventoryResponse)
+def get_my_team_inventory(
+    page: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """
+    Получить инвентарь пользователя с учетом подчиненных    
+    """
+    # Проверяем роль и возвращаем соответствующий инвентарь
+    if current_user.role == UserRole.SELLER:
+        # Продавец видит только свои товары
+        return crud_inventory.get_user_inventory_only(db, current_user.id)
+    
+    elif current_user.role == UserRole.MENTOR:
+        # Наставник видит свои товары + товары подопечных
+        return crud_inventory._get_mentor_inventory(db, current_user.id)
+    
+    elif current_user.role == UserRole.SENIOR_SELLER:
+        # Старший продавец видит весь свой куст
+        return crud_inventory._get_senior_seller_inventory(db, current_user.id)
+    
+    elif current_user.role == UserRole.ADMIN:
+        # Администратор видит свои кусты
+        return crud_inventory._get_admin_inventory(db, current_user.id)
+    
+    elif current_user.role == UserRole.OWNER:
+        # Для владельца используем полную версию с пагинацией
+        return crud_inventory._get_owner_inventory(
+            db, 
+            page=page, 
+            limit=limit,
+            user_filter=None,
+            category_filter=None,
+            product_filter=None,
+            city_id=None
+        )
+    
+    return {"quantity": 0, "items": [], "total_count": 0, "has_more": False, "page": page, "limit": limit}
+
 
 @router.get("/user/{user_id}", response_model=InventoryResponse)
 def get_user_inventory(

@@ -201,7 +201,36 @@ export const productService = {
         items: (response.data.items || []).map(transformInventoryItemFromApi)
     };
   },
-
+  
+  getMyTeamInventory: async (params?: {
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    quantity: number;
+    total_value: number;
+    items: InventoryItem[];
+    total_count: number;
+    has_more: boolean;
+    page: number;
+    limit: number;
+  }> => {
+    const response = await axiosInstance.get<any>('/api/inventory/my-team', { 
+      params: {
+        page: params?.page ?? 0,
+        limit: params?.limit ?? 100,
+      }
+    });
+    
+    return {
+      quantity: response.data.quantity || 0,
+      total_value: response.data.total_value || 0,
+      items: (response.data.items || []).map(transformInventoryItemFromApi),
+      total_count: response.data.total_count || 0,
+      has_more: response.data.has_more ?? false,
+      page: response.data.page ?? 0,
+      limit: response.data.limit ?? 100,
+    };
+  },
   // Пополнить инвентарь
   replenishInventory: async (data: {
     productId: number;

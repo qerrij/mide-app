@@ -1,6 +1,6 @@
 """
-Скрипт для миграции городов в товарах
-Запуск: python scripts/migrate_products_city.py
+Скрипт для создания таблицы refresh_tokens
+Запуск: python scripts/create_refresh_tokens_table.py
 """
 
 import os
@@ -8,74 +8,46 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 
-def migrate_products_city():
+def create_refresh_tokens_table():
     engine = create_engine(DATABASE_URL)
-    SessionLocal = sessionmaker(bind=engine)
-    db = SessionLocal()
     
     try:
-        # Добавляем колонку city_id в products
-        db.execute(text("""
-            ALTER TABLE products ADD COLUMN IF NOT EXISTS city_id INTEGER REFERENCES cities(id)
-        """))
-        
-        # Создаем индекс
-        db.execute(text("""
-            CREATE INDEX IF NOT EXISTS ix_products_city_id ON products(city_id)
-        """))
-        
-        # Получаем уникальные города из products
-        result = db.execute(text("""
-            SELECT DISTINCT city FROM products WHERE city IS NOT NULL AND city != ''
-        """))
-        cities = [row[0].strip() for row in result.fetchall() if row[0]]
-        
-        # Вставляем города если их нет
-        for city_name in cities:
-            db.execute(text("""
-                INSERT INTO cities (name) VALUES (:name)
-                ON CONFLICT (name) DO NOTHING
-            """), {"name": city_name})
-        
-        # Обновляем city_id в products
-        db.execute(text("""
-            UPDATE products 
-            SET city_id = cities.id 
-            FROM cities 
-            WHERE products.city = cities.name 
-            AND products.city IS NOT NULL 
-            AND products.city != ''
-        """))
-        
-        # Создаем уникальное ограничение
-        try:
-            db.execute(text("""
-                ALTER TABLE products 
-                DROP CONSTRAINT IF EXISTS uq_product_sku_city
+        with engine.connect() as conn:
+            # Создаем таблицу refresh_tokens
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS refresh_tokens (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token VARCHAR NOT NULL UNIQUE,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    is_revoked BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    revoked_at TIMESTAMP WITH TIME ZONE
+                )
             """))
-            db.execute(text("""
-                ALTER TABLE products 
-                ADD CONSTRAINT uq_product_sku_city_id UNIQUE (sku, city_id)
+            
+            # Создаем индекс для быстрого поиска по токену
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_refresh_tokens_token ON refresh_tokens(token)
             """))
-        except Exception:
-            pass
-        
-        db.commit()
-        
+            
+            # Создаем индекс для поиска по user_id
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user_id ON refresh_tokens(user_id)
+            """))
+            
+            conn.commit()
+            
     except Exception as e:
-        db.rollback()
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
-    finally:
-        db.close()
 
 
 if __name__ == "__main__":
-    migrate_products_city()
+    create_refresh_tokens_table()
