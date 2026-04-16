@@ -240,8 +240,24 @@ export interface ReportStats {
 // ================ АВТОРИЗАЦИЯ ================
 export interface LoginResponse {
   access_token: string;
+  refresh_token: string;  // Добавлено
   token_type: string;
   user: User;
+}
+
+export interface RefreshTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;  // секунды до истечения
+  user: User;
+}
+
+export interface StoredUserData {
+  access_token: string;
+  refresh_token: string;  // Добавлено
+  user: User;
+  expires_at?: number;    // timestamp когда истекает access_token
 }
 
 // ================ ГРУППЫ И КУСТЫ ================
@@ -348,6 +364,9 @@ export interface RevisionFilling {
   filledAt?: Date;
   isCompleted: boolean;
   items: RevisionFillingItemResponse[];
+
+  updatedAt?: Date;
+  lastUpdatedByName?: string;
 }
 
 export interface RevisionFillingCreateDto {
@@ -503,11 +522,51 @@ export interface RevisionSummaryResponse {
   totalUsers: number;
 }
 
+export interface RevisionEditingSession {
+  revisionId: number;
+  userId: number;
+  userName?: string;
+  startedAt: string;
+  lastActivityAt: string;
+  expiresAt: string;
+  isExpired: boolean;
+}
+
+// Статус редактирования ревизии
+export interface RevisionEditingStatus {
+  revisionId: number;
+  isBeingEdited: boolean;
+  activeEditors: Array<{
+    userId: number;
+    userName: string | null;
+    startedAt: string | null;
+    expiresAt: string | null;
+  }>;
+  canVerify: boolean;
+}
+
+// Ответ при начале редактирования
+export interface StartEditingResponse {
+  success: boolean;
+  revisionId: number;
+  userId: number;
+  expiresAt: string;
+  message: string;
+}
+
+// Ответ при завершении редактирования
+export interface StopEditingResponse {
+  success: boolean;
+  message: string;
+}
+
 // ================ УВЕДОМЛЕНИЯ ================
 export enum NotificationType {
   REVISION_REQUEST = 'REVISION_REQUEST',
   REVISION_COMPLETED = 'REVISION_COMPLETED',
   REVISION_VERIFIED = 'REVISION_VERIFIED',
+  REVISION_UPDATED = 'REVISION_UPDATED',
+
   REPORT_SUBMITTED = 'REPORT_SUBMITTED',
   REPORT_APPROVED = 'REPORT_APPROVED',
   REPORT_REJECTED = 'REPORT_REJECTED',
@@ -619,6 +678,7 @@ export const getNotificationTypeText = (type: NotificationType): string => {
     [NotificationType.REJECTION_REQUEST]: 'Запрос на брак',
     [NotificationType.REJECTION_APPROVED]: 'Брак утвержден',
     [NotificationType.REJECTION_REJECTED]: 'Брак отклонен',
+    [NotificationType.REVISION_UPDATED]: 'Заполнение обновлено',
     
     [NotificationType.OTHER]: 'Другое',
   };

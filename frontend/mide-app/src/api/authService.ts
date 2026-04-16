@@ -1,23 +1,13 @@
 import axiosInstance from './axios';
-import { User } from '../types';
+import { User, LoginResponse, RefreshTokenResponse } from '../types';
 
-// Типы для авторизации
 export interface LoginRequest {
   username: string;
   password: string;
 }
 
-export interface LoginResponse {
-  access_token: string;
-  token_type: string;
-  user: User;
-}
-
-// Сервис авторизации
 export const authService = {
-  // Вход в систему - используем URL encoded
   login: async (username: string, password: string): Promise<LoginResponse> => {
-    // Формируем данные в формате URL encoded
     const params = new URLSearchParams();
     params.append('username', username);
     params.append('password', password);
@@ -34,12 +24,24 @@ export const authService = {
     return response.data;
   },
 
-  // Выход из системы
-  logout: async (): Promise<void> => {
-    await axiosInstance.post('/api/auth/logout');
+  refreshToken: async (refreshToken: string): Promise<RefreshTokenResponse> => {
+    const response = await axiosInstance.post<RefreshTokenResponse>(
+      '/api/auth/refresh',
+      { refresh_token: refreshToken }
+    );
+    return response.data;
   },
 
-  // Получить текущего пользователя
+  logout: async (refreshToken: string): Promise<void> => {
+    await axiosInstance.post('/api/auth/logout', null, {
+      params: { refresh_token: refreshToken }
+    });
+  },
+
+  logoutAll: async (): Promise<void> => {
+    await axiosInstance.post('/api/auth/logout-all');
+  },
+
   getCurrentUser: async (): Promise<LoginResponse> => {
     const response = await axiosInstance.get<LoginResponse>('/api/auth/me');
     return response.data;

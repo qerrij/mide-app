@@ -11,10 +11,12 @@ import {
   RevisionSummaryResponse,
   ProductSummary,
   UserDiscrepancySummary,
-  ProductDiscrepancySummary
+  ProductDiscrepancySummary,
+  RevisionEditingStatus,
+  StartEditingResponse,
+  StopEditingResponse
 } from '../types';
 
-// Функция для трансформации snake_case в camelCase
 const transformRevisionFromApi = (revision: any): Revision => {
   return {
     id: revision.id,
@@ -37,10 +39,8 @@ const transformRevisionFromApi = (revision: any): Revision => {
     completedAt: revision.completed_at ? new Date(revision.completed_at) : undefined,
     verifiedAt: revision.verified_at ? new Date(revision.verified_at) : undefined,
     
-    // Фото теперь хранятся в заполнениях, но для обратной совместимости
     photos: revision.photos || [],
     
-    // Старые поля для обратной совместимости
     items: (revision.items || []).map((item: any) => ({
       id: item.id,
       productId: item.product_id,
@@ -66,7 +66,6 @@ const transformRevisionFromApi = (revision: any): Revision => {
       categoryName: disc.category_name,
     })),
     
-    // Новые поля для групповых ревизий
     fillings: (revision.fillings || []).map(transformFillingFromApi),
     totalFilled: revision.total_filled || 0,
     totalUsers: revision.total_users || 0,
@@ -93,7 +92,9 @@ const transformFillingFromApi = (filling: any): RevisionFilling => {
       productName: item.product_name,
       productSku: item.product_sku,
       categoryName: item.category_name,
-    }))
+    })),
+    updatedAt: filling.updated_at ? new Date(filling.updated_at) : undefined,
+    lastUpdatedByName: filling.last_updated_by_name,
   };
 };
 
@@ -137,7 +138,6 @@ const transformProductDiscrepancyFromApi = (discrepancy: any): ProductDiscrepanc
 };
 
 export const revisionService = {
-  // Получить все ревизии
   getRevisions: async (
     skip: number = 0,
     limit: number = 100,
@@ -169,7 +169,6 @@ export const revisionService = {
     }
   },
 
-  // Получить мои ревизии
   getMyRevisions: async (skip: number = 0, limit: number = 100): Promise<Revision[]> => {
     try {
       const response = await axiosInstance.get<any[]>('/api/revisions/my', {
@@ -182,7 +181,6 @@ export const revisionService = {
     }
   },
 
-  // Получить ревизию по ID
   getRevisionById: async (id: number): Promise<Revision> => {
     try {
       const response = await axiosInstance.get<any>(`/api/revisions/${id}`);
@@ -193,7 +191,6 @@ export const revisionService = {
     }
   },
 
-  // Запросить ревизию
   requestRevision: async (revisionData: RevisionRequestDto): Promise<Revision> => {
     try {
       const response = await axiosInstance.post<any>('/api/revisions/request', {
@@ -211,17 +208,14 @@ export const revisionService = {
     }
   },
 
-  // Заполнить ревизию
   fillRevision: async (
     revisionId: number,
     items: Array<{ productId: number; categoryId: number; quantity: number }>,
-    photos: File[],
-    userId: number
+    photos: File[]
   ): Promise<RevisionFilling> => {
     try {
       const formData = new FormData();
       
-      // Преобразуем items
       const itemsForApi = items.map(item => ({
         product_id: item.productId,
         category_id: item.categoryId,
@@ -230,7 +224,6 @@ export const revisionService = {
       
       formData.append('items_data', JSON.stringify(itemsForApi));
       
-      // Добавляем фото
       photos.forEach((photo) => {
         formData.append('photos', photo);
       });
@@ -247,21 +240,19 @@ export const revisionService = {
     }
   },
 
-  // Получить мое заполнение ревизии
   getMyFilling: async (revisionId: number): Promise<RevisionFilling | null> => {
     try {
       const response = await axiosInstance.get<any>(`/api/revisions/${revisionId}/my-filling`);
       return transformFillingFromApi(response.data);
     } catch (error: any) {
       if (error.response?.status === 404) {
-        return null; // Заполнение не найдено
+        return null;
       }
       console.error('Error fetching my filling:', error);
       throw error;
     }
   },
 
-  // Проверить ревизию (только владелец)
   verifyRevision: async (
     revisionId: number,
     verificationComment?: string
@@ -281,7 +272,6 @@ export const revisionService = {
     }
   },
 
-  // Получить сводку по ревизии (только для владельца)
   getRevisionSummary: async (revisionId: number): Promise<RevisionSummaryResponse> => {
     try {
       const response = await axiosInstance.get<any>(`/api/revisions/${revisionId}/summary`);
@@ -311,7 +301,6 @@ export const revisionService = {
     }
   },
 
-  // Получить расхождения по ревизии
   getDiscrepancies: async (
     revisionId: number,
     byUser: boolean = false
@@ -332,29 +321,21 @@ export const revisionService = {
     }
   },
 
-  // Получить URL для фото
   getPhotoUrl: (path: string): string => {
     if (!path) return '';
     
-    // Если уже полный URL
     if (path.startsWith('http')) {
       return path;
     }
     
-    // Используем тот же S3 бакет, что и для отчетов
-    // Убираем возможные префиксы
     let cleanPath = path;
     if (cleanPath.startsWith('uploads/')) {
-      cleanPath = cleanPath.substring(8); // Убираем 'uploads/'
-    }
-    if (cleanPath.startsWith('revisions/')) {
-      cleanPath = cleanPath; // Оставляем как есть, если уже с revisions/
+      cleanPath = cleanPath.substring(8);
     }
     
     return `https://storage.yandexcloud.net/mide-app/${cleanPath}`;
   },
 
-  // Получить расхождения по пользователям
   getDiscrepanciesByUser: async (revisionId: number): Promise<UserDiscrepancySummary[]> => {
     try {
       const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/discrepancies-by-user`);
@@ -365,7 +346,6 @@ export const revisionService = {
     }
   },
 
-  // Получить расхождения по продуктам
   getDiscrepanciesByProduct: async (revisionId: number): Promise<ProductDiscrepancySummary[]> => {
     try {
       const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/discrepancies-by-product`);
@@ -376,7 +356,6 @@ export const revisionService = {
     }
   },
 
-  // Рассчитать расхождения
   calculateDiscrepancies: async (revisionId: number): Promise<UserDiscrepancySummary[]> => {
     try {
       const response = await axiosInstance.get<any[]>(`/api/revisions/${revisionId}/calculate-discrepancies`);
@@ -387,7 +366,6 @@ export const revisionService = {
     }
   },
 
-  // Удалить ревизию
   deleteRevision: async (revisionId: number): Promise<{ success: boolean; message: string; revisionId: number }> => {
     try {
       const response = await axiosInstance.delete(`/api/revisions/${revisionId}`);
@@ -398,7 +376,6 @@ export const revisionService = {
     }
   },
 
-  // Отменить изменения инвентаря после проверки
   revertRevisionChanges: async (revisionId: number): Promise<Revision> => {
     try {
       const response = await axiosInstance.post<any>(
@@ -410,6 +387,7 @@ export const revisionService = {
       throw error;
     }
   },
+
   cancelRevision: async (revisionId: number, cancelComment?: string): Promise<Revision> => {
     try {
       const params = cancelComment ? { cancel_comment: cancelComment } : {};
@@ -421,6 +399,80 @@ export const revisionService = {
       return transformRevisionFromApi(response.data);
     } catch (error) {
       console.error('Error cancelling revision:', error);
+      throw error;
+    }
+  },
+
+  startEditing: async (revisionId: number, sessionDurationMinutes: number = 30): Promise<StartEditingResponse> => {
+    try {
+      const response = await axiosInstance.post(
+        `/api/revisions/${revisionId}/start-editing`,
+        null,
+        { params: { session_duration_minutes: sessionDurationMinutes } }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error starting editing:', error);
+      throw error;
+    }
+  },
+
+  stopEditing: async (revisionId: number): Promise<StopEditingResponse> => {
+    try {
+      const response = await axiosInstance.post(`/api/revisions/${revisionId}/stop-editing`);
+      return response.data;
+    } catch (error) {
+      console.error('Error stopping editing:', error);
+      throw error;
+    }
+  },
+
+  getEditingStatus: async (revisionId: number): Promise<RevisionEditingStatus> => {
+    try {
+      const response = await axiosInstance.get(`/api/revisions/${revisionId}/editing-status`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching editing status:', error);
+      throw error;
+    }
+  },
+
+  updateFilling: async (
+    revisionId: number,
+    items: Array<{ productId: number; categoryId: number; quantity: number }>,
+    photos: File[],
+    deletedPhotoUrls: string[] = []
+  ): Promise<RevisionFilling> => {
+    try {
+      const formData = new FormData();
+      
+      const itemsForApi = items.map(item => ({
+        product_id: item.productId,
+        category_id: item.categoryId,
+        quantity: item.quantity,
+      }));
+      
+      formData.append('items_data', JSON.stringify(itemsForApi));
+      
+      // Отправляем только новые фото (те, у которых есть размер)
+      const newPhotos = photos.filter(photo => photo.size > 0);
+      newPhotos.forEach((photo) => {
+        formData.append('photos', photo);
+      });
+      
+      // Отправляем список удаленных фото
+      if (deletedPhotoUrls.length > 0) {
+        formData.append('deleted_photos', JSON.stringify(deletedPhotoUrls));
+      }
+      
+      const response = await axiosMultipartInstance.put<any>(
+        `/api/revisions/${revisionId}/fill`,
+        formData
+      );
+      
+      return transformFillingFromApi(response.data);
+    } catch (error) {
+      console.error('Error updating filling:', error);
       throw error;
     }
   },

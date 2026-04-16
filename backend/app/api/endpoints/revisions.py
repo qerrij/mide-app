@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.crud.revision import crud_revision
-from app.models.revision import Revision, RevisionFilling
+from app.models.revision import Revision, RevisionEditingSession, RevisionFilling
 from app.schemas.debt import DebtAdjustmentType, ManualDebtAdjustmentRequest
 from app.schemas.revision import (
     RevisionResponse, RevisionRequest, RevisionUpdate, 
@@ -328,6 +328,24 @@ def verify_revision(
             detail="Менторы не могут проверять ревизии"
         )
     
+    # Получаем ревизию и проверяем статус редактирования
+    revision = crud_revision.get(db, revision_id)
+    if not revision:
+        raise HTTPException(status_code=404, detail="Ревизия не найдена")
+    
+    # Проверяем, не редактируется ли ревизия
+    if revision.is_being_edited:
+        active_editors = revision.active_editors
+        editor_names = []
+        for editor_id in active_editors:
+            editor = db.query(User).filter(User.id == editor_id).first()
+            editor_names.append(editor.full_name if editor else f"ID {editor_id}")
+        
+        raise HTTPException(
+            status_code=409,
+            detail=f"Нельзя проверить ревизию, так как её редактируют: {', '.join(editor_names)}"
+        )
+    
     try:
         # Создаем DTO для проверки
         update_data = RevisionUpdate(
@@ -343,7 +361,8 @@ def verify_revision(
         )
         
         # Добавляем статистику для ответа
-        revision.total_filled = result['total_filled'] if (result := crud_revision.get_with_summary(db, revision_id, current_user.id)) else 0
+        result = crud_revision.get_with_summary(db, revision_id, current_user.id)
+        revision.total_filled = result['total_filled'] if result else 0
         revision.total_users = len(crud_revision._get_users_for_revision(db, revision))
         revision.is_group_revision = revision.type in [
             RevisionType.GROUP, RevisionType.CLUSTER, RevisionType.CITY, RevisionType.GENERAL
@@ -974,7 +993,156 @@ def revert_revision_changes(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
-# Удалите все модели DebtItem, UserDebtsResponse и т.д.
+@router.post("/{revision_id}/start-editing")
+def start_editing(
+    revision_id: int,
+    session_duration_minutes: int = 30,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Начать редактирование своего заполнения"""
+    try:
+        session = crud_revision.start_editing(
+            db,
+            revision_id=revision_id,
+            user_id=current_user.id,
+            session_duration_minutes=session_duration_minutes
+        )
+        
+        return {
+            "success": True,
+            "revision_id": revision_id,
+            "user_id": current_user.id,
+            "expires_at": session.expires_at.isoformat(),
+            "message": "Редактирование начато"
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{revision_id}/stop-editing")
+def stop_editing(
+    revision_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Закончить редактирование без сохранения"""
+    try:
+        crud_revision.stop_editing(
+            db,
+            revision_id=revision_id,
+            user_id=current_user.id,
+            saved=False
+        )
+        
+        return {"success": True, "message": "Редактирование завершено"}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{revision_id}/editing-status")
+def get_editing_status(
+    revision_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Получить статус редактирования ревизии"""
+    revision = crud_revision.get(db, revision_id)
+    if not revision:
+        raise HTTPException(status_code=404, detail="Ревизия не найдена")
+    
+    # Получаем активные сессии
+    active_sessions = [s for s in revision.editing_sessions if not s.is_expired()]
+    
+    return {
+        "revision_id": revision_id,
+        "is_being_edited": len(active_sessions) > 0,
+        "active_editors": [
+            {
+                "user_id": s.user_id,
+                "user_name": s.user.full_name if s.user else None,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "expires_at": s.expires_at.isoformat() if s.expires_at else None
+            }
+            for s in active_sessions
+        ],
+        "can_verify": not revision.is_being_edited and revision.status == RevisionStatus.COMPLETED
+    }
+
+@router.put("/{revision_id}/fill", response_model=RevisionFillingResponse)
+async def update_filling(
+    revision_id: int,
+    items_data: str = Form(...),
+    photos: List[UploadFile] = File([]),
+    deleted_photos: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Обновить существующее заполнение ревизии"""
+    print(f"DEBUG: update_filling endpoint called - revision_id={revision_id}, user_id={current_user.id}")
+    
+    # Проверим сессию здесь тоже
+    active_session = db.query(RevisionEditingSession).filter(
+        RevisionEditingSession.revision_id == revision_id,
+        RevisionEditingSession.user_id == current_user.id
+    ).first()
+    print(f"DEBUG: Endpoint - active_session found: {active_session is not None}")
+    try:
+        # Парсим JSON с товарами
+        items_json = json.loads(items_data)
+        
+        # Сохраняем новые фото в Yandex Cloud
+        photo_paths = []
+        if photos:
+            errors = validate_files(photos)
+            if errors:
+                raise HTTPException(
+                    status_code=400,
+                    detail="; ".join(errors)
+                )
+            photo_paths = save_revision_files(photos, f"{revision_id}/{current_user.id}")
+        
+        # Парсим удаленные фото
+        deleted_photo_paths = []
+        if deleted_photos:
+            try:
+                deleted_photo_paths = json.loads(deleted_photos)
+            except json.JSONDecodeError:
+                pass
+        
+        # Создаем DTO для обновления
+        fill_data = RevisionFillingCreate(
+            user_id=current_user.id,
+            items=[{
+                'product_id': item['product_id'], 
+                'category_id': item['category_id'], 
+                'quantity': item['quantity']
+            } for item in items_json],
+            photos=photo_paths
+        )
+        
+        # Обновляем заполнение
+        filling = crud_revision.update_filling(
+            db,
+            revision_id=revision_id,
+            filling_data=fill_data,
+            user_id=current_user.id,
+            deleted_photos=deleted_photo_paths
+        )
+        
+        return filling
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Неверный формат JSON: {str(e)}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Ошибка сервера: {str(e)}")
+    
 
 # ==================== ЭНДПОИНТЫ ДОЛГОВ ====================
 

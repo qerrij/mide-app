@@ -121,6 +121,9 @@ class RevisionFillingResponse(RevisionFillingBase):
     filled_at: Optional[datetime] = None
     is_completed: bool
     items: List[RevisionFillingItemResponse] = []
+
+    updated_at: Optional[datetime] = None
+    last_updated_by_name: Optional[str] = None
     
     @model_validator(mode='before')
     @classmethod
@@ -132,6 +135,9 @@ class RevisionFillingResponse(RevisionFillingBase):
         # Если это объект модели, извлекаем данные
         if hasattr(data, 'user') and data.user:
             data.user_name = data.user.full_name
+
+        if hasattr(data, 'last_updated_by') and data.last_updated_by:
+            data.last_updated_by_name = data.last_updated_by.full_name
         
         # Обрабатываем photos если это строка
         if hasattr(data, 'photos'):

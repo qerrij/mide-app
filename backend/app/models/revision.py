@@ -65,12 +65,26 @@ class Revision(Base):
     target_group = relationship("Group", foreign_keys=[target_group_id])
     target_cluster = relationship("Cluster", foreign_keys=[target_cluster_id])
     verified_by = relationship("User", foreign_keys=[verified_by_id])
+    editing_sessions = relationship("RevisionEditingSession", back_populates="revision", cascade="all, delete-orphan")
     # target_city_ref = relationship("City", foreign_keys=[target_city_id])
     
     
     # Детали ревизии (связь один-ко-многим)
     # items = relationship("RevisionItem", back_populates="revision", cascade="all, delete-orphan")
     discrepancies = relationship("RevisionDiscrepancy", back_populates="revision", cascade="all, delete-orphan")
+
+    @property
+    def is_being_edited(self) -> bool:
+        """Проверяет, редактируется ли ревизия сейчас"""
+        from datetime import datetime
+        active_sessions = [s for s in self.editing_sessions if not s.is_expired()]
+        return len(active_sessions) > 0
+    
+    @property
+    def active_editors(self) -> list:
+        """Возвращает список ID пользователей, которые сейчас редактируют"""
+        from datetime import datetime
+        return [s.user_id for s in self.editing_sessions if not s.is_expired()]
     
     def __repr__(self):
         return f"<Revision {self.id} ({self.type})>"
@@ -109,12 +123,17 @@ class RevisionFilling(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(Enum(RevisionStatus), nullable=False, default=RevisionStatus.REQUESTED)
     filled_at = Column(DateTime(timezone=True), nullable=True)
-    photos = Column(JSON, nullable=False, default=[])
-    is_completed = Column(Boolean, default=False)  # Заполнена ли конкретным пользователем
+    photos = Column(JSON, nullable=False, default=list)
+    is_completed = Column(Boolean, default=False)
     
-    # Связи
+    # Новые поля
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+    last_updated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
+    # Связи - ЯВНО УКАЗЫВАЕМ foreign_keys
     revision = relationship("Revision", back_populates="fillings")
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[user_id])
+    last_updated_by = relationship("User", foreign_keys=[last_updated_by_id])
     items = relationship("RevisionFillingItem", back_populates="filling", cascade="all, delete-orphan")
     
     def __repr__(self):
@@ -139,3 +158,23 @@ class RevisionFillingItem(Base):
     def __repr__(self):
         return f"<RevisionFillingItem filling:{self.filling_id} product:{self.product_id}: {self.quantity}>"
 
+
+class RevisionEditingSession(Base):
+    """Сессия редактирования ревизии"""
+    __tablename__ = "revision_editing_sessions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    revision_id = Column(Integer, ForeignKey("revisions.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    started_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_activity_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    
+    # Связи
+    revision = relationship("Revision", back_populates="editing_sessions")
+    user = relationship("User")
+    
+    def is_expired(self) -> bool:
+        """Проверить, истекла ли сессия"""
+        from datetime import datetime
+        return datetime.now(self.expires_at.tzinfo) > self.expires_at

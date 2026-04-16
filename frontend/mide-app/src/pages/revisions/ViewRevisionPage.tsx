@@ -38,6 +38,7 @@ import {
   LocationCity,
   ArrowUpward as ArrowUpwardIcon,
   ArrowDownward as ArrowDownwardIcon,
+  ProductionQuantityLimits as QuantityIcon,
 } from '@mui/icons-material';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PhotoViewer } from '../../components/PhotoViewer';
@@ -69,6 +70,43 @@ const ViewRevisionPage: React.FC = () => {
   const [selectedPhoto, setSelectedPhoto] = useState<{ photos: string[], index: number } | null>(null);
   const [expandedUsers, setExpandedUsers] = useState<number[]>([]);
 
+  // Функция для форматирования ФИО в компактный формат (И.О. Фамилия)
+  const formatCompactName = (fullName?: string): string => {
+    if (!fullName) return 'Пользователь';
+    
+    const parts = fullName.trim().split(/\s+/);
+    
+    if (parts.length === 1) {
+      return parts[0];
+    }
+    
+    if (parts.length === 2) {
+      return `${parts[0].charAt(0)}. ${parts[1]}`;
+    }
+    
+    if (parts.length >= 3) {
+      const lastName = parts[0];
+      const firstName = parts[1];
+      const middleName = parts[2];
+      
+      if (lastName.length <= 3 && parts.length === 3) {
+        return `${firstName.charAt(0)}.${middleName.charAt(0)}. ${lastName}`;
+      } else {
+        return `${firstName.charAt(0)}.${middleName.charAt(0)}. ${lastName}`;
+      }
+    }
+    
+    const lastName = parts[parts.length - 1];
+    const initials = parts.slice(0, -1).map(p => p.charAt(0)).join('.');
+    return initials ? `${initials}. ${lastName}` : fullName;
+  };
+
+  // Функция для подсчета общего количества товаров у пользователя
+  const getTotalItemsCount = (filling: RevisionFilling): number => {
+    if (!filling.items) return 0;
+    return filling.items.reduce((total, item) => total + (item.quantity || 0), 0);
+  };
+
   // Загрузка данных ревизии
   useEffect(() => {
     const loadData = async () => {
@@ -82,22 +120,37 @@ const ViewRevisionPage: React.FC = () => {
         
         const revisionId = parseInt(id);
         const revisionData = await revisionService.getRevisionById(revisionId);
-        setRevision(revisionData);
+        
+        // Форматируем имена в заполнениях
+        const formattedFillings = revisionData.fillings?.map(filling => ({
+          ...filling,
+          userName: formatCompactName(filling.userName)
+        }));
+        
+        setRevision({
+          ...revisionData,
+          fillings: formattedFillings
+        });
         
         const isOwner = revisionData.requestedById === user?.id;
         const isGroupRev = isGroupRevision(revisionData.type);
         
         if (!isOwner || !isGroupRev) {
           const myFilling = await revisionService.getMyFilling(revisionId);
-          setUserFilling(myFilling);
-          
           if (myFilling) {
-            setRevision({
-              ...revisionData,
-              fillings: [myFilling],
+            setUserFilling({
+              ...myFilling,
+              userName: formatCompactName(myFilling.userName)
+            });
+            setRevision(prev => prev ? {
+              ...prev,
+              fillings: [{
+                ...myFilling,
+                userName: formatCompactName(myFilling.userName)
+              }],
               totalFilled: 1,
               totalUsers: 1,
-            });
+            } : null);
           }
         }
         
@@ -407,7 +460,7 @@ const ViewRevisionPage: React.FC = () => {
                       Запросил
                     </Typography>
                     <Typography variant="body2" color="#2a0f35" fontWeight={500}>
-                      {revision.requestedByName || `Пользователь ${revision.requestedById}`}
+                      {formatCompactName(revision.requestedByName) || `Пользователь ${revision.requestedById}`}
                     </Typography>
                     <Typography variant="caption" color="#4c5454">
                       {formatDateTime(revision.requestedAt)}
@@ -611,6 +664,7 @@ const ViewRevisionPage: React.FC = () => {
             <Grid container spacing={1.5}>
               {revision.fillings.map((filling) => {
                 const isFilled = filling.isCompleted;
+                const compactName = filling.userName || formatCompactName(filling.userName);
                 
                 return (
                   <Grid size={{ xs: 12, sm: 6, md: 4 }} key={filling.id}>
@@ -637,25 +691,23 @@ const ViewRevisionPage: React.FC = () => {
                           height: 40,
                           bgcolor: isFilled ? '#4caf50' : '#674fb6',
                           fontSize: '0.9rem',
+                          flexShrink: 0,
                         }}
                       >
-                        {filling.userName?.charAt(0) || 'П'}
+                        {compactName?.charAt(0) || 'П'}
                       </Avatar>
                       
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                         <Typography 
                           variant="body2" 
                           color="#2a0f35" 
                           fontWeight={600}
-                          sx={{
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
+                          noWrap
+                          sx={{ overflow: 'hidden', textOverflow: 'clip' }}
                         >
-                          {filling.userName || `Пользователь ${filling.userId}`}
+                          {compactName}
                         </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, overflow: 'hidden' }}>
                           <Chip
                             label={isFilled ? 'Заполнено' : 'Ожидает'}
                             size="small"
@@ -665,10 +717,11 @@ const ViewRevisionPage: React.FC = () => {
                               backgroundColor: isFilled ? 'rgba(76, 175, 80, 0.1)' : 'rgba(158, 158, 158, 0.1)',
                               color: isFilled ? '#4caf50' : '#9e9e9e',
                               fontWeight: 500,
+                              flexShrink: 0,
                             }}
                           />
                           {isFilled && filling.filledAt && (
-                            <Typography variant="caption" color="#4c5454" sx={{ fontSize: '0.65rem' }}>
+                            <Typography variant="caption" color="#4c5454" sx={{ fontSize: '0.65rem', flexShrink: 0 }}>
                               {formatTime(filling.filledAt)}
                             </Typography>
                           )}
@@ -792,6 +845,8 @@ const ViewRevisionPage: React.FC = () => {
                 const userTotal = userDiscrepancies.reduce((sum, d) => sum + d.discrepancy, 0);
                 const userIsPositive = userTotal > 0;
                 const userIsNegative = userTotal < 0;
+                const compactName = filling.userName || formatCompactName(filling.userName);
+                const totalItemsCount = getTotalItemsCount(filling);
                 
                 return (
                   <Box
@@ -830,47 +885,71 @@ const ViewRevisionPage: React.FC = () => {
                               height: 44, 
                               bgcolor: '#674fb6',
                               fontSize: '1rem',
+                              flexShrink: 0,
                             }}
                           >
-                            {filling.userName?.charAt(0) || 'П'}
+                            {compactName?.charAt(0) || 'П'}
                           </Avatar>
                           
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
-                              {filling.userName || `Пользователь ${filling.userId}`}
+                          <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                            <Typography 
+                              variant="body2" 
+                              color="#2a0f35" 
+                              fontWeight={600}
+                              noWrap
+                              sx={{ overflow: 'hidden', textOverflow: 'clip', mb: 0.5 }}
+                            >
+                              {compactName}
                             </Typography>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5, flexWrap: 'wrap' }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <InventoryIcon sx={{ fontSize: 14, color: '#4c5454' }} />
-                                <Typography variant="caption" color="#4c5454">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, overflow: 'hidden' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                                <InventoryIcon sx={{ fontSize: 14, color: '#4c5454', flexShrink: 0 }} />
+                                <Typography variant="caption" color="#4c5454" noWrap>
                                   {filling.items.length} товаров
                                 </Typography>
                               </Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <PhotoIcon sx={{ fontSize: 14, color: '#4c5454' }} />
-                                <Typography variant="caption" color="#4c5454">
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                                <PhotoIcon sx={{ fontSize: 14, color: '#4c5454', flexShrink: 0 }} />
+                                <Typography variant="caption" color="#4c5454" noWrap>
                                   {filling.photos.length} фото
                                 </Typography>
                               </Box>
                             </Box>
                           </Box>
                           
-                          {isRevisionVerified && userTotal !== 0 && (
-                            <Box sx={{ flexShrink: 0 }}>
-                              <Chip
-                                icon={userIsPositive ? <ArrowUpwardIcon /> : <ArrowDownwardIcon />}
-                                label={`${userIsPositive ? '+' : ''}${userTotal}`}
-                                size="small"
-                                sx={{
-                                  backgroundColor: userIsPositive ? '#2196f315' : '#f4433615',
-                                  color: userIsPositive ? '#2196f3' : '#f44336',
-                                  fontWeight: 600,
-                                  fontSize: '0.85rem',
-                                  minWidth: 70,
-                                }}
-                              />
-                            </Box>
-                          )}
+                          {/* Правая часть - показываем расхождения для проверенных или общее количество для заполненных */}
+                          <Box sx={{ flexShrink: 0 }}>
+                            {isRevisionVerified ? (
+                              userTotal !== 0 && (
+                                <Chip
+                                  icon={userIsPositive ? <ArrowUpwardIcon /> : <ArrowDownwardIcon />}
+                                  label={`${userIsPositive ? '+' : ''}${userTotal}`}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: userIsPositive ? '#2196f315' : '#f4433615',
+                                    color: userIsPositive ? '#2196f3' : '#f44336',
+                                    fontWeight: 600,
+                                    fontSize: '0.85rem',
+                                    minWidth: 70,
+                                  }}
+                                />
+                              )
+                            ) : (
+                              totalItemsCount > 0 && (
+                                <Chip
+                                  label={`${totalItemsCount} шт.`}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: '#674fb615',
+                                    color: '#674fb6',
+                                    fontWeight: 600,
+                                    fontSize: '0.75rem',
+                                    minWidth: 50,
+                                  }}
+                                />
+                              )
+                            )}
+                          </Box>
                         </Box>
                       </AccordionSummary>
                       
@@ -946,7 +1025,7 @@ const ViewRevisionPage: React.FC = () => {
                                                 <Typography variant="caption" color="#4c5454" display="block">
                                                   Заполнено
                                                 </Typography>
-                                                <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                <Typography variant="body2" fontWeight={600} color="#4caf50" noWrap>
                                                   {receivedQuantity} шт.
                                                 </Typography>
                                               </Box>
@@ -957,7 +1036,6 @@ const ViewRevisionPage: React.FC = () => {
                                     }
                                     
                                     // Для проверенных ревизий
-                                  // Для проверенных ревизий
                                     return (
                                       <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
                                         <Card
@@ -987,7 +1065,7 @@ const ViewRevisionPage: React.FC = () => {
                                             mb: 1.5,
                                             minHeight: 48,
                                           }}>
-                                            <Box sx={{ flex: 1, minWidth: 0, pr: 1 }}>
+                                            <Box sx={{ flex: 1, minWidth: 0, pr: 1, overflow: 'hidden' }}>
                                               <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
                                                 {item.productName || `Товар ${item.productId}`}
                                               </Typography>
@@ -1023,18 +1101,17 @@ const ViewRevisionPage: React.FC = () => {
                                             borderTop: '1px dashed rgba(0,0,0,0.1)'
                                           }}>
                                             {hasDiscrepancy ? (
-                                              // Для товаров с расхождениями - 3 колонки
                                               <>
-                                                <Box sx={{ textAlign: 'center' }}>
+                                                <Box sx={{ textAlign: 'center', flex: 1 }}>
                                                   <Typography variant="caption" color="#4c5454" display="block">
                                                     Ожидалось
                                                   </Typography>
-                                                  <Typography variant="body2" fontWeight={600}>
+                                                  <Typography variant="body2" fontWeight={600} noWrap>
                                                     {expectedQuantity}
                                                   </Typography>
                                                 </Box>
                                                 
-                                                <Box sx={{ textAlign: 'center' }}>
+                                                <Box sx={{ textAlign: 'center', flex: 1 }}>
                                                   <Typography variant="caption" color="#4c5454" display="block">
                                                     Получено
                                                   </Typography>
@@ -1042,22 +1119,24 @@ const ViewRevisionPage: React.FC = () => {
                                                     variant="body2" 
                                                     fontWeight={600}
                                                     color={isNegative ? '#f44336' : isPositive ? '#2196f3' : '#4caf50'}
+                                                    noWrap
                                                   >
                                                     {receivedQuantity}
                                                   </Typography>
                                                 </Box>
                                                 
-                                                <Box sx={{ textAlign: 'center' }}>
+                                                <Box sx={{ textAlign: 'center', flex: 1 }}>
                                                   <Typography variant="caption" color="#4c5454" display="block">
                                                     Расхождение
                                                   </Typography>
                                                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    {isPositive && <ArrowUpwardIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5 }} />}
-                                                    {isNegative && <ArrowDownwardIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5 }} />}
+                                                    {isPositive && <ArrowUpwardIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5, flexShrink: 0 }} />}
+                                                    {isNegative && <ArrowDownwardIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5, flexShrink: 0 }} />}
                                                     <Typography 
                                                       variant="body2" 
                                                       fontWeight={600}
                                                       color={isPositive ? '#2196f3' : '#f44336'}
+                                                      noWrap
                                                     >
                                                       {isPositive ? '+' : ''}{difference}
                                                     </Typography>
@@ -1065,22 +1144,21 @@ const ViewRevisionPage: React.FC = () => {
                                                 </Box>
                                               </>
                                             ) : (
-                                              // Для товаров без расхождений - 2 колонки
                                               <>
-                                                <Box sx={{ textAlign: 'center' }}>
+                                                <Box sx={{ textAlign: 'center', flex: 1 }}>
                                                   <Typography variant="caption" color="#4c5454" display="block">
                                                     Получено
                                                   </Typography>
-                                                  <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                  <Typography variant="body2" fontWeight={600} color="#4caf50" noWrap>
                                                     {receivedQuantity}
                                                   </Typography>
                                                 </Box>
                                                 
-                                                <Box sx={{ textAlign: 'center' }}>
+                                                <Box sx={{ textAlign: 'center', flex: 1 }}>
                                                   <Typography variant="caption" color="#4c5454" display="block">
                                                     Расхождение
                                                   </Typography>
-                                                  <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                  <Typography variant="body2" fontWeight={600} color="#4caf50" noWrap>
                                                     0
                                                   </Typography>
                                                 </Box>

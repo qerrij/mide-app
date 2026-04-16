@@ -206,6 +206,7 @@ const getNotificationIcon = (type: NotificationType) => {
     [NotificationType.REVISION_REQUEST]: <AssignmentIcon />,
     [NotificationType.REVISION_COMPLETED]: <CheckCircleOutline />,
     [NotificationType.REVISION_VERIFIED]: <Verified />,
+    [NotificationType.REVISION_UPDATED]: <PublishedWithChanges />,
     [NotificationType.REPORT_SUBMITTED]: <Send />,
     [NotificationType.REPORT_APPROVED]: <CheckCircle />,
     [NotificationType.REPORT_REJECTED]: <Cancel />,

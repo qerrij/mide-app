@@ -2,10 +2,10 @@ from sqlalchemy.orm import Session, joinedload, aliased
 from typing import List, Optional, Dict
 from sqlalchemy import and_, or_, func, case
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.models.product import Product
 from app.models.revision import (
-    Revision, RevisionDiscrepancy, RevisionFilling, RevisionFillingItem,
+    Revision, RevisionDiscrepancy, RevisionEditingSession, RevisionFilling, RevisionFillingItem,
     RevisionStatus, RevisionType
 )
 from app.models.user import User, UserRole
@@ -773,6 +773,11 @@ class CRUDRevision:
     
     def _check_if_all_filled(self, db: Session, revision: Revision):
         """Проверить, все ли заполнили ревизию и обновить статус"""
+        # Проверяем, есть ли активные сессии редактирования
+        active_sessions = [s for s in revision.editing_sessions if not s.is_expired()]
+        if len(active_sessions) > 0:
+            return
+        
         # Для индивидуальной ревизии сразу отмечаем как заполненную
         if revision.type == RevisionType.USER:
             revision.status = RevisionStatus.COMPLETED
@@ -781,14 +786,12 @@ class CRUDRevision:
             return
         
         # Для групповой ревизии проверяем все заполнения
-        # Получаем всех пользователей, которые должны заполнить
         users = self._get_users_for_revision(db, revision)
         total_users = len(users)
         
         if total_users == 0:
             return
         
-        # Считаем сколько заполнили (is_completed=True)
         filled_count = db.query(RevisionFilling)\
             .filter(
                 RevisionFilling.revision_id == revision.id,
@@ -796,15 +799,10 @@ class CRUDRevision:
             )\
             .count()
         
-        print(f"DEBUG: Revision {revision.id} - filled: {filled_count}, total: {total_users}")
-        
         if filled_count == total_users:
-            print(f"DEBUG: All users filled revision {revision.id}. Updating status to COMPLETED")
             revision.status = RevisionStatus.COMPLETED
             revision.completed_at = datetime.now()
             db.commit()
-        else:
-            print(f"DEBUG: Not all filled: {filled_count}/{total_users}")
     
     def verify_revision(
         self, 
@@ -1142,15 +1140,15 @@ class CRUDRevision:
         if not user:
             return False
         
-        # OWNER и ACCOUNTANT не заполняют ревизии
-        if user.role in [UserRole.OWNER, UserRole.ACCOUNTANT]:
+        # Проверяем базовое право на участие
+        if not self._can_participate_in_revision(db, revision, user_id):
             return False
         
         # Проверяем статус ревизии
         if revision.status != RevisionStatus.REQUESTED:
             return False
         
-        # Проверяем, заполнил ли уже пользователь эту ревизию
+        # Проверяем, не заполнил ли уже пользователь эту ревизию
         existing_filling = db.query(RevisionFilling)\
             .filter(
                 RevisionFilling.revision_id == revision.id,
@@ -1161,45 +1159,19 @@ class CRUDRevision:
         if existing_filling and existing_filling.is_completed:
             return False  # Уже заполнил
         
-        # Проверяем доступ в зависимости от типа ревизии
-        if revision.type == RevisionType.USER:
-            return revision.target_user_id == user_id
-        
-        elif revision.type == RevisionType.GROUP:
-            return user.group_id == revision.target_group_id
-        
-        elif revision.type == RevisionType.CLUSTER:
-            # Для кустовых ревизий:
-            # 1. Все пользователи куста (включая менторов и сеньоров)
-            # 2. Старший продавец куста
-            if revision.target_cluster_id:
-                # Проверяем, принадлежит ли пользователь к этому кусту
-                if user.cluster_id == revision.target_cluster_id:
-                    return True
-                
-                # Проверяем, является ли пользователь старшим продавцом куста
-                cluster = db.query(Cluster).filter(
-                    Cluster.id == revision.target_cluster_id
-                ).first()
-                if cluster and cluster.senior_seller_id == user_id:
-                    return True
-        
-        elif revision.type == RevisionType.CITY:
-            # ИСПРАВЛЕНО: используем city_ref.name вместо city
-            if user.city_ref and revision.target_city:
-                return user.city_ref.name == revision.target_city
-            return False
-        
-        elif revision.type == RevisionType.GENERAL:
-            # Общие ревизии могут заполнять все, кроме OWNER и ACCOUNTANT
-            return user.role not in [UserRole.OWNER, UserRole.ACCOUNTANT]
-        
-        return False
+        return True
     
     def _can_verify_revision(self, db: Session, revision: Revision, user_id: int) -> bool:
         """Проверяет, может ли пользователь проверять ревизию"""
         # Только тот, кто запросил ревизию, может её проверить
-        return revision.requested_by_id == user_id
+        if revision.requested_by_id != user_id:
+            return False
+        
+        # Нельзя проверять, если кто-то редактирует
+        if revision.is_being_edited:
+            return False
+        
+        return True
     
     def get_revision_summary(self, db: Session, revision_id: int) -> Dict:
         """Получить сводку по ревизии"""
@@ -1420,7 +1392,264 @@ class CRUDRevision:
         db.refresh(revision)
         
         return revision
+        
+    def start_editing(
+        self, 
+        db: Session, 
+        revision_id: int, 
+        user_id: int,
+        session_duration_minutes: int = 30
+    ) -> RevisionEditingSession:
+        """Начать редактирование своего заполнения"""
+        revision = self.get(db, revision_id)
+        if not revision:
+            raise ValueError("Ревизия не найдена")
+        
+        # Проверяем статус ревизии
+        if revision.status == RevisionStatus.VERIFIED:
+            raise ValueError("Нельзя редактировать проверенную ревизию")
+        
+        if revision.status == RevisionStatus.REJECTED:
+            raise ValueError("Ревизия отменена")
+        
+        # Проверяем, есть ли у пользователя заполнение для этой ревизии
+        filling = self.get_user_filling(db, revision_id, user_id)
+        if not filling:
+            raise ValueError("У вас нет заполнения для этой ревизии")
+        
+        if not filling.is_completed:
+            raise ValueError("Заполнение еще не завершено")
+        
+        # Проверяем, может ли пользователь в принципе участвовать в этой ревизии
+        if not self._can_participate_in_revision(db, revision, user_id):
+            raise ValueError("У вас нет прав для участия в этой ревизии")
+        
+        # Проверяем, есть ли уже активная сессия для этого пользователя
+        existing_session = db.query(RevisionEditingSession).filter(
+            RevisionEditingSession.revision_id == revision_id,
+            RevisionEditingSession.user_id == user_id
+        ).first()
+        
+        if existing_session:
+            if not existing_session.is_expired():
+                existing_session.expires_at = datetime.now() + timedelta(minutes=session_duration_minutes)
+                existing_session.last_activity_at = datetime.now()
+                db.commit()
+                db.refresh(existing_session)
+                return existing_session
+            else:
+                db.delete(existing_session)
+                db.commit()
+        
+        # Если ревизия была COMPLETED, меняем статус на IN_PROGRESS
+        if revision.status == RevisionStatus.COMPLETED:
+            revision.status = RevisionStatus.IN_PROGRESS
+            revision.completed_at = None
+            
+        
+        # Создаем новую сессию
+        session = RevisionEditingSession(
+            revision_id=revision_id,
+            user_id=user_id,
+            expires_at=datetime.now() + timedelta(minutes=session_duration_minutes)
+        )
+        
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        
+        return session
+
+
+    def stop_editing(
+        self, 
+        db: Session, 
+        revision_id: int, 
+        user_id: int,
+        saved: bool = False
+    ) -> bool:
+        """Закончить редактирование"""
+        session = db.query(RevisionEditingSession).filter(
+            RevisionEditingSession.revision_id == revision_id,
+            RevisionEditingSession.user_id == user_id
+        ).first()
+        
+        if session:
+            db.delete(session)
+        
+        # Проверяем, остались ли активные сессии
+        revision = self.get(db, revision_id)
+        
+        # Получаем все активные сессии
+        active_sessions = [s for s in revision.editing_sessions if not s.is_expired()]
+        
+        # Только если НЕТ активных сессий, проверяем статус
+        if len(active_sessions) == 0:
+            self._check_if_all_filled(db, revision)
+        
+        db.commit()
+        return True
+
+
+    def update_filling(
+        self, 
+        db: Session, 
+        revision_id: int, 
+        filling_data: RevisionFillingCreate,
+        user_id: int,
+        deleted_photos: List[str] = None
+    ) -> RevisionFilling:
+        """Обновить существующее заполнение ревизии"""
+        from app.core.file_utils import delete_file
+        
+        revision = self.get(db, revision_id)
+        if not revision:
+            raise ValueError("Ревизия не найдена")
+        
+        # Проверяем, что у пользователя есть активная сессия редактирования
+        active_session = db.query(RevisionEditingSession).filter(
+            RevisionEditingSession.revision_id == revision_id,
+            RevisionEditingSession.user_id == user_id
+        ).first()
+        
+        if not active_session:
+            raise ValueError("Сессия редактирования не найдена. Начните редактирование заново")
+        
+        if active_session.is_expired():
+            db.delete(active_session)
+            db.commit()
+            raise ValueError("Сессия редактирования истекла. Начните редактирование заново")
+        
+        # Проверяем статус ревизии
+        if revision.status not in [RevisionStatus.REQUESTED, RevisionStatus.IN_PROGRESS]:
+            raise ValueError(f"Нельзя редактировать ревизию в статусе {revision.status.value}")
+        
+        # Получаем существующее заполнение
+        filling = self.get_user_filling(db, revision_id, user_id)
+        if not filling:
+            raise ValueError("Заполнение не найдено")
+        
+        # Создаем новый список фото на основе текущих
+        current_photos = list(filling.photos) if filling.photos else []
+        
+        # Обрабатываем удаленные фото
+        if deleted_photos:
+            for photo_path in deleted_photos:
+                if photo_path in current_photos:
+                    current_photos.remove(photo_path)
+                    try:
+                        delete_file(photo_path)
+                    except Exception as e:
+                        print(f"Error deleting photo {photo_path} from cloud: {e}")
+        
+        # Добавляем новые фото
+        if filling_data.photos:
+            current_photos.extend(filling_data.photos)
+        
+        # Присваиваем обновленный список
+        filling.photos = current_photos
+        
+        # Обновляем заполнение
+        filling.status = RevisionStatus.COMPLETED
+        filling.filled_at = datetime.now()
+        filling.is_completed = True
+        filling.updated_at = datetime.now()
+        filling.last_updated_by_id = user_id
+        
+        # Удаляем старые товары
+        db.query(RevisionFillingItem).filter(RevisionFillingItem.filling_id == filling.id).delete()
+        
+        # Добавляем новые товары
+        for item_data in filling_data.items:
+            item = RevisionFillingItem(
+                filling_id=filling.id,
+                product_id=item_data.product_id,
+                category_id=item_data.category_id,
+                quantity=item_data.quantity
+            )
+            db.add(item)
+        
+        # Удаляем ТОЛЬКО сессию текущего пользователя
+        db.delete(active_session)
+        
+        db.commit()
+        db.refresh(filling)
+        
+        # Проверяем, остались ли активные сессии
+        revision = self.get(db, revision_id)
+        active_sessions = [s for s in revision.editing_sessions if not s.is_expired()]
+        
+        # Только если НЕТ активных сессий, проверяем статус
+        if len(active_sessions) == 0:
+            self._check_if_all_filled(db, revision)
+            db.commit()
+        
+        # Уведомляем владельца ревизии об изменении
+        self._notify_filling_updated(db, revision, filling, user_id)
+        
+        return filling
     
+    def _can_participate_in_revision(self, db: Session, revision: Revision, user_id: int) -> bool:
+        """Проверяет, может ли пользователь участвовать в ревизии (без учета уже заполнено или нет)"""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return False
+        
+        # OWNER и ACCOUNTANT не участвуют в заполнении ревизий
+        if user.role in [UserRole.OWNER, UserRole.ACCOUNTANT]:
+            return False
+        
+        # Проверяем доступ в зависимости от типа ревизии
+        if revision.type == RevisionType.USER:
+            return revision.target_user_id == user_id
+        
+        elif revision.type == RevisionType.GROUP:
+            return user.group_id == revision.target_group_id
+        
+        elif revision.type == RevisionType.CLUSTER:
+            if revision.target_cluster_id:
+                if user.cluster_id == revision.target_cluster_id:
+                    return True
+                
+                cluster = db.query(Cluster).filter(
+                    Cluster.id == revision.target_cluster_id
+                ).first()
+                if cluster and cluster.senior_seller_id == user_id:
+                    return True
+        
+        elif revision.type == RevisionType.CITY:
+            if user.city_ref and revision.target_city:
+                return user.city_ref.name == revision.target_city
+            return False
+        
+        elif revision.type == RevisionType.GENERAL:
+            return user.role not in [UserRole.OWNER, UserRole.ACCOUNTANT]
+        
+        return False
+
+
+    def _notify_filling_updated(self, db: Session, revision: Revision, filling: RevisionFilling, updated_by_id: int):
+        """Уведомить владельца ревизии об обновлении заполнения"""
+        updater = db.query(User).filter(User.id == updated_by_id).first()
+        if not updater or revision.requested_by_id == updated_by_id:
+            return
+        
+        notification_data = {
+            'user_id': revision.requested_by_id,
+            'type': NotificationType.REVISION_UPDATED,
+            'title': 'Заполнение ревизии обновлено',
+            'message': f'Пользователь {updater.full_name} обновил заполнение ревизии #{revision.id}.',
+            'data': {
+                'revision_id': revision.id,
+                'updated_by': updater.full_name,
+                'updated_by_id': updater.id
+            },
+            'entity_type': 'revision',
+            'entity_id': revision.id,
+            'priority': 3
+        }
+        
+        crud_notification.create(db, notification_in=notification_data, sender_id=updated_by_id)
 
 
 

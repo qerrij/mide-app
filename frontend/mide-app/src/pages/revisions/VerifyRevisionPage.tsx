@@ -69,7 +69,7 @@ const VerifyRevisionPage: React.FC = () => {
   const [discrepancies, setDiscrepancies] = useState<UserDiscrepancySummary[]>([]);
 
   const [approveDialog, setApproveDialog] = useState(false);
-  const [rejectDialog, setRejectDialog] = useState(false); // Новый диалог для отклонения
+  const [rejectDialog, setRejectDialog] = useState(false);
   const [successDialog, setSuccessDialog] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -85,6 +85,37 @@ const VerifyRevisionPage: React.FC = () => {
     photos: [],
     currentIndex: 0,
   });
+
+  // Функция для форматирования ФИО в компактный формат (И.О. Фамилия)
+  const formatCompactName = (fullName?: string): string => {
+    if (!fullName) return 'Пользователь';
+    
+    const parts = fullName.trim().split(/\s+/);
+    
+    if (parts.length === 1) {
+      return parts[0];
+    }
+    
+    if (parts.length === 2) {
+      return `${parts[0].charAt(0)}. ${parts[1]}`;
+    }
+    
+    if (parts.length >= 3) {
+      const lastName = parts[0];
+      const firstName = parts[1];
+      const middleName = parts[2];
+      
+      if (lastName.length <= 3 && parts.length === 3) {
+        return `${firstName.charAt(0)}.${middleName.charAt(0)}. ${lastName}`;
+      } else {
+        return `${firstName.charAt(0)}.${middleName.charAt(0)}. ${lastName}`;
+      }
+    }
+    
+    const lastName = parts[parts.length - 1];
+    const initials = parts.slice(0, -1).map(p => p.charAt(0)).join('.');
+    return initials ? `${initials}. ${lastName}` : fullName;
+  };
 
   // Загрузка данных ревизии
   useEffect(() => {
@@ -107,13 +138,16 @@ const VerifyRevisionPage: React.FC = () => {
           throw new Error('Только тот, кто запросил ревизию, может её проверять');
         }
 
-        setRequestedByName(revisionData.requestedByName || `Пользователь ${revisionData.requestedById}`);
+        setRequestedByName(formatCompactName(revisionData.requestedByName) || `Пользователь ${revisionData.requestedById}`);
         setRevision(revisionData);
 
-        // Получаем расхождения с сервера
         try {
           const calculatedDiscrepancies = await revisionService.calculateDiscrepancies(parseInt(id));
-          setDiscrepancies(calculatedDiscrepancies);
+          const formattedDiscrepancies = calculatedDiscrepancies.map(disc => ({
+            ...disc,
+            userName: formatCompactName(disc.userName)
+          }));
+          setDiscrepancies(formattedDiscrepancies);
         } catch (error) {
           console.error('Error calculating discrepancies:', error);
           setDiscrepancies([]);
@@ -157,7 +191,6 @@ const VerifyRevisionPage: React.FC = () => {
     }
   };
 
-  // Новый обработчик отклонения ревизии
   const handleReject = async () => {
     if (!revision || !id) return;
 
@@ -176,10 +209,6 @@ const VerifyRevisionPage: React.FC = () => {
       setRejectDialog(false);
       setComment('');
     }
-  };
-
-  const handleCancel = () => {
-    navigate(`/revisions/${revision?.id}`);
   };
 
   const handleAccordionChange = (userId: number) => {
@@ -373,7 +402,7 @@ const VerifyRevisionPage: React.FC = () => {
           <Stack spacing={2}>
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
               <Avatar sx={{ width: 44, height: 44, bgcolor: '#674fb6' }}>
-                {revision.requestedByName?.charAt(0)?.toUpperCase() || 'П'}
+                {requestedByName.charAt(0) || 'П'}
               </Avatar>
               <Box>
                 <Typography variant="caption" color="#4c5454" display="block" gutterBottom sx={{ fontSize: '0.7rem', letterSpacing: 0.5 }}>
@@ -537,24 +566,24 @@ const VerifyRevisionPage: React.FC = () => {
                         }}
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%' }}>
-                          <Avatar sx={{ width: 44, height: 44, bgcolor: '#674fb6' }}>
+                          <Avatar sx={{ width: 44, height: 44, bgcolor: '#674fb6', flexShrink: 0 }}>
                             {userDiscrepancy.userName?.charAt(0)?.toUpperCase() || 'П'}
                           </Avatar>
 
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap>
+                          <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                            <Typography variant="body2" color="#2a0f35" fontWeight={600} noWrap sx={{ overflow: 'hidden', textOverflow: 'clip' }}>
                               {userDiscrepancy.userName || `Пользователь ${userDiscrepancy.userId}`}
                             </Typography>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5, flexWrap: 'wrap' }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <InventoryIcon sx={{ fontSize: 14, color: '#4c5454' }} />
-                                <Typography variant="caption" color="#4c5454">
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5, overflow: 'hidden' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                                <InventoryIcon sx={{ fontSize: 14, color: '#4c5454', flexShrink: 0 }} />
+                                <Typography variant="caption" color="#4c5454" noWrap>
                                   {userFilling?.items.length || 0} товаров
                                 </Typography>
                               </Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <PhotoCameraIcon sx={{ fontSize: 14, color: '#4c5454' }} />
-                                <Typography variant="caption" color="#4c5454">
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                                <PhotoCameraIcon sx={{ fontSize: 14, color: '#4c5454', flexShrink: 0 }} />
+                                <Typography variant="caption" color="#4c5454" noWrap>
                                   {userFilling?.photos.length || 0} фото
                                 </Typography>
                               </Box>
@@ -646,20 +675,21 @@ const VerifyRevisionPage: React.FC = () => {
                                               {!isZero ? (
                                                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                                   {isPositive ? (
-                                                    <ArrowUpwardIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5 }} />
+                                                    <ArrowUpwardIcon sx={{ fontSize: 14, color: '#2196f3', mr: 0.5, flexShrink: 0 }} />
                                                   ) : (
-                                                    <ArrowDownwardIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5 }} />
+                                                    <ArrowDownwardIcon sx={{ fontSize: 14, color: '#f44336', mr: 0.5, flexShrink: 0 }} />
                                                   )}
                                                   <Typography
                                                     variant="body2"
                                                     fontWeight={600}
                                                     color={isPositive ? '#2196f3' : '#f44336'}
+                                                    noWrap
                                                   >
                                                     {isPositive ? '+' : ''}{discrepancy}
                                                   </Typography>
                                                 </Box>
                                               ) : (
-                                                <Typography variant="body2" fontWeight={600} color="#4caf50">
+                                                <Typography variant="body2" fontWeight={600} color="#4caf50" noWrap>
                                                   0
                                                 </Typography>
                                               )}
@@ -768,7 +798,7 @@ const VerifyRevisionPage: React.FC = () => {
           </Card>
         )}
 
-        {/* Кнопки действий - ОБНОВЛЕНЫ: добавлена кнопка "Отклонить" */}
+        {/* Кнопки действий */}
         <Box sx={{
           display: 'flex',
           gap: 2,
@@ -779,7 +809,7 @@ const VerifyRevisionPage: React.FC = () => {
           <Button
             variant="outlined"
             startIcon={<CancelIcon />}
-            onClick={() => setRejectDialog(true)} // Открываем диалог отклонения
+            onClick={() => setRejectDialog(true)}
             disabled={verifying}
             sx={{
               borderRadius: 4,
@@ -924,7 +954,7 @@ const VerifyRevisionPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* НОВЫЙ ДИАЛОГ: Отклонение ревизии */}
+      {/* Диалог отклонения ревизии */}
       <Dialog
         open={rejectDialog}
         onClose={() => {

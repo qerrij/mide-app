@@ -14,7 +14,6 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel,
   Alert,
   CircularProgress,
   Stack,
@@ -42,6 +41,7 @@ import {
   CheckCircle as CheckCircleIcon,
   Assignment as AssignmentIcon,
   Cancel as CancelIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -64,12 +64,10 @@ const RevisionsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Состояния для фильтров
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<RevisionStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<RevisionType | 'all'>('all');
   
-  // Состояния для диалога отмены
   const [cancelDialog, setCancelDialog] = useState<{ open: boolean; revisionId: number | null }>({
     open: false,
     revisionId: null,
@@ -77,12 +75,10 @@ const RevisionsPage: React.FC = () => {
   const [cancelComment, setCancelComment] = useState('');
   const [cancelling, setCancelling] = useState(false);
   
-  // Функция для получения имени цели ревизии
   const getTargetName = (revision: Revision): string => {
     return getTargetNameHelper(revision);
   };
   
-  // Иконки для типов ревизий
   const getTypeIcon = (type: RevisionType) => {
     switch (type) {
       case RevisionType.USER:
@@ -100,7 +96,6 @@ const RevisionsPage: React.FC = () => {
     }
   };
 
-  // Загрузка ревизий
   const loadRevisions = async () => {
     try {
       setLoading(true);
@@ -126,41 +121,33 @@ const RevisionsPage: React.FC = () => {
     loadRevisions();
   }, [user]);
 
-  // Может ли пользователь запрашивать ревизии
   const canRequestRevision = user?.role && [UserRole.OWNER, UserRole.ADMIN, UserRole.SENIOR_SELLER].includes(user.role);
 
-  // Проверяет, заполнил ли пользователь ревизию
   const hasUserFilledRevision = (revision: Revision): boolean => {
     if (!user) return false;
     return revision.fillings?.some(f => f.userId === user.id && f.isCompleted) || false;
   };
 
-  // Может ли пользователь заполнить ревизию
   const canUserFillRevision = (revision: Revision): boolean => {
     if (!user) return false;
     
-    // OWNER и ACCOUNTANT не заполняют ревизии
     if (user.role === UserRole.OWNER || user.role === UserRole.ACCOUNTANT) {
       return false;
     }
     
-    // Нельзя заполнять отклоненные ревизии
     if (revision.status === RevisionStatus.REJECTED) {
       return false;
     }
     
-    // Проверяем статус ревизии
     if (revision.status !== RevisionStatus.REQUESTED && 
         revision.status !== RevisionStatus.IN_PROGRESS) {
       return false;
     }
     
-    // Проверяем, заполнил ли уже пользователь эту ревизию
     if (hasUserFilledRevision(revision)) {
       return false;
     }
     
-    // Проверяем доступ в зависимости от типа
     if (revision.type === RevisionType.USER) {
       return revision.targetUserId === user.id;
     } else if (revision.type === RevisionType.GROUP) {
@@ -176,54 +163,56 @@ const RevisionsPage: React.FC = () => {
     return false;
   };
 
-  // Может ли пользователь проверить ревизию
-  const canUserVerifyRevision = (revision: Revision): boolean => {
+  const canUserEditFilling = (revision: Revision): boolean => {
     if (!user) return false;
     
-    // Нельзя проверять отклоненные ревизии
-    if (revision.status === RevisionStatus.REJECTED) {
-      return false;
-    }
-    
-    // Проверять может только тот, кто запросил ревизию
-    return revision.requestedById === user.id && 
-           revision.status === RevisionStatus.COMPLETED;
-  };
-
-  // Может ли пользователь отменить ревизию
-  const canUserCancelRevision = (revision: Revision): boolean => {
-    if (!user) return false;
-    
-    // Нельзя отменить уже проверенную или отклоненную ревизию
     if (revision.status === RevisionStatus.VERIFIED || 
         revision.status === RevisionStatus.REJECTED) {
       return false;
     }
     
-    // Отменить может владелец ревизии или OWNER
+    const userFilling = revision.fillings?.find(f => f.userId === user.id);
+    return userFilling?.isCompleted || false;
+  };
+
+  const canUserVerifyRevision = (revision: Revision): boolean => {
+    if (!user) return false;
+    
+    if (revision.status === RevisionStatus.REJECTED) {
+      return false;
+    }
+    
+    return revision.requestedById === user.id && 
+           revision.status === RevisionStatus.COMPLETED;
+  };
+
+  const canUserCancelRevision = (revision: Revision): boolean => {
+    if (!user) return false;
+    
+    if (revision.status === RevisionStatus.VERIFIED || 
+        revision.status === RevisionStatus.REJECTED) {
+      return false;
+    }
+    
     return revision.requestedById === user.id || user.role === UserRole.OWNER;
   };
 
-  // Определяет приоритет ревизии (требует действия или нет)
   const getRevisionPriority = (revision: Revision): number => {
     if (canUserFillRevision(revision)) return 1;
     if (canUserVerifyRevision(revision)) return 2;
     return 3;
   };
 
-  // Сортировка ревизий: сначала те, что требуют действий
   const sortRevisions = (revisions: Revision[]): Revision[] => {
     return [...revisions].sort((a, b) => {
       const priorityA = getRevisionPriority(a);
       const priorityB = getRevisionPriority(b);
       if (priorityA !== priorityB) return priorityA - priorityB;
       
-      // Если приоритет одинаковый, сортируем по дате (новые сверху)
       return new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime();
     });
   };
 
-  // Определяет, какое действие доступно для ревизии
   const getRevisionAction = (revision: Revision): { 
     label: string; 
     action: () => void;
@@ -258,7 +247,15 @@ const RevisionsPage: React.FC = () => {
     }
   };
 
-  // Обработчик отмены ревизии
+  const handleEditFilling = async (revisionId: number) => {
+    try {
+      await revisionService.startEditing(revisionId);
+      navigate(`/revisions/${revisionId}/fill?edit=true`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Ошибка при начале редактирования');
+    }
+  };
+
   const handleCancelRevision = (revisionId: number) => {
     setCancelDialog({ open: true, revisionId });
     setCancelComment('');
@@ -270,10 +267,7 @@ const RevisionsPage: React.FC = () => {
     try {
       setCancelling(true);
       await revisionService.cancelRevision(cancelDialog.revisionId, cancelComment);
-      
-      // Обновляем список ревизий
       await loadRevisions();
-      
       setCancelDialog({ open: false, revisionId: null });
       setCancelComment('');
     } catch (err: any) {
@@ -284,7 +278,6 @@ const RevisionsPage: React.FC = () => {
     }
   };
 
-  // Фильтрация ревизий
   const filteredRevisions = sortRevisions(revisions.filter(revision => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch = 
@@ -299,12 +292,10 @@ const RevisionsPage: React.FC = () => {
     return matchesSearch && matchesStatus && matchesType;
   }));
 
-  // Обработчик создания новой ревизии
   const handleRequestRevision = () => {
     navigate('/revisions/request');
   };
 
-  // Форматирование даты
   const formatDate = (date: Date): string => {
     return new Date(date).toLocaleDateString('ru-RU', {
       day: '2-digit',
@@ -313,7 +304,6 @@ const RevisionsPage: React.FC = () => {
     });
   };
 
-  // Форматирование времени
   const formatTime = (date: Date): string => {
     return new Date(date).toLocaleTimeString('ru-RU', {
       hour: '2-digit',
@@ -323,13 +313,7 @@ const RevisionsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <Box
-        sx={{
-          minHeight: '100vh',
-          background: '#f5f3f6',
-          py: 4,
-        }}
-      >
+      <Box sx={{ minHeight: '100vh', background: '#f5f3f6', py: 4 }}>
         <Container maxWidth="lg">
           <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
             <CircularProgress sx={{ color: '#674fb6' }} />
@@ -340,15 +324,8 @@ const RevisionsPage: React.FC = () => {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        py: 3,
-        backgroundColor: '#f5f3f6',
-      }}
-    >
+    <Box sx={{ minHeight: '100vh', py: 3, backgroundColor: '#f5f3f6' }}>
       <Container maxWidth="lg" sx={{ px: { xs: 1, sm: 3, md: 4 } }}>
-        {/* Шапка */}
         <Box sx={{ mb: 3 }}>
           <Grid container spacing={2} alignItems="center">
             <Grid size={{ xs: 12 }}>
@@ -413,9 +390,7 @@ const RevisionsPage: React.FC = () => {
               backgroundColor: 'rgba(202, 14, 192, 0.08)',
               border: '1px solid rgba(202, 14, 192, 0.2)',
               color: '#ca0ec0',
-              '& .MuiAlert-icon': {
-                color: '#ca0ec0',
-              }
+              '& .MuiAlert-icon': { color: '#ca0ec0' }
             }}
             onClose={() => setError(null)}
           >
@@ -423,7 +398,6 @@ const RevisionsPage: React.FC = () => {
           </Alert>
         )}
 
-        {/* Фильтры */}
         <Paper 
           sx={{ 
             p: 2, 
@@ -522,7 +496,6 @@ const RevisionsPage: React.FC = () => {
           </Stack>
         </Paper>
 
-        {/* Счетчик ревизий */}
         <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="subtitle1" color="#2a0f35" fontWeight={500}>
             Все ревизии
@@ -540,7 +513,6 @@ const RevisionsPage: React.FC = () => {
           />
         </Box>
 
-        {/* Список ревизий */}
         {filteredRevisions.length === 0 ? (
           <Paper
             sx={{
@@ -566,6 +538,7 @@ const RevisionsPage: React.FC = () => {
               const userCanFill = canUserFillRevision(revision);
               const userCanVerify = canUserVerifyRevision(revision);
               const userCanCancel = canUserCancelRevision(revision);
+              const userCanEdit = canUserEditFilling(revision);
               const hasUserFilled = hasUserFilledRevision(revision);
               
               return (
@@ -587,7 +560,6 @@ const RevisionsPage: React.FC = () => {
                   }}
                 >
                   <CardContent sx={{ p: 2 }}>
-                    {/* Заголовок */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
                       <Box sx={{ flex: 1, mr: 1 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -625,7 +597,6 @@ const RevisionsPage: React.FC = () => {
 
                     <Divider sx={{ my: 1.5, opacity: 0.1 }} />
 
-                    {/* Информация */}
                     <Stack spacing={1.5}>
                       <Box>
                         <Typography variant="caption" color="#4c5454" display="block">
@@ -662,7 +633,6 @@ const RevisionsPage: React.FC = () => {
                         </Box>
                       </Box>
 
-                      {/* Дополнительная информация */}
                       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                         {revision.isGroupRevision && (
                           <Chip
@@ -720,6 +690,27 @@ const RevisionsPage: React.FC = () => {
                       {action.label}
                     </Button>
                     
+                    {userCanEdit && (
+                      <Tooltip title="Редактировать заполнение">
+                        <IconButton
+                          onClick={() => handleEditFilling(revision.id)}
+                          sx={{
+                            color: '#674fb6',
+                            border: '1px solid rgba(103, 79, 182, 0.5)',
+                            borderRadius: '50%',
+                            width: 40,
+                            height: 40,
+                            '&:hover': {
+                              backgroundColor: 'rgba(103, 79, 182, 0.04)',
+                              border: '1px solid #674fb6',
+                            },
+                          }}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    
                     {userCanCancel && (
                       <Tooltip title="Отменить ревизию">
                         <IconButton
@@ -748,7 +739,6 @@ const RevisionsPage: React.FC = () => {
         )}
       </Container>
 
-      {/* Диалог отмены ревизии */}
       <Dialog
         open={cancelDialog.open}
         onClose={() => setCancelDialog({ open: false, revisionId: null })}

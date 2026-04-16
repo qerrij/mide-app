@@ -386,6 +386,7 @@ const Notifications: React.FC = () => {
       [NotificationType.REVISION_REQUEST]: '#2196f3',
       [NotificationType.REVISION_COMPLETED]: '#4caf50',
       [NotificationType.REVISION_VERIFIED]: '#9c27b0',
+      [NotificationType.REVISION_UPDATED]: '#ff9800',
       [NotificationType.REPORT_SUBMITTED]: '#ff9800',
       [NotificationType.REPORT_APPROVED]: '#4caf50',
       [NotificationType.REPORT_REJECTED]: '#f44336',

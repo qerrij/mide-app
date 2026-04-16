@@ -18,9 +18,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import ErrorIcon from '@mui/icons-material/Error';
 import CheckIcon from '@mui/icons-material/Check';
 import NotificationsIcon from '@mui/icons-material/Notifications';
-import InventoryIcon from '@mui/icons-material/Inventory';
-import AllInboxIcon from '@mui/icons-material/AllInbox';
-import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import PublishedWithChangesIcon from '@mui/icons-material/PublishedWithChanges';
 
 // ================ ЦВЕТА ================
 export const NotificationColors: Record<NotificationType, string> = {
@@ -28,6 +26,7 @@ export const NotificationColors: Record<NotificationType, string> = {
   [NotificationType.REVISION_REQUEST]: '#2196f3',
   [NotificationType.REVISION_COMPLETED]: '#4caf50',
   [NotificationType.REVISION_VERIFIED]: '#9c27b0',
+  [NotificationType.REVISION_UPDATED]: '#ff9800',
   
   // Отчеты
   [NotificationType.REPORT_SUBMITTED]: '#ff9800',
@@ -61,6 +60,7 @@ export const NotificationIcons: Record<NotificationType, React.ElementType> = {
   [NotificationType.REVISION_REQUEST]: AssignmentIcon,
   [NotificationType.REVISION_COMPLETED]: CheckCircleIcon,
   [NotificationType.REVISION_VERIFIED]: AssignmentIcon,
+  [NotificationType.REVISION_UPDATED]: PublishedWithChangesIcon,
   
   [NotificationType.REPORT_SUBMITTED]: AssessmentIcon,
   [NotificationType.REPORT_APPROVED]: CheckCircleIcon,
@@ -99,6 +99,7 @@ export const NotificationCategories: Record<string, NotificationCategory> = {
       NotificationType.REVISION_REQUEST,
       NotificationType.REVISION_COMPLETED,
       NotificationType.REVISION_VERIFIED,
+      NotificationType.REVISION_UPDATED,
     ],
     getStatuses: () => Object.values(RevisionStatus).map(status => ({
       value: status,
@@ -168,7 +169,6 @@ export const getCategoryByNotificationType = (type: NotificationType): string =>
   return 'SYSTEM';
 };
 
-
 export const getNotificationTypeFromCategoryAndStatus = (
   categoryKey: string,
   status: string
@@ -176,21 +176,19 @@ export const getNotificationTypeFromCategoryAndStatus = (
   const category = NotificationCategories[categoryKey];
   if (!category || !status) return undefined;
   
-  // Маппинг статусов к типам уведомлений с учетом категории
   const statusToTypeMap: Record<string, Record<string, NotificationType[]>> = {
     REVISIONS: {
       [RevisionStatus.REQUESTED]: [NotificationType.REVISION_REQUEST],
       [RevisionStatus.COMPLETED]: [NotificationType.REVISION_COMPLETED],
       [RevisionStatus.VERIFIED]: [NotificationType.REVISION_VERIFIED],
       [RevisionStatus.IN_PROGRESS]: [NotificationType.REVISION_REQUEST],
-      [RevisionStatus.REJECTED]: [], // Для ревизий нет отдельного типа уведомления об отклонении
     },
     REPORTS: {
       [ReportStatus.SUBMITTED]: [NotificationType.REPORT_SUBMITTED],
       [ReportStatus.APPROVED]: [NotificationType.REPORT_APPROVED],
       [ReportStatus.REJECTED]: [NotificationType.REPORT_REJECTED],
       [ReportStatus.AWAITING_ACCOUNTANT]: [NotificationType.REPORT_ACCOUNTANT],
-      [ReportStatus.AWAITING_MANAGER]: [], // Для этих статусов нет прямых уведомлений
+      [ReportStatus.AWAITING_MANAGER]: [],
       [ReportStatus.AWAITING_FIX]: [],
       [ReportStatus.DRAFT]: [],
     },
@@ -220,14 +218,10 @@ export const getNotificationTypeFromCategoryAndStatus = (
   const possibleTypes = categoryMap[status];
   if (!possibleTypes || possibleTypes.length === 0) return undefined;
 
-  // Возвращаем первый подходящий тип
   return possibleTypes[0];
 };
 
 // ================ ТЕКСТЫ СТАТУСОВ ================
-// Эти функции нужно импортировать из ваших существующих хелперов
-// или реализовать здесь, если их нет
-
 export const getRevisionStatusText = (status: RevisionStatus): string => {
   const texts: Record<RevisionStatus, string> = {
     [RevisionStatus.REQUESTED]: 'Запрошена',
@@ -282,6 +276,7 @@ export const getNotificationTypeText = (type: NotificationType): string => {
     [NotificationType.REVISION_REQUEST]: 'Запрос на ревизию',
     [NotificationType.REVISION_COMPLETED]: 'Ревизия заполнена',
     [NotificationType.REVISION_VERIFIED]: 'Ревизия проверена',
+    [NotificationType.REVISION_UPDATED]: 'Ревизия обновлена',
     [NotificationType.REPORT_SUBMITTED]: 'Отчет отправлен',
     [NotificationType.REPORT_APPROVED]: 'Отчет утвержден',
     [NotificationType.REPORT_REJECTED]: 'Отчет отклонен',
