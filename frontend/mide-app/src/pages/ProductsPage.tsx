@@ -613,28 +613,28 @@ const FilterSection: React.FC<FilterSectionProps> = ({
           <Grid size={{ xs: 12, sm: 3 }}>
             <FormControl fullWidth size="small" sx={iOSStyles.input}>
               <InputLabel id="user-filter-label">Пользователь</InputLabel>
-    <Select
-      labelId="user-filter-label"
-      value={filters.userId}
-      label="Пользователь"
-      onChange={(e) => onFilterChange({ userId: e.target.value })}
-      MenuProps={{
-        PaperProps: {
-          sx: { borderRadius: 2, maxHeight: 400 },
-        },
-      }}
-      sx={{
-        '& .MuiSelect-select': {
-          whiteSpace: 'normal',      // Разрешаем перенос текста
-          wordBreak: 'break-word',   // Переносим длинные слова
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          minHeight: '40px',         // Минимальная высота для многострочного текста
-          display: 'flex',
-          alignItems: 'center',
-        },
-      }}
-    >
+                <Select
+                  labelId="user-filter-label"
+                  value={filters.userId}
+                  label="Пользователь"
+                  onChange={(e) => onFilterChange({ userId: e.target.value })}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: { borderRadius: 2, maxHeight: 400 },
+                    },
+                  }}
+                  sx={{
+                    '& .MuiSelect-select': {
+                      whiteSpace: 'normal',      // Разрешаем перенос текста
+                      wordBreak: 'break-word',   // Переносим длинные слова
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      minHeight: '40px',         // Минимальная высота для многострочного текста
+                      display: 'flex',
+                      alignItems: 'center',
+                    },
+                  }}
+                >
                 <MenuItem value="all">Все пользователи</MenuItem>
                 <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
                   <TextField

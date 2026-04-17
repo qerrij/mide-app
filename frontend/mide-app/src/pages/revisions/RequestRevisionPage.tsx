@@ -504,26 +504,31 @@ const RequestRevisionPage: React.FC = () => {
                     },
                   }}
                   renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Пользователь *"
-                      placeholder="Начните вводить имя или роль..."
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          borderRadius: 4,
-                          backgroundColor: '#f8f7fa',
-                          '&:hover': {
-                            backgroundColor: '#f3f1f5',
-                          },
-                          '&.Mui-focused': {
-                            backgroundColor: '#ffffff',
-                          },
+                  <TextField
+                    {...params}
+                    label="Пользователь *"
+                    placeholder="Начните вводить имя или роль..."
+                    multiline
+                    maxRows={2}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: 4,
+                        backgroundColor: '#f8f7fa',
+                        alignItems: 'flex-start',
+                        '&:hover': {
+                          backgroundColor: '#f3f1f5',
                         },
-                        '& .MuiInputBase-input': {
-                          fontSize: { xs: '0.8rem', sm: '0.9rem', md: '1rem' },
+                        '&.Mui-focused': {
+                          backgroundColor: '#ffffff',
                         },
-                      }}
-                    />
+                      },
+                      '& .MuiInputBase-input': {
+                        fontSize: { xs: '16px', sm: '0.9rem', md: '1rem' },
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      },
+                    }}
+                  />
                   )}
                   renderOption={(props, option) => (
                     <li {...props}>
