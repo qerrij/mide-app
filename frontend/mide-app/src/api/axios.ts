@@ -21,14 +21,6 @@ const processQueue = (error: any, token: string | null = null) => {
   failedQueue = [];
 };
 
-const axiosInstance = axios.create({
-  baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-// Получить сохраненные данные пользователя
 const getStoredUser = (): StoredUserData | null => {
   const userStr = localStorage.getItem('user');
   if (!userStr) return null;
@@ -39,22 +31,18 @@ const getStoredUser = (): StoredUserData | null => {
   }
 };
 
-// Сохранить данные пользователя
 const saveStoredUser = (data: Partial<StoredUserData>) => {
   const current = getStoredUser() || {} as StoredUserData;
   const updated = { ...current, ...data };
   localStorage.setItem('user', JSON.stringify(updated));
 };
 
-// Проверить, истекает ли токен скоро (за 60 секунд до истечения)
 const isTokenExpiringSoon = (): boolean => {
   const user = getStoredUser();
   if (!user?.expires_at) return false;
-  // Проверяем, осталось ли меньше 60 секунд
   return Date.now() + 60000 >= user.expires_at;
 };
 
-// Обновить access token
 const refreshAccessToken = async (): Promise<string> => {
   const user = getStoredUser();
   if (!user?.refresh_token) {
@@ -78,7 +66,6 @@ const refreshAccessToken = async (): Promise<string> => {
 
     return access_token;
   } catch (error) {
-    // Если refresh token невалидный — разлогиниваем
     localStorage.removeItem('user');
     if (window.location.pathname !== '/login') {
       window.location.href = '/login';
@@ -87,19 +74,25 @@ const refreshAccessToken = async (): Promise<string> => {
   }
 };
 
-// Интерцептор запросов
+// Создаем основной instance
+const axiosInstance = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Интерцептор запросов для основного instance
 axiosInstance.interceptors.request.use(
   async (config) => {
     const user = getStoredUser();
     
     if (user?.access_token) {
-      // Если токен скоро истекает и это не запрос на обновление — обновляем заранее
       if (isTokenExpiringSoon() && !config.url?.includes('/api/auth/refresh')) {
         try {
           const newToken = await refreshAccessToken();
           config.headers.Authorization = `Bearer ${newToken}`;
         } catch {
-          // Если не удалось обновить — продолжаем со старым токеном
           config.headers.Authorization = `Bearer ${user.access_token}`;
         }
       } else {
@@ -112,7 +105,7 @@ axiosInstance.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Интерцептор ответов
+// Интерцептор ответов для основного instance
 axiosInstance.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -120,10 +113,8 @@ axiosInstance.interceptors.response.use(
     const isLoginRequest = originalRequest?.url?.includes('/api/auth/login');
     const isRefreshRequest = originalRequest?.url?.includes('/api/auth/refresh');
     
-    // Если 401 и это не логин/рефреш — пробуем обновить токен
     if (error.response?.status === 401 && !isLoginRequest && !isRefreshRequest && !originalRequest._retry) {
       if (isRefreshing) {
-        // Если уже идет обновление — ставим запрос в очередь
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
@@ -162,7 +153,7 @@ axiosInstance.interceptors.response.use(
   }
 );
 
-// Multipart instance с теми же интерцепторами
+// Создаем multipart instance
 export const axiosMultipartInstance = axios.create({
   baseURL: API_URL,
   headers: {
@@ -170,15 +161,76 @@ export const axiosMultipartInstance = axios.create({
   },
 });
 
-// Копируем интерцепторы для multipart
+// Копируем интерцепторы для multipart instance ПРАВИЛЬНО
+// Интерцептор запросов
 axiosMultipartInstance.interceptors.request.use(
-  (config) => axiosInstance.interceptors.request as any,
+  async (config) => {
+    const user = getStoredUser();
+    
+    if (user?.access_token) {
+      if (isTokenExpiringSoon() && !config.url?.includes('/api/auth/refresh')) {
+        try {
+          const newToken = await refreshAccessToken();
+          config.headers.Authorization = `Bearer ${newToken}`;
+        } catch {
+          config.headers.Authorization = `Bearer ${user.access_token}`;
+        }
+      } else {
+        config.headers.Authorization = `Bearer ${user.access_token}`;
+      }
+    }
+    
+    return config;
+  },
   (error) => Promise.reject(error)
 );
 
+// Интерцептор ответов для multipart instance
 axiosMultipartInstance.interceptors.response.use(
   (response) => response,
-  (error) => axiosInstance.interceptors.response as any
+  async (error) => {
+    const originalRequest = error.config;
+    const isLoginRequest = originalRequest?.url?.includes('/api/auth/login');
+    const isRefreshRequest = originalRequest?.url?.includes('/api/auth/refresh');
+    
+    if (error.response?.status === 401 && !isLoginRequest && !isRefreshRequest && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then(token => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return axiosMultipartInstance(originalRequest);
+          })
+          .catch(err => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const newToken = await refreshAccessToken();
+        
+        processQueue(null, newToken);
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        
+        return axiosMultipartInstance(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        
+        localStorage.removeItem('user');
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+        
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+    
+    return Promise.reject(error);
+  }
 );
 
 export default axiosInstance;
